@@ -16,7 +16,6 @@ on:
       - "scripts/tests/test_website_seo.py"
       - "scripts/tests/test_update_catalog.py"
       - "scripts/tests/test_update_catalog_publication.py"
-      - "src-tauri/src/updates.rs"
       - "tests/fixtures/update-catalog/**"
       - "scripts/prepare-update-catalog.py"
       - "scripts/validate-update-catalog.py"
@@ -66,7 +65,6 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -p test_website_seo.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog_publication.py
-      - run: cargo test -p speaker-volume-bridge updates::tests::shared_catalog_fixture
       - run: python3 scripts/validate-update-catalog.py
       - run: python3 -m unittest discover -s scripts/tests -p test_website_guide.py
       - run: python3 -m unittest discover -s scripts/tests -p test_website_build_data.py

@@ -321,7 +321,7 @@ mod tests {
         );
 
         coordinator.reconcile_startup().await.unwrap();
-        assert!(applied.lock().unwrap().is_empty());
+        assert_eq!(applied.lock().unwrap().as_slice(), []);
 
         coordinator
             .on_local_event(

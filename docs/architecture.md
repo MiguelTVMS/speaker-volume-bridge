@@ -160,6 +160,14 @@ conflicting, sideloaded or unverifiable packages never silently enroll in offici
 checks. Resolution failure is an update-only condition and cannot stop audio
 synchronization. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
 
+The shell also owns one update service with injected catalog transport, clock,
+distribution metadata and persistence. It starts only after synchronization has
+started, waits 30 seconds, and performs at most one shared request at a time.
+Successful checks impose a 24-hour freshness interval; transient failures use
+bounded backoff. Wake and clock changes cannot bypass the attempt guard. Catalog
+requests never use the Sonos adapter and contain no speaker/configuration data or
+persistent installation identifier.
+
 Settings refreshes are asynchronous and guarded against edits and pending writes.
 Speech Enhancement chooses the same model-appropriate EQ for reads and writes;
 see [ADR 0009](decisions/0009-sonos-speaker-controls.md).

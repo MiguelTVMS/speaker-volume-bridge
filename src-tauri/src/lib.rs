@@ -12,6 +12,7 @@ mod schedule_notifications;
 mod schedule_wake;
 mod state;
 mod tray;
+mod updates;
 
 use crate::{config::ConfigStore, state::AppState};
 use tauri::Manager;
@@ -87,6 +88,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let config_path = app.path().app_config_dir()?.join("config.json");
+            let update_state_path = updates::state_path(&config_path);
             let store = ConfigStore::new(config_path);
             #[allow(unused_mut)]
             let mut configuration = store
@@ -125,7 +127,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             );
             let installed_distribution = distribution::resolve_at_startup(&resolver);
             tracing::info!(edition = ?installed_distribution.edition, "resolved installed distribution");
-            app.manage(installed_distribution);
+            app.manage(installed_distribution.clone());
             #[cfg(target_os = "macos")]
             if migrated_fixed_output {
                 tracing::info!(
@@ -140,6 +142,21 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             }
             let state = AppState::new(store, configuration, guard);
             app.manage(state);
+            let update_service = updates::HttpCatalogTransport::new().and_then(|transport| {
+                updates::UpdateService::new(
+                    installed_distribution,
+                    std::sync::Arc::new(transport),
+                    std::sync::Arc::new(updates::SystemUpdateClock),
+                    std::sync::Arc::new(updates::FileUpdatePersistence::new(update_state_path)),
+                )
+            });
+            if let Ok(service) = update_service {
+                let manager = updates::UpdateManager::new(std::sync::Arc::new(service));
+                manager.start();
+                app.manage(manager);
+            } else {
+                tracing::warn!("update service unavailable; synchronization will continue");
+            }
             tray::install(app.handle())?;
             schedule_wake::install(app.handle());
             schedule_notifications::install(app.handle());
@@ -178,6 +195,9 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             commands::set_speaker_setting,
             commands::set_speaker_level,
             commands::use_tv_audio
+            ,commands::get_update_status
+            ,commands::check_for_updates
+            ,commands::set_automatic_update_checks
         ])
         .run(context)
         .expect("Tauri runtime failed");

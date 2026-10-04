@@ -50,6 +50,14 @@ a Store-signed Windows package, App Store receipt, or official Debian package
 registration is required for those editions. Ambiguous/custom packages remain
 unknown and do not affect speaker startup.
 
+Recognized release installations check the bounded HTTPS site catalog 30 seconds
+after startup by default and no more than once per 24 hours after a successful
+check. Manual checks bypass freshness but join an in-flight request. The persisted
+record contains only the preference, last attempt/success times, and last-notified
+edition/version. Background failures remain quiet and never change audio behavior;
+manual failures are visible and retryable. Debug, demo, custom and ambiguous
+packages do not check automatically.
+
 ## Synchronization strategy
 
 Two modes are supported:

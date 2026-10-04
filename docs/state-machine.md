@@ -60,6 +60,16 @@ Audio echo suppression retains repeated and overlapping expected local states fo
 See [ADR 0017](decisions/0017-volume-feedback-suppression.md) for platform behavior,
 regression coverage, and the limitations of value-based origin detection.
 
+## Update checks
+
+The application-level update state is independent of synchronization:
+`idle`, `checking`, `up_to_date`, `update_available`, `unavailable`, or
+`unsupported`. `unavailable` is never presented as current. Only a valid exact
+edition/channel/OS/application-architecture entry can become available. Missing,
+withdrawn, malformed, prerelease, equal and older catalog data cannot create a
+new offer. Shutdown aborts the scheduler; Settings reopening and runtime restarts
+do not create another checker.
+
 ## Upgrading from the former app
 
 Users quit and remove the former app before using the renamed app. The shell

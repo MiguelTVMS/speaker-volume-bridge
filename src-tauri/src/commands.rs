@@ -5,7 +5,41 @@ use crate::{
     state::{AppState, UiSnapshot},
 };
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
+pub fn get_update_status(app: AppHandle) -> Result<crate::updates::UpdateStatus, String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    manager
+        .service()
+        .status()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn check_for_updates(app: AppHandle) -> Result<crate::updates::UpdateStatus, String> {
+    let service = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?
+        .service()
+        .clone();
+    Ok(service.check(true).await)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
+pub fn set_automatic_update_checks(enabled: bool, app: AppHandle) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    manager
+        .service()
+        .set_automatic_checks(enabled)
+        .map_err(|error| error.to_string())
+}
 
 // WebView Intl defaults do not include macOS region and clock overrides.
 #[tauri::command]

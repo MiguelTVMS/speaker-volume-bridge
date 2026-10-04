@@ -659,3 +659,13 @@ and package with removed/conflicting metadata report development, sideloaded, or
 unknown rather than an official edition. These installed-package checks are not
 proved by unit tests or bundle inspection and were not performed for phase 1.2 on
 the macOS development host.
+
+## Background update checking
+
+Automated fake transport/clock/persistence tests cover available/current/missing,
+malformed and prerelease catalogs, exact target selection, invalid action targets,
+24-hour restart persistence, and concurrent manual/background calls sharing one
+request. The production scheduler starts once after speaker synchronization,
+uses bounded retry, and aborts on drop. Native sleep/wake timing, proxy/redirect
+behavior and shutdown cancellation remain installed-app checks on macOS, Windows
+x64/ARM64 and Linux x64/ARM64; they were not performed during phase 1.3.

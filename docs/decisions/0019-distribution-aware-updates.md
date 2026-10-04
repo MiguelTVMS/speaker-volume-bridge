@@ -54,6 +54,16 @@ the corresponding edition and architecture are publicly obtainable. Withdrawal
 removes the entry; clients never interpret removal or an older entry as a
 downgrade offer.
 
+One application-level service owns update state. Its HTTPS transport is bounded
+to 10 seconds, 256 KiB and three redirects, and accepted actions are `open_url`
+targets on approved project/Store origins. The service persists automatic-check
+preference, last attempt, last success and last-notified target separately from
+speaker configuration. Recognized release packages default on; development and
+unknown packages are unsupported. Startup waits 30 seconds, successful checks are
+fresh for 24 hours, transient failures use bounded backoff, and all callers share
+one in-flight request. Background failures are quiet; manual failures are visible.
+No package download or installer path exists in phase 1.
+
 ## Consequences
 
 The catalog can lag releases and different editions can legitimately advertise

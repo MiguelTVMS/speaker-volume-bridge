@@ -948,6 +948,7 @@ body:has(.consent-banner:not([hidden]))::after {
 }
 .breadcrumbs ol {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 26px;
@@ -956,12 +957,25 @@ body:has(.consent-banner:not([hidden]))::after {
   color: var(--muted);
   font-size: 13px;
 }
+.breadcrumbs a {
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+.breadcrumbs a:hover {
+  color: #0369a1;
+}
+.breadcrumbs li {
+  display: inline-flex;
+  align-items: center;
+}
 .breadcrumbs li + li::before {
   content: "/";
   margin-right: 8px;
   color: #94a3b8;
 }
-.breadcrumbs [aria-current="page"] {
+.breadcrumbs a[aria-current="page"] {
   color: var(--ink);
 }
 .guide-content h1 {
@@ -986,6 +1000,9 @@ body:has(.consent-banner:not([hidden]))::after {
 }
 .guide-content li + li {
   margin-top: 7px;
+}
+.guide-content .breadcrumbs li + li {
+  margin-top: 0;
 }
 .guide-content blockquote {
   margin: 24px 0;

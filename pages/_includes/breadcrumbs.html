@@ -2,11 +2,10 @@
   <ol>
     <li><a href="/">Home</a></li>
     {% if page.name == "index.md" %}
-      <li aria-current="page">Guide</li>
+      <li><a href="/guide/" aria-current="page">Guide</a></li>
     {% else %}
       <li><a href="/guide/">Guide</a></li>
-      <li aria-current="page">{{ guide_title }}</li>
+      <li><a href="{{ page.url }}" aria-current="page">{{ guide_title }}</a></li>
     {% endif %}
   </ol>
 </nav>
-

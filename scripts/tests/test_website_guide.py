@@ -58,6 +58,13 @@ class WebsiteGuideTests(unittest.TestCase):
             with self.subTest(page=source.name):
                 self.assertNotRegex(source.read_text(), r"^> \[!\w+\]", msg="Use a styled guide-callout instead")
 
+    def test_breadcrumbs_remain_linked_and_unadorned(self):
+        breadcrumbs = (ROOT / "pages" / "_includes" / "breadcrumbs.html").read_text()
+        styles = (ROOT / "pages" / "styles.css").read_text()
+        self.assertIn('<a href="/guide/" aria-current="page">Guide</a>', breadcrumbs)
+        self.assertIn('<a href="{{ page.url }}" aria-current="page">{{ guide_title }}</a>', breadcrumbs)
+        self.assertRegex(styles, r"\.breadcrumbs a \{[^}]*text-decoration: none;", msg="Breadcrumb links must not be underlined")
+
 
 if __name__ == "__main__":
     unittest.main()

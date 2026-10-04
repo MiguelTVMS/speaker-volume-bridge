@@ -170,6 +170,15 @@ Each rendered page advertises that source with `rel="alternate"`, and `llms.txt`
 links directly to the most useful Markdown entry points. The sitemap lists the
 canonical rendered HTML pages rather than the alternate Markdown copies.
 
+The three generated top-level Markdown alternates are excluded from Jekyll and
+copied into the finished artifact after the build. This prevents GitHub Pages'
+optional-front-matter plugin from rendering them with a default theme and
+overwriting `index.html`, `privacy.html`, or `upgrade.html`.
+
+Do not enable Jekyll's `permalink: pretty` setting. Public guide and policy
+links intentionally use stable `.html` routes; validation checks representative
+rendered paths so a permalink change cannot silently break them.
+
 ## Website consent and Google Tag Manager
 
 The head loads local consent.js with defer. It queues denied Consent Mode defaults

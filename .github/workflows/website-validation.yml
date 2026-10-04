@@ -36,7 +36,12 @@ jobs:
           source: ./pages
           destination: ./_site
       - name: Verify rendered guide entry point
-        run: test -f _site/guide/index.html
+        run: |
+          test -f _site/index.html
+          test -f _site/guide/index.html
+          test -f _site/guide/Installation.html
+          test -f _site/privacy.html
+          test -f _site/upgrade.html
       - run: node --test scripts/tests/consent.test.cjs
       - run: python3 scripts/generate-page-markdown.py --check
       - run: python3 scripts/generate-sitemap.py --check

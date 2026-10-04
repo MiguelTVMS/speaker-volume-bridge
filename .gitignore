@@ -4,6 +4,7 @@
 /ui/dist/
 /ui/test-results/
 /ui/playwright-report/
+/_site*/
 /src-tauri/gen/
 /src-tauri/*.provisionprofile
 /src-tauri/Entitlements.appstore.plist

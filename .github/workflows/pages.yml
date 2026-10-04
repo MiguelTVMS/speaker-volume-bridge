@@ -37,6 +37,7 @@ jobs:
       - name: Publish Markdown guide sources
         run: |
           mkdir -p _site/guide
+          cp pages/index.md pages/privacy.md pages/upgrade.md _site/
           cp pages/guide/*.md _site/guide/
       - uses: actions/upload-pages-artifact@v5
         with:

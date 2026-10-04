@@ -39,11 +39,24 @@ class WebsiteGuideTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text()
         layout = (ROOT / "pages" / "_layouts" / "guide.html").read_text()
         self.assertIn("actions/jekyll-build-pages@v1", workflow)
+        self.assertIn("cp pages/index.md pages/privacy.md pages/upgrade.md _site/", workflow)
         self.assertIn("cp pages/guide/*.md _site/guide/", workflow)
         self.assertIn('rel="alternate" type="text/markdown"', layout)
         self.assertIn('"@type": "WebPage"', layout)
         self.assertIn('"@type": "BreadcrumbList"', layout)
         self.assertIn('property="og:image:width"', layout)
+
+    def test_markdown_alternates_cannot_overwrite_html_pages(self):
+        config = (ROOT / "pages" / "_config.yml").read_text()
+        self.assertNotIn("permalink: pretty", config)
+        for name in ("index.md", "privacy.md", "upgrade.md"):
+            with self.subTest(page=name):
+                self.assertIn(f"  - {name}\n", config)
+
+    def test_github_only_admonitions_are_not_used(self):
+        for source in self.sources:
+            with self.subTest(page=source.name):
+                self.assertNotRegex(source.read_text(), r"^> \[!\w+\]", msg="Use a styled guide-callout instead")
 
 
 if __name__ == "__main__":

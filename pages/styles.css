@@ -997,6 +997,20 @@ body:has(.consent-banner:not([hidden]))::after {
 .guide-content blockquote p:last-child {
   margin-bottom: 0;
 }
+.guide-callout {
+  margin: 24px 0;
+  padding: 18px 22px;
+  border-left: 4px solid #0284c7;
+  border-radius: 0 8px 8px 0;
+  background: #e8f3fc;
+}
+.guide-callout-warning {
+  border-left-color: #d97706;
+  background: #fff7ed;
+}
+.guide-callout p:last-child {
+  margin-bottom: 0;
+}
 .guide-content table {
   width: 100%;
   border-collapse: collapse;

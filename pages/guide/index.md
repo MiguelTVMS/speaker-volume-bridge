@@ -4,16 +4,18 @@ layout: guide
 
 # Speaker Volume Bridge
 
-> [!WARNING]
-> **Upgrading from Sonos Volume Bridge? Quit and remove the old app first.**
-> Running both apps can cause conflicting volume and Night Mode changes. Follow
-> the [complete old-app removal guide](/guide/Removing-the-Old-App.html), including login
-> items and optional settings cleanup, before using Speaker Volume Bridge.
+<aside class="guide-callout guide-callout-warning" role="note" markdown="1">
+**Upgrading from Sonos Volume Bridge? Quit and remove the old app first.**
+Running both apps can cause conflicting volume and Night Mode changes. Follow
+the [complete old-app removal guide](/guide/Removing-the-Old-App.html), including login
+items and optional settings cleanup, before using Speaker Volume Bridge.
+</aside>
 
 Control a Sonos speaker with the volume controls you already use on your computer.
 
-> [!NOTE]
-> This guide documents [v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3), the current generally available release, including the app rebrand and Windows upgrade fix.
+<aside class="guide-callout guide-callout-note" role="note" markdown="1">
+This guide documents [v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3), the current generally available release, including the app rebrand and Windows upgrade fix.
+</aside>
 
 **Formerly Sonos Volume Bridge.** This is the same app with a new name. Sonos remains the supported speaker family; the rename does not add other speaker integrations. Existing users should read [Upgrading to Speaker Volume Bridge](/guide/Upgrading.html) and quit the old app before installing the update.
 

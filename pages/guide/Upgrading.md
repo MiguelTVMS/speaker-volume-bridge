@@ -4,11 +4,12 @@ layout: guide
 
 # Upgrading to Speaker Volume Bridge
 
-> [!WARNING]
-> Quit and remove **Sonos Volume Bridge** before using the renamed app. Running
-> both can cause conflicting volume and Night Mode changes. Use the
-> [complete removal guide](/guide/Removing-the-Old-App.html) for login-item cleanup,
-> uninstalling, and an optional clean settings reset.
+<aside class="guide-callout guide-callout-warning" role="note" markdown="1">
+Quit and remove **Sonos Volume Bridge** before using the renamed app. Running
+both can cause conflicting volume and Night Mode changes. Use the
+[complete removal guide](/guide/Removing-the-Old-App.html) for login-item cleanup,
+uninstalling, and an optional clean settings reset.
+</aside>
 
 **Speaker Volume Bridge was previously named Sonos Volume Bridge.** This guide applies to [v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3), the current generally available release.
 

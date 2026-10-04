@@ -127,7 +127,10 @@ class WebsiteSeoTests(unittest.TestCase):
 
     def test_shared_footer_links_to_author_website(self):
         footer = (PAGES / '_includes' / 'site-footer.html').read_text()
-        self.assertIn('<a href="https://miguel.ms">Miguel’s website ↗</a>', footer)
+        self.assertIn(
+            '<a href="https://miguel.ms" target="_blank" rel="noopener noreferrer">Miguel’s website ↗</a>',
+            footer,
+        )
 
 
 if __name__ == '__main__':

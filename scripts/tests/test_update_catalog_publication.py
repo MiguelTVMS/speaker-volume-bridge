@@ -73,6 +73,44 @@ class PublicationTests(unittest.TestCase):
         output = publication.prepare_catalog(fixture, json.dumps({"operation": "withdraw", "target": {"edition": "direct_windows", "channel": "stable", "os": "windows", "architecture": "x86_64"}, "reason": "fixture parity"}).encode(), STAMP)
         self.assertEqual(json.loads(output), json.loads(fixture))
 
+    def assert_fixture_mutation(self, original, record, expected_entries):
+        raw = json.dumps(original).encode()
+        record_raw = json.dumps(record).encode()
+        changed_stamp = "2026-10-05T12:00:00Z"
+        output = publication.prepare_catalog(raw, record_raw, changed_stamp)
+        expected = dict(original, generatedAt=changed_stamp, entries=expected_entries)
+        self.assertEqual(json.loads(output), expected)
+        self.assertNotEqual(output, raw)
+        self.assertEqual(
+            publication.prepare_catalog(output, record_raw, "2026-10-06T12:00:00Z"),
+            output,
+        )
+
+    def additive_fixture(self):
+        return json.loads((ROOT / "tests/fixtures/update-catalog/additive-metadata.json").read_bytes())
+
+    def test_shared_additive_fixture_preserved_on_insertion(self):
+        original = self.additive_fixture()
+        added = entry()
+        self.assert_fixture_mutation(original, direct_record(added), original["entries"] + [added])
+
+    def test_shared_additive_fixture_preserved_on_version_update(self):
+        original = self.additive_fixture()
+        original["entries"].append(entry())
+        replacement = entry("1.9.0")
+        self.assert_fixture_mutation(original, direct_record(replacement), [original["entries"][0], replacement])
+
+    def test_shared_additive_fixture_preserved_on_withdrawal(self):
+        original = self.additive_fixture()
+        removed = entry()
+        original["entries"].append(removed)
+        record = {
+            "operation": "withdraw",
+            "target": {field: removed[field] for field in publication.TARGET_FIELDS},
+            "reason": "Fixture withdrawal.",
+        }
+        self.assert_fixture_mutation(original, record, original["entries"][:1])
+
     def test_shared_rejection_fixtures_are_rejected_by_publication(self):
         withdrawal = {
             "operation": "withdraw",

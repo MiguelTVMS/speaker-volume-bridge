@@ -164,7 +164,7 @@ def prepare_catalog(
         return catalog_raw
 
     entries.sort(key=lambda entry: tuple(str(entry[field]) for field in TARGET_FIELDS))
-    output = {"schemaVersion": 1, "generatedAt": generated_at, "entries": entries}
+    output = dict(catalog, generatedAt=generated_at, entries=entries)
     encoded = (json.dumps(output, indent=2, ensure_ascii=False) + "\n").encode()
     VALIDATOR.validate_catalog_bytes(encoded)
     return encoded

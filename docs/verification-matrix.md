@@ -742,6 +742,14 @@ x64/ARM64; source-level macOS tests do not establish Windows or Linux behavior.
 
 ## Update catalog publication
 
+Shared additive-metadata fixture regressions exercise actual insertion, version
+update and withdrawal through `prepare_catalog`. All three fail before metadata
+preservation and pass afterward. They compare the complete document, including
+retained entry/action metadata, and verify byte-identical repeats with a later
+timestamp. These run in the existing CI and website validation publication suite.
+This tooling coverage does not establish native installed-package acceptance or
+served catalog deployment.
+
 Catalog publication tests reject drafts, prereleases, missing assets, unverified
 or mismatched Store availability, invalid documents, stale concurrent inputs,
 same-version changes and downgrades. They also cover partial publication,

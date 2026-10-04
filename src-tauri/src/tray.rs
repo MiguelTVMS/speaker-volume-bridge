@@ -629,7 +629,7 @@ mod tests {
                 ("speaker-status-light", "Status light", false),
             ]
         );
-        assert!(available_speaker_controls(&SpeakerSettings::default()).is_empty());
+        assert_eq!(available_speaker_controls(&SpeakerSettings::default()), []);
     }
 
     #[test]
@@ -669,7 +669,7 @@ mod tests {
             available_tray_controls(&settings, true)[0],
             ("night-schedule-enabled", "Night schedule", true)
         );
-        assert!(available_tray_controls(&SpeakerSettings::default(), false).is_empty());
+        assert_eq!(available_tray_controls(&SpeakerSettings::default(), false), []);
         assert_eq!(
             available_tray_controls(&SpeakerSettings::default(), true),
             vec![("night-schedule-enabled", "Night schedule", true)]

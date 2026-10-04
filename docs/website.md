@@ -23,6 +23,13 @@ packaging. Manual dispatch is supported on `main` only. Configure the
 Changes follow the normal feature branch, approved PR, and Gitflow process.
 No deployment runs from feature branches or `develop`.
 
+The machine-readable update catalog is published with the same atomic `pages/`
+artifact at `updates/v1/catalog.json`. Validate it with
+`python3 scripts/validate-update-catalog.py`. Its entries represent independently
+verified public availability per distribution and application architecture; a
+build, tag, upload, submission or workspace version is not sufficient evidence.
+See [ADR 0019](decisions/0019-distribution-aware-updates.md) for the v1 contract.
+
 ## Content maintenance
 
 Keep feature descriptions aligned with README.md and the user wiki. The website

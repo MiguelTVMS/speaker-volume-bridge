@@ -8,6 +8,8 @@ on:
       - "scripts/generate-page-markdown.py"
       - "scripts/tests/consent.test.cjs"
       - "scripts/tests/test_website_seo.py"
+      - "scripts/tests/test_update_catalog.py"
+      - "scripts/validate-update-catalog.py"
       - ".github/workflows/website-validation.yml"
 
 permissions:
@@ -26,3 +28,5 @@ jobs:
       - run: node --test scripts/tests/consent.test.cjs
       - run: python3 scripts/generate-page-markdown.py --check
       - run: python3 -m unittest discover -s scripts/tests -p test_website_seo.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog.py
+      - run: python3 scripts/validate-update-catalog.py

@@ -142,6 +142,7 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
 }
 
 #[cfg(target_os = "linux")]
+#[allow(dead_code)] // Production-only delivery; orchestration tests inject a notification sink.
 pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
     send_linux(app, title, body, true).await;
 }
@@ -268,6 +269,7 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
 }
 
 #[cfg(windows)]
+#[allow(dead_code)] // Production-only delivery; orchestration tests inject a notification sink.
 pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
     if let Err(error) = windows::notifier(
         &app.config().identifier,
@@ -283,6 +285,7 @@ pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+#[allow(dead_code)] // Production-only delivery; orchestration tests inject a notification sink.
 pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
     send(app, title, body).await;
 }

@@ -27,6 +27,7 @@ import { applySpeakerControls, type SpeakerSettings } from './speaker-controls';
 import { SliderInteraction } from './slider-interaction';
 import { LiveStatus } from './live-status';
 import { UserWrites } from './user-writes';
+import { editionLabel, updateStateText, type UpdateStatus } from './updates';
 import './style.css';
 import './platform.css';
 import './windows.css';
@@ -162,6 +163,17 @@ let refreshRunning = false;
 let refreshAgain = false;
 let currentNotice = '';
 let appVersion = 'Loading…';
+let updateStatus: UpdateStatus = {
+  phase: 'unsupported',
+  installedVersion: '',
+  availableVersion: null,
+  edition: 'unknown',
+  lastSuccessfulCheck: null,
+  action: null,
+  message: null,
+  automaticChecks: false,
+  promptDismissed: false,
+};
 
 const repositoryUrl = 'https://github.com/MiguelTVMS/speaker-volume-bridge';
 const sonosDisclaimer =
@@ -289,6 +301,7 @@ const pageIcons: Record<SettingsPage, string> = {
   volume: '<path d="M11 4 6 8H3v8h3l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
   general:
     '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
+  updates: '<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/>',
   diagnostics: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
   about: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/>',
 };
@@ -326,6 +339,7 @@ function render(nextSnapshot: Snapshot): void {
           ${pageButton('schedule', 'Night schedule')}
           ${pageButton('volume', 'Volume')}
           ${pageButton('general', 'General')}
+          ${pageButton('updates', 'Updates')}
           ${pageButton('diagnostics', 'Diagnostics')}
           ${pageButton('about', 'About')}
         </nav>
@@ -367,6 +381,17 @@ function render(nextSnapshot: Snapshot): void {
           <div class="settings-group">
             <label class="toggle"><span>${settingCaption(platform, 'Start at login', 'Run Volume Bridge when you sign in.', 'power')}</span><input type="checkbox" role="switch" name="startAtLogin" ${c.startAtLogin ? 'checked' : ''}/></label>
             <label class="toggle"><span>${settingCaption(platform, 'Keep checking if updates are missed', 'Recover speaker updates when notifications are interrupted.', 'sync')}</span><input type="checkbox" role="switch" name="fallbackPolling" ${c.fallbackPolling ? 'checked' : ''}/></label>
+          </div>`,
+        )}
+        ${panel(
+          'updates',
+          `<div class="panel-heading"><h2>Updates</h2><p>Check for a release published for this installed edition.</p></div>
+          <div class="settings-group" data-update>
+            <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${updateStatus.lastSuccessfulCheck ? escapeHtml(new Date(updateStatus.lastSuccessfulCheck * 1000).toLocaleString()) : 'Never'}</dd></div></dl>
+            <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks the project catalog without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
+            <p id="update-state" class="setting-note" aria-live="polite">${escapeHtml(updateStateText(updateStatus))}</p>
+            ${updateStatus.phase === 'update_available' && updateStatus.action && updateStatus.availableVersion ? `<div class="update-actions"><button class="primary" type="button" id="open-update-page" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button></div>` : ''}
+            <div class="update-actions"><button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button><button class="secondary" type="button" id="enable-update-notifications">Enable notifications</button></div>
           </div>`,
         )}
         ${panel(
@@ -425,6 +450,7 @@ function render(nextSnapshot: Snapshot): void {
   const form = document.querySelector<HTMLFormElement>('#settings');
   const scheduleConfigurationSave = (event: Event): void => {
     if (event.target instanceof Element && event.target.closest('[data-schedule]')) return;
+    if (event.target instanceof Element && event.target.closest('[data-update]')) return;
     if (
       !(event.target instanceof HTMLElement) ||
       (!event.target.dataset.speakerSetting &&
@@ -471,6 +497,30 @@ function render(nextSnapshot: Snapshot): void {
   document.querySelector('#reset')?.addEventListener('click', reset);
   document.querySelector('#discover')?.addEventListener('click', discoverSonos);
   document.querySelector('#outputs')?.addEventListener('click', refreshAudioOutputs);
+  document
+    .querySelector('#check-for-updates')
+    ?.addEventListener('click', () => void checkForUpdates());
+  document
+    .querySelector('#automatic-update-checks')
+    ?.addEventListener(
+      'change',
+      (event) => void setAutomaticUpdateChecks((event.currentTarget as HTMLInputElement).checked),
+    );
+  document
+    .querySelector('#open-update-page')
+    ?.addEventListener(
+      'click',
+      (event) => void openUpdatePage(event.currentTarget as HTMLButtonElement),
+    );
+  document
+    .querySelector('#later-update')
+    ?.addEventListener(
+      'click',
+      (event) => void dismissUpdate(event.currentTarget as HTMLButtonElement),
+    );
+  document
+    .querySelector('#enable-update-notifications')
+    ?.addEventListener('click', () => void enableUpdateNotifications());
   document
     .querySelector<HTMLSelectElement>('#sonos-device')
     ?.addEventListener('change', syncSelectedSonosAddress);
@@ -756,6 +806,55 @@ async function testVolume(): Promise<void> {
     notice(String(error));
   }
 }
+async function checkForUpdates(): Promise<void> {
+  updateStatus = { ...updateStatus, phase: 'checking', message: null };
+  if (snapshot) render(snapshot);
+  try {
+    updateStatus = await invoke<UpdateStatus>('check_for_updates');
+    if (snapshot) render(snapshot);
+  } catch (error) {
+    updateStatus = { ...updateStatus, phase: 'unavailable', message: String(error) };
+    if (snapshot) render(snapshot);
+  }
+}
+
+async function setAutomaticUpdateChecks(enabled: boolean): Promise<void> {
+  try {
+    await invoke('set_automatic_update_checks', { enabled });
+    updateStatus = { ...updateStatus, automaticChecks: enabled };
+    notice('');
+  } catch (error) {
+    notice(String(error));
+    if (snapshot) render(snapshot);
+  }
+}
+
+async function openUpdatePage(button: HTMLButtonElement): Promise<void> {
+  try {
+    await invoke('open_update_page', { version: button.dataset.version, url: button.dataset.url });
+    notice('');
+  } catch (error) {
+    notice(String(error));
+    await checkForUpdates();
+  }
+}
+
+async function dismissUpdate(button: HTMLButtonElement): Promise<void> {
+  try {
+    await invoke('dismiss_update', { version: button.dataset.version });
+    updateStatus = { ...updateStatus, promptDismissed: true };
+    if (snapshot) render(snapshot);
+  } catch (error) {
+    notice(String(error));
+  }
+}
+
+async function enableUpdateNotifications(): Promise<void> {
+  const permitted = await invoke<boolean>('request_update_notification_permission').catch(
+    () => false,
+  );
+  notice(permitted ? '' : 'Notifications are blocked. Update offers remain available here.');
+}
 async function refreshAudioInputFormat(): Promise<void> {
   try {
     const diagnostics = await invoke<Diagnostics>('diagnostics');
@@ -807,8 +906,10 @@ async function reset(): Promise<void> {
 Promise.all([
   invoke<Snapshot>('get_snapshot'),
   invoke<boolean | null>('get_system_hour12').catch(() => null),
+  invoke<UpdateStatus>('get_update_status').catch(() => updateStatus),
 ])
-  .then(([nextSnapshot, hour12]) => {
+  .then(([nextSnapshot, hour12, initialUpdateStatus]) => {
+    updateStatus = initialUpdateStatus;
     setSystemHour12(hour12);
     render(nextSnapshot);
     startStatusPolling();
@@ -835,14 +936,16 @@ async function refreshAllSettings(): Promise<void> {
   const request = ++refreshRequest;
   const revision = editRevision;
   try {
-    const [next, speaker, outputs, discovered, diagnostics, hour12] = await Promise.all([
-      invoke<Snapshot>('get_snapshot'),
-      invoke<SpeakerSettings>('get_speaker_settings'),
-      invoke<AudioOutput[]>('list_audio_outputs').catch(() => null),
-      invoke<DiscoveredSonos[]>('discover_sonos').catch(() => null),
-      invoke<Diagnostics>('diagnostics').catch(() => null),
-      invoke<boolean | null>('get_system_hour12').catch(() => null),
-    ]);
+    const [next, speaker, outputs, discovered, diagnostics, hour12, nextUpdateStatus] =
+      await Promise.all([
+        invoke<Snapshot>('get_snapshot'),
+        invoke<SpeakerSettings>('get_speaker_settings'),
+        invoke<AudioOutput[]>('list_audio_outputs').catch(() => null),
+        invoke<DiscoveredSonos[]>('discover_sonos').catch(() => null),
+        invoke<Diagnostics>('diagnostics').catch(() => null),
+        invoke<boolean | null>('get_system_hour12').catch(() => null),
+        invoke<UpdateStatus>('get_update_status').catch(() => null),
+      ]);
     if (
       !canApplyRefresh(
         request,
@@ -854,6 +957,7 @@ async function refreshAllSettings(): Promise<void> {
     )
       return;
     setSystemHour12(hour12);
+    if (nextUpdateStatus) updateStatus = nextUpdateStatus;
     speakerSettings = speaker;
     if (outputs) audioOutputs = outputs;
     if (discovered) {
@@ -935,6 +1039,11 @@ if (isTauri()) {
   void listen('open-night-schedule', () => {
     activatePage('schedule');
   });
+  void listen<UpdateStatus>('update-status-changed', ({ payload }) => {
+    updateStatus = payload;
+    if (snapshot) render(snapshot);
+  });
+  void listen('open-updates', () => activatePage('updates'));
 }
 
 void invoke<ScheduleStatus>('get_schedule_status').then((status) => {

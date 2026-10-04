@@ -330,11 +330,14 @@
     overflow-y: auto;
   }
   [data-platform='windows'] button.page-button {
-    min-height: 34px;
-    padding-block: 6px;
+    min-height: 32px;
+    padding-block: 4px;
+  }
+  [data-platform='windows'] nav {
+    gap: 2px;
   }
   [data-platform='windows'] .sidebar-speaker {
-    padding-top: 10px;
+    padding-top: 4px;
   }
 }
 @media (prefers-color-scheme: dark) {

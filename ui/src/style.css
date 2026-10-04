@@ -464,6 +464,13 @@ button.icon-button {
   gap: 8px;
 }
 
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
 .feature-status {
   display: block;
   font-size: 11px;

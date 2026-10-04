@@ -152,7 +152,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             });
             if let Ok(service) = update_service {
                 let manager = updates::UpdateManager::new(std::sync::Arc::new(service));
-                manager.start();
+                manager.start(app.handle());
                 app.manage(manager);
             } else {
                 tracing::warn!("update service unavailable; synchronization will continue");
@@ -194,10 +194,13 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             commands::get_speaker_settings,
             commands::set_speaker_setting,
             commands::set_speaker_level,
-            commands::use_tv_audio
-            ,commands::get_update_status
-            ,commands::check_for_updates
-            ,commands::set_automatic_update_checks
+            commands::use_tv_audio,
+            commands::get_update_status,
+            commands::check_for_updates,
+            commands::set_automatic_update_checks,
+            commands::dismiss_update,
+            commands::request_update_notification_permission,
+            commands::open_update_page
         ])
         .run(context)
         .expect("Tauri runtime failed");

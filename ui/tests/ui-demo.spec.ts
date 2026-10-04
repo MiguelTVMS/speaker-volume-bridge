@@ -30,6 +30,13 @@ for (const platform of ['macos', 'windows', 'linux']) {
     await expect(speech).not.toBeChecked();
     await page.getByRole('button', { name: 'General', exact: true }).click();
     await expect(page.locator('[name="startAtLogin"]')).not.toBeChecked();
+    await page.getByRole('button', { name: 'Updates', exact: true }).click();
+    await expect(page.getByText('Version 1.8.0 is available.')).toBeVisible();
+    await expect(page.getByText('Direct download for macOS')).toBeVisible();
+    await page.getByRole('button', { name: 'Later', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Later selected' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Check for updates' }).click();
+    await expect(page.getByRole('button', { name: 'Open update page' })).toBeVisible();
   });
 }
 

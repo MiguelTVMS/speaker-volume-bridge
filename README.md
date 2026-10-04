@@ -110,7 +110,9 @@ contains the complete user guide:
 Speaker Volume Bridge works directly between your computer and Sonos speaker on
 your local network. It does not require an online account or send your volume
 activity to a cloud service. Internet access is not needed for everyday volume
-synchronization. See the [Privacy Policy](PRIVACY.md) for complete details.
+synchronization. Recognized releases can check the public project catalog for an
+edition-compatible update; this can be disabled in Settings and sends no speaker
+or configuration data. See the [Privacy Policy](PRIVACY.md) for complete details.
 
 ## Project status
 

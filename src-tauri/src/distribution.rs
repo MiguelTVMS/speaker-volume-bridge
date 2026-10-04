@@ -63,6 +63,18 @@ impl InstalledDistribution {
             direct_install_supported: false,
         }
     }
+    pub const fn edition_key(&self) -> &'static str {
+        match self.edition {
+            DistributionEdition::DirectMacos => "direct_macos",
+            DistributionEdition::DirectWindows => "direct_windows",
+            DistributionEdition::MicrosoftStore => "microsoft_store",
+            DistributionEdition::MacAppStore => "mac_app_store",
+            DistributionEdition::Debian => "debian",
+            DistributionEdition::WindowsSideload => "windows_sideload",
+            DistributionEdition::Development => "development",
+            DistributionEdition::Unknown => "unknown",
+        }
+    }
 }
 
 pub trait DistributionResolver: Send + Sync {

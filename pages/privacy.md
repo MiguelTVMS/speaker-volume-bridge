@@ -2,7 +2,7 @@
 
 # Privacy Policy for Speaker Volume Bridge
 
-**Effective date:**  August 6, 2026
+**Effective date:**  October 4, 2026
 
 Speaker Volume Bridge is an independent, community-developed desktop application published by Miguel.MS. This policy explains what information the application accesses and how that information is handled.
 
@@ -33,6 +33,10 @@ Application preferences are stored in a configuration file on the user's compute
 The application does not automatically upload configuration or log files. A user may choose to share diagnostic information when requesting support, for example by attaching it to a GitHub issue. Information shared in that way is handled by the service through which the user submits it and is subject to that service's privacy terms.
 
 Users can reset application preferences from within the application. They can remove locally stored application data and logs by uninstalling the application and deleting any remaining application data, subject to the operating system's normal file-management behavior.
+
+## Update checks
+
+For recognized release installations, the application can request the public update catalog from `svb.miguel.ms`. The request necessarily exposes ordinary web-hosting metadata such as the computer's public IP address, request time, catalog path, and network user agent to the hosting provider. It does not include speaker information, application settings, logs, a persistent installation identifier, analytics, or advertising data. Automatic checks can be disabled in Settings. The locally stored update record contains the preference and check, notification, and release-version state.
 
 ## Personal information and third parties
 

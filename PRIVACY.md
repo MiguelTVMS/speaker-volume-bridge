@@ -1,6 +1,6 @@
 # Privacy Policy for Speaker Volume Bridge
 
-**Effective date:** August 6, 2026
+**Effective date:** October 4, 2026
 
 Speaker Volume Bridge is an independent, community-developed desktop application
 published by Miguel.MS. This policy explains what information the application
@@ -54,6 +54,17 @@ remove locally stored application data and logs by uninstalling the application
 and deleting any remaining application data, subject to the operating system's
 normal file-management behavior.
 
+## Update checks
+
+For recognized release installations, the application can request the public
+update catalog from `svb.miguel.ms`. The request necessarily exposes ordinary
+web-hosting metadata such as the computer's public IP address, request time,
+catalog path, and network user agent to the hosting provider. It does not include
+speaker information, application settings, logs, a persistent installation
+identifier, analytics, or advertising data. Automatic checks can be disabled in
+Settings. The locally stored update record contains the preference and check,
+notification, and release-version state.
+
 ## Personal information and third parties
 
 Speaker Volume Bridge does not ask for or intentionally collect names, email
@@ -88,7 +99,3 @@ Questions about this policy or requests concerning application data can be
 submitted through the project's public issue tracker:
 
 <https://github.com/MiguelTVMS/speaker-volume-bridge/issues>
-
-## Legacy application checks
-
-The desktop app inspects local process identity to detect a running older version and prevent competing speaker commands. This information remains on your device and is not stored as telemetry or transmitted to a server. Native conflict notifications are generated locally.

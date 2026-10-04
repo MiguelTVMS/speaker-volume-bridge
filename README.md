@@ -80,18 +80,18 @@ window and leave the app running from the menu bar or system tray.
 
 ## Documentation and help
 
-The [project wiki](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki)
+The [user guide](https://svb.miguel.ms/guide/)
 contains the complete user guide:
 
-- [Installation](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Installation)
-- [Getting started](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Getting-Started)
-- [Settings guide](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Settings)
-- [Tray and menu bar](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Tray-and-Menu-Bar)
-- [Compatibility and limitations](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Compatibility-and-Limitations)
-- [Diagnostics and troubleshooting](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Diagnostics-and-Troubleshooting)
-- [Updating and uninstalling](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Updating-and-Uninstalling)
-- [Privacy and security](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Privacy-and-Security)
-- [Frequently asked questions](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/FAQ)
+- [Installation](https://svb.miguel.ms/guide/Installation.html)
+- [Getting started](https://svb.miguel.ms/guide/Getting-Started.html)
+- [Settings guide](https://svb.miguel.ms/guide/Settings.html)
+- [Tray and menu bar](https://svb.miguel.ms/guide/Tray-and-Menu-Bar.html)
+- [Compatibility and limitations](https://svb.miguel.ms/guide/Compatibility-and-Limitations.html)
+- [Diagnostics and troubleshooting](https://svb.miguel.ms/guide/Diagnostics-and-Troubleshooting.html)
+- [Updating and uninstalling](https://svb.miguel.ms/guide/Updating-and-Uninstalling.html)
+- [Privacy and security](https://svb.miguel.ms/guide/Privacy-and-Security.html)
+- [Frequently asked questions](https://svb.miguel.ms/guide/FAQ.html)
 
 > [!IMPORTANT]
 > macOS downloads are signed with Developer ID and notarized by Apple. The

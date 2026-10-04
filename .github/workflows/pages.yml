@@ -29,9 +29,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/configure-pages@v6
+      - name: Build website and guide
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./pages
+          destination: ./_site
+      - name: Publish Markdown guide sources
+        run: |
+          mkdir -p _site/guide
+          cp pages/guide/*.md _site/guide/
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: pages
+          path: _site
       - name: Deploy website
         id: deployment
         uses: actions/deploy-pages@v5

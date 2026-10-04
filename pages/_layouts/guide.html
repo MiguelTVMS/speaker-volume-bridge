@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  {% if page.name == "index.md" %}
+    {% assign guide_title = "User guide" %}
+    {% assign markdown_url = "/guide/index.md" %}
+  {% else %}
+    {% assign guide_title = page.title | default: page.name | remove: ".md" | replace: "-", " " %}
+    {% assign markdown_url = page.url | replace: ".html", ".md" %}
+  {% endif %}
+  <head>
+    <meta charset="utf-8" />
+    <script src="/consent.js" defer></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ guide_title }} | Speaker Volume Bridge</title>
+    <meta name="description" content="Speaker Volume Bridge user guide, setup instructions, settings, compatibility information, and troubleshooting." />
+    <meta name="theme-color" content="#f8fafc" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="canonical" href="{{ site.url }}{{ page.url }}" />
+    <link rel="alternate" type="text/markdown" href="{{ site.url }}{{ markdown_url }}" title="Markdown version of this page" />
+    <meta name="robots" content="index, follow" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Speaker Volume Bridge" />
+    <meta property="og:title" content="{{ guide_title }} | Speaker Volume Bridge" />
+    <meta property="og:description" content="Speaker Volume Bridge user guide, setup instructions, settings, compatibility information, and troubleshooting." />
+    <meta property="og:url" content="{{ site.url }}{{ page.url }}" />
+    <meta property="og:image" content="{{ site.url }}/social-icon.png" />
+    <meta property="og:image:alt" content="Speaker Volume Bridge app icon" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:type" content="image/png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="{{ guide_title }} | Speaker Volume Bridge" />
+    <meta name="twitter:description" content="Speaker Volume Bridge user guide, setup instructions, settings, compatibility information, and troubleshooting." />
+    <meta name="twitter:image" content="{{ site.url }}/social-icon.png" />
+    <meta name="twitter:image:alt" content="Speaker Volume Bridge app icon" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": {{ guide_title | append: " | Speaker Volume Bridge" | jsonify }},
+        "url": {{ site.url | append: page.url | jsonify }},
+        "description": "Speaker Volume Bridge user guide, setup instructions, settings, compatibility information, and troubleshooting.",
+        "isPartOf": {
+          "@type": "WebSite",
+          "name": "Speaker Volume Bridge",
+          "url": "https://svb.miguel.ms/"
+        },
+        "breadcrumb": {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            {
+              "@type": "ListItem",
+              "position": 1,
+              "name": "Home",
+              "item": "https://svb.miguel.ms/"
+            },
+            {
+              "@type": "ListItem",
+              "position": 2,
+              "name": "Guide",
+              "item": "https://svb.miguel.ms/guide/"
+            }{% unless page.name == "index.md" %},
+            {
+              "@type": "ListItem",
+              "position": 3,
+              "name": {{ guide_title | jsonify }},
+              "item": {{ site.url | append: page.url | jsonify }}
+            }{% endunless %}
+          ]
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    {% include site-header.html %}
+    <div class="guide-shell wrap">
+      {% include guide-nav.html %}
+      <main id="main" class="guide-content">
+        {% include breadcrumbs.html %}
+        {{ content }}
+      </main>
+    </div>
+    {% include site-footer.html %}
+    {% include consent-banner.html %}
+  </body>
+</html>

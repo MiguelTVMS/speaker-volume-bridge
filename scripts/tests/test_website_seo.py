@@ -76,6 +76,12 @@ def chrome(path, tag):
 class WebsiteSeoTests(unittest.TestCase):
     def setUp(self):
         self.pages = {p.name: Page(p) for p in PAGES.glob('*.html')}
+        self.guide_routes = {'guide/': PAGES / 'guide' / 'index.md'}
+        self.guide_routes.update({
+            f'guide/{path.stem}.html': path
+            for path in (PAGES / 'guide').glob('*.md')
+            if path.name != 'index.md'
+        })
 
     def test_metadata_agrees_with_canonical_and_structured_data(self):
         for name, page in self.pages.items():
@@ -103,6 +109,7 @@ class WebsiteSeoTests(unittest.TestCase):
     def test_sitemap_covers_canonical_pages(self):
         urls = [e.text for e in ET.parse(PAGES / 'sitemap.xml').iter('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]
         expected = [ORIGIN + ('' if name == 'index.html' else name) for name in self.pages]
+        expected.extend(ORIGIN + route for route in self.guide_routes)
         self.assertCountEqual(urls, expected)
         self.assertIn('Sitemap: ' + ORIGIN + 'sitemap.xml', (PAGES / 'robots.txt').read_text())
 
@@ -115,7 +122,7 @@ class WebsiteSeoTests(unittest.TestCase):
                     continue
                 path = target.path.lstrip('/') or 'index.html'
                 with self.subTest(page=name, href=href):
-                    self.assertTrue((PAGES / path).is_file(), path)
+                    self.assertTrue((PAGES / path).is_file() or path in self.guide_routes, path)
                     if target.fragment and path in self.pages:
                         self.assertIn(target.fragment, self.pages[path].ids)
 

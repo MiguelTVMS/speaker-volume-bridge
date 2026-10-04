@@ -1,0 +1,7 @@
+title: Speaker Volume Bridge
+url: https://svb.miguel.ms
+markdown: kramdown
+permalink: pretty
+exclude:
+  - README.md
+

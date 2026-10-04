@@ -8,7 +8,7 @@ Formerly Sonos Volume Bridge. The same app, with the same settings and Sonos com
 
 Running Sonos Volume Bridge and Speaker Volume Bridge together can cause conflicting volume and Night Mode changes. Choose Quit from the old app's menu bar or system tray, then remove it before using the replacement. Closing Settings alone leaves the app running.
 
-Follow the [complete old-app removal guide](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Removing-the-Old-App)  for startup entries, uninstalling, and an optional clean settings reset. The [repository Markdown guide](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/develop/docs/removing-old-app.md)  contains the same steps.
+Follow the [complete old-app removal guide](https://svb.miguel.ms/guide/Removing-the-Old-App.html)  for startup entries, uninstalling, and an optional clean settings reset. The [repository Markdown guide](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/develop/docs/removing-old-app.md)  contains the same steps.
 
 ## macOS
 

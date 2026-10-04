@@ -15,14 +15,9 @@ pub(super) fn install<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         .clone()
         .unwrap_or_else(|| "Speaker Volume Bridge".into());
     let app = app.clone();
-    activation::set_open_settings(move || {
+    activation::set_open_settings(move |open_updates| {
         let handle = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            if let Some(window) = handle.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        });
+        crate::schedule_notifications::activate_notification(&handle, open_updates);
     });
     // Register even before a schedule is active, so a cold toast activation can
     // connect to the COM server and a rebuilt executable repairs its launch path.
@@ -63,6 +58,10 @@ pub(super) trait Transport {
     fn setting(&self) -> Permission;
     fn prepare(&self) -> Result<(), Self::Error>;
     fn send(&self, title: &str, body: &str) -> Result<(), Self::Error>;
+    #[cfg(windows)]
+    fn send_update(&self, title: &str, body: &str) -> Result<(), Self::Error> {
+        self.send(title, body)
+    }
 }
 
 pub(super) enum Permission {
@@ -96,6 +95,10 @@ impl<T: Transport> Notifier<T> {
 
     pub(super) fn send(&self, title: &str, body: &str) -> Result<(), T::Error> {
         self.0.send(title, body)
+    }
+    #[cfg(windows)]
+    pub(super) fn send_update(&self, title: &str, body: &str) -> Result<(), T::Error> {
+        self.0.send_update(title, body)
     }
 }
 
@@ -155,6 +158,22 @@ impl Transport for Native {
     }
 
     fn send(&self, title: &str, body: &str) -> Result<(), Self::Error> {
+        self.send_toast(title, body, false)
+    }
+
+    fn send_update(&self, title: &str, body: &str) -> Result<(), Self::Error> {
+        self.send_toast(title, body, true)
+    }
+}
+
+#[cfg(windows)]
+impl Native {
+    fn send_toast(
+        &self,
+        title: &str,
+        body: &str,
+        update: bool,
+    ) -> Result<(), windows::core::Error> {
         use windows::{
             Data::Xml::Dom::XmlDocument,
             Foundation::TypedEventHandler,
@@ -166,7 +185,12 @@ impl Transport for Native {
             std::sync::Mutex<std::collections::VecDeque<ToastNotification>>,
         > = std::sync::OnceLock::new();
         let xml = XmlDocument::new()?;
-        xml.LoadXml(&HSTRING::from("<toast><visual><binding template=\"ToastGeneric\"><text/><text/></binding></visual></toast>"))?;
+        let toast_xml = if update {
+            "<toast launch=\"open-updates\"><visual><binding template=\"ToastGeneric\"><text/><text/></binding></visual></toast>"
+        } else {
+            "<toast><visual><binding template=\"ToastGeneric\"><text/><text/></binding></visual></toast>"
+        };
+        xml.LoadXml(&HSTRING::from(toast_xml))?;
         let nodes = xml.GetElementsByTagName(&HSTRING::from("text"))?;
         for (index, value) in [(0, title), (1, body)] {
             // Text nodes safely preserve speaker names containing XML characters.

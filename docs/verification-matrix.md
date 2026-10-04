@@ -662,21 +662,63 @@ the macOS development host.
 
 ## Background update checking
 
-Automated fake transport/clock/persistence tests cover available/current/missing,
-malformed and prerelease catalogs, exact target selection, invalid action targets,
-24-hour restart persistence, and concurrent manual/background calls sharing one
-request. The production scheduler starts once after speaker synchronization,
-uses bounded retry, and aborts on drop. Native sleep/wake timing, proxy/redirect
+Automated fake transport/clock/persistence and shared-orchestration tests cover
+available/current/missing, malformed, prerelease and additive-metadata catalogs,
+required fields, unsupported actions, exact target selection, invalid action
+targets, persisted offers and success time across restart, withdrawal of a cached
+offer, the 24-hour interval, and concurrent manual/background calls sharing one
+request. Wake orchestration verifies UI delivery without page navigation before
+notification activation. The production scheduler starts once after speaker
+synchronization, reevaluates due state every minute, uses bounded retry, and aborts
+on drop. Native sleep/wake timing, proxy/redirect
 behavior and shutdown cancellation remain installed-app checks on macOS, Windows
 x64/ARM64 and Linux x64/ARM64; they were not performed during phase 1.3.
 
 Settings and orchestration tests cover all visible update states, the persisted
 notification switch and deduplication, denied-permission rollback, Later, manual
 rediscovery of a prior offer, stale and invalid activation, concurrent open
-requests, and native-opener invocation for the explicit HTTPS repository link. Native tray navigation,
-notification permission denial/activation and default-browser failure must still
-be checked in installed macOS, Windows x64/ARM64 and Linux x64/ARM64 packages.
-Those native phase 1.4 checks were not performed on this development host.
+requests, and native-opener invocation for the explicit HTTPS repository link.
+
+### Native update acceptance (manual; required on every supported OS/architecture)
+
+Use a signed, installed package for the target distribution and architecture, plus
+an approved non-production catalog fixture that contains a valid `open_url` offer.
+Do not enable or publish a live catalog entry for this verification. Record the OS
+version, architecture, package edition, and fixture revision with the results.
+
+1. Install and launch the package from the OS app launcher. Confirm the installed
+   edition and architecture are reported correctly. Open **General** in Settings,
+   then open **Updates** and enable automatic checks and update notifications.
+2. Start with a fresh isolated test profile, return to **General**, and allow the
+   startup check to run after its 30-second delay. Confirm Settings stays on
+   **General**, the last-success time updates, and exactly one update notification
+   is delivered for the offer. Separately verify the 24-hour scheduled interval;
+   use an isolated profile whose last-success time is over 24 hours old if the
+   acceptance harness can seed persisted state, otherwise wait for the interval.
+3. With the check due, put the machine to sleep, then wake it. Confirm the UI
+   check status updates and at most one notification is delivered for that check.
+   Repeat with notifications disabled and confirm the status still updates with
+   no notification.
+4. Activate the update notification. Confirm it opens **Updates** and the cached
+   offer is visible. Return to **General**, then activate the tray's Updates
+   action and confirm it opens **Updates**. Trigger a schedule notification and
+   activate it; confirm it opens the schedule page rather than **Updates**.
+5. With the offer cached, quit and relaunch the app. Confirm the offer and last
+   successful check are restored. Make the fixture unavailable and check again:
+   the offer remains discoverable, is marked stale when past its freshness window,
+   and cannot launch its action while stale. Restore the fixture with no offer,
+   check again, and confirm the withdrawn offer is removed.
+6. With a fresh valid offer available, click its `open_url` action and confirm the
+   system's default browser opens the expected HTTPS page. Deny notification
+   permission in OS settings, attempt to enable notifications in the app, and
+   confirm the preference rolls back with an error. Restore permission afterward.
+
+The automated suite covers shared orchestration, notification identity/deduplication,
+platform action metadata and the Windows activation callback. It cannot verify
+actual OS notification delivery, notification-center activation, real sleep/wake
+timing, installed-package classification, or LaunchServices/default-browser
+behavior. These checks remain outstanding on macOS, Windows x64/ARM64, and Linux
+x64/ARM64; source-level macOS tests do not establish Windows or Linux behavior.
 
 ## Update catalog publication
 

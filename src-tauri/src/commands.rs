@@ -23,13 +23,10 @@ pub fn get_update_status(app: AppHandle) -> Result<crate::updates::UpdateStatus,
 
 #[tauri::command]
 pub async fn check_for_updates(app: AppHandle) -> Result<crate::updates::UpdateStatus, String> {
-    let service = app
+    let manager = app
         .try_state::<crate::updates::UpdateManager>()
-        .ok_or_else(|| "Update checking is unavailable".to_owned())?
-        .service()
-        .clone();
-    let status = service.check(true).await;
-    let _ = app.emit("update-status-changed", &status);
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let status = manager.check_and_deliver(&app, true).await;
     Ok(status)
 }
 

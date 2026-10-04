@@ -1,6 +1,42 @@
 //! Native notifications. Tauri's desktop permission methods are unconditional,
 //! so macOS uses UserNotifications for both authorization and delivery.
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+
+#[cfg(any(target_os = "macos", test))]
+const UPDATE_NOTIFICATION_CATEGORY: &str = "speaker-volume-bridge-update";
+
+#[cfg(any(target_os = "macos", test))]
+fn notification_opens_updates(category: &str) -> bool {
+    category == UPDATE_NOTIFICATION_CATEGORY
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn notification_activation_target(
+    id: u32,
+    action: &str,
+    notifications: &std::collections::VecDeque<(u32, bool)>,
+) -> Option<bool> {
+    if action != "default" {
+        return None;
+    }
+    notifications
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map(|(_, open_updates)| *open_updates)
+}
+
+pub fn activate_notification<R: Runtime>(app: &AppHandle<R>, open_updates: bool) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        if open_updates {
+            let _ = handle.emit("open-updates", ());
+        }
+    });
+}
 #[cfg(not(any(target_os = "macos", windows)))]
 use tauri_plugin_notification::NotificationExt;
 
@@ -86,7 +122,19 @@ pub async fn permitted<R: Runtime>(app: &AppHandle<R>, request: bool) -> bool {
 }
 #[cfg(target_os = "macos")]
 #[allow(clippy::unused_async)] // Shared delivery interface; Linux awaits D-Bus.
-pub async fn send<R: Runtime>(_: &AppHandle<R>, title: &str, body: &str) {
+pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
+    send_macos(app, title, body, false);
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::unused_async)]
+#[allow(dead_code)] // Used in release builds; native delivery is excluded from unit tests.
+pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
+    send_macos(app, title, body, true);
+}
+
+#[cfg(target_os = "macos")]
+fn send_macos<R: Runtime>(_: &AppHandle<R>, title: &str, body: &str, update: bool) {
     use objc2_foundation::NSString;
     use objc2_user_notifications::{
         UNMutableNotificationContent, UNNotificationRequest, UNUserNotificationCenter,
@@ -94,6 +142,9 @@ pub async fn send<R: Runtime>(_: &AppHandle<R>, title: &str, body: &str) {
     let content = UNMutableNotificationContent::new();
     content.setTitle(&NSString::from_str(title));
     content.setBody(&NSString::from_str(body));
+    if update {
+        content.setCategoryIdentifier(&NSString::from_str(UPDATE_NOTIFICATION_CATEGORY));
+    }
     let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
         &NSString::from_str(&format!("night-schedule-{}", jiff::Timestamp::now())),
         &content,
@@ -110,10 +161,21 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
 
 #[cfg(target_os = "linux")]
 pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
+    send_linux(app, title, body, false).await;
+}
+
+#[cfg(target_os = "linux")]
+#[allow(dead_code)] // Production-only delivery; orchestration tests inject a notification sink.
+pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
+    send_linux(app, title, body, true).await;
+}
+
+#[cfg(target_os = "linux")]
+async fn send_linux<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str, update_notice: bool) {
     // GNOME watches the application's sender name and removes its notification
     // source when that name vanishes. Reuse one asynchronous connection for the
     // process lifetime instead of dropping a per-notification handle on return.
-    static IDS: std::sync::Mutex<std::collections::VecDeque<u32>> =
+    static IDS: std::sync::Mutex<std::collections::VecDeque<(u32, bool)>> =
         std::sync::Mutex::new(std::collections::VecDeque::new());
     static CONNECTION: tokio::sync::Mutex<Option<zbus::Connection>> =
         tokio::sync::Mutex::const_new(None);
@@ -125,7 +187,6 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
             let handle = app.clone();
             tauri::async_runtime::spawn(async move {
                 use futures_util::StreamExt;
-                use tauri::Manager;
                 let Ok(proxy) = zbus::Proxy::new_owned(
                     listening,
                     "org.freedesktop.Notifications",
@@ -141,13 +202,12 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
                 };
                 while let Some(message) = actions.next().await {
                     if let Ok((id, action)) = message.body().deserialize::<(u32, String)>() {
-                        let ours = IDS.lock().is_ok_and(|ids| ids.contains(&id));
-                        if ours
-                            && action == "default"
-                            && let Some(window) = handle.get_webview_window("main")
-                        {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        let update_notice = IDS
+                            .lock()
+                            .ok()
+                            .and_then(|ids| notification_activation_target(id, &action, &ids));
+                        if let Some(update) = update_notice {
+                            activate_notification(&handle, update);
                         }
                     }
                 }
@@ -181,7 +241,7 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
             .await?;
         let id: u32 = response.body().deserialize()?;
         if let Ok(mut ids) = IDS.lock() {
-            ids.push_back(id);
+            ids.push_back((id, update_notice));
             if ids.len() > 32 {
                 ids.pop_front();
             }
@@ -230,6 +290,28 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
     }
 }
 
+#[cfg(windows)]
+#[allow(dead_code)] // Production-only delivery; orchestration tests inject a notification sink.
+pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
+    if let Err(error) = windows::notifier(
+        &app.config().identifier,
+        app.config()
+            .product_name
+            .as_deref()
+            .unwrap_or("Speaker Volume Bridge"),
+    )
+    .and_then(|notifier| notifier.send_update(title, body))
+    {
+        tracing::warn!(%error, "Could not deliver Windows update notification");
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+#[allow(dead_code)] // Production-only delivery; orchestration tests inject a notification sink.
+pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
+    send(app, title, body).await;
+}
+
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)] // Stateless Objective-C delegate presents native foreground notifications.
 mod foreground {
@@ -252,18 +334,17 @@ mod foreground {
             fn response(
                 &self,
                 _: &UNUserNotificationCenter,
-                _: &UNNotificationResponse,
+                response: &UNNotificationResponse,
                 completion: &block2::DynBlock<dyn Fn()>,
             ) {
-                use tauri::Manager;
                 if let Some(app) = APP.get() {
-                    let handle = app.clone();
-                    let _ = app.run_on_main_thread(move || {
-                        if let Some(window) = handle.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    });
+                    let category = response
+                        .notification()
+                        .request()
+                        .content()
+                        .categoryIdentifier();
+                    let open_updates = super::notification_opens_updates(&category.to_string());
+                    super::activate_notification(app, open_updates);
                 }
                 completion.call(());
             }
@@ -303,6 +384,54 @@ pub fn install_windows<R: Runtime>(app: &AppHandle<R>) {
 #[cfg(test)]
 mod tests {
     use super::{ScheduleNotice, schedule_body};
+
+    #[test]
+    fn platform_notification_metadata_distinguishes_updates_from_settings() {
+        use std::collections::VecDeque;
+        assert!(!super::notification_opens_updates("schedule"));
+        assert!(super::notification_opens_updates(
+            super::UPDATE_NOTIFICATION_CATEGORY
+        ));
+
+        let sent = VecDeque::from([(21, false), (22, true)]);
+        assert_eq!(
+            super::notification_activation_target(21, "default", &sent),
+            Some(false)
+        );
+        assert_eq!(
+            super::notification_activation_target(22, "default", &sent),
+            Some(true)
+        );
+        assert_eq!(
+            super::notification_activation_target(22, "reply", &sent),
+            None
+        );
+        assert_eq!(
+            super::notification_activation_target(23, "default", &sent),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn only_update_notification_activation_navigates_to_the_updates_page() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use tauri::Listener;
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let openings = Arc::new(AtomicUsize::new(0));
+        let observed = openings.clone();
+        let _listener = app.listen("open-updates", move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+        super::activate_notification(app.handle(), false);
+        assert_eq!(openings.load(Ordering::SeqCst), 0);
+        super::activate_notification(app.handle(), true);
+        assert_eq!(openings.load(Ordering::SeqCst), 1);
+    }
 
     #[cfg(target_os = "linux")]
     struct TestNotifications {

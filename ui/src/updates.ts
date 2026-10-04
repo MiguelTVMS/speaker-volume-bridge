@@ -12,6 +12,7 @@ export type UpdateStatus = {
   automaticChecks: boolean;
   updateNotifications: boolean;
   promptDismissed: boolean;
+  offerStale?: boolean;
 };
 
 const editions: Record<string, string> = {
@@ -32,7 +33,9 @@ export function updateStateText(status: UpdateStatus): string {
     case 'up_to_date':
       return 'This edition is up to date.';
     case 'update_available':
-      return `Version ${status.availableVersion ?? ''} is available.`;
+      return status.offerStale
+        ? `Version ${status.availableVersion ?? ''} was available at the last successful check. Check again before opening it.`
+        : `Version ${status.availableVersion ?? ''} is available.`;
     case 'unavailable':
       return status.message ?? 'Update information is currently unavailable.';
     case 'unsupported':

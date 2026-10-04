@@ -174,6 +174,7 @@ let updateStatus: UpdateStatus = {
   automaticChecks: false,
   updateNotifications: false,
   promptDismissed: false,
+  offerStale: false,
 };
 
 const repositoryUrl = 'https://github.com/MiguelTVMS/speaker-volume-bridge';
@@ -392,7 +393,7 @@ function render(nextSnapshot: Snapshot): void {
             <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${updateStatus.lastSuccessfulCheck ? escapeHtml(new Date(updateStatus.lastSuccessfulCheck * 1000).toLocaleString()) : 'Never'}</dd></div></dl>
             <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks the project catalog without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
             <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
-            <div class="update-actions">${updateStatus.phase === 'update_available' && updateStatus.action && updateStatus.availableVersion ? `<button class="primary" type="button" id="open-update-page" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button></div>
+            <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="primary" type="button" id="open-update-page" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button></div>
           </div>`,
         )}
         ${panel(

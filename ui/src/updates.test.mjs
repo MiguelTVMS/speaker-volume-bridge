@@ -35,3 +35,11 @@ test('unavailable is not described as current and custom builds remain unknown',
   assert.doesNotMatch(updateStateText(status('unavailable')), /up to date/i);
   assert.equal(editionLabel('custom'), 'Unknown or custom build');
 });
+
+test('cached offers remain visible but require a fresh check before opening', () => {
+  const text = updateStateText(
+    status('update_available', { availableVersion: '2.0.0', offerStale: true }),
+  );
+  assert.match(text, /was available/);
+  assert.match(text, /Check again/);
+});

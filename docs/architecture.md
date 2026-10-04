@@ -153,6 +153,13 @@ The shell preloads optional tray speaker controls asynchronously at startup and
 refreshes them when connection state changes or the tray is clicked. Network
 reads never block the menu event handler; menu updates run on the main thread.
 
+At shell startup, a single installed-distribution resolver combines package-level
+provenance with conservative platform evidence. It reports the workspace
+application version and compiled application architecture. Debug/demo, missing,
+conflicting, sideloaded or unverifiable packages never silently enroll in official
+checks. Resolution failure is an update-only condition and cannot stop audio
+synchronization. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
+
 Settings refreshes are asynchronous and guarded against edits and pending writes.
 Speech Enhancement chooses the same model-appropriate EQ for reads and writes;
 see [ADR 0009](decisions/0009-sonos-speaker-controls.md).

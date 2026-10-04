@@ -39,6 +39,16 @@ downloads page but never claim binary compatibility. Future schemas use a new
 path. Additive action data may be introduced only while retaining the v1
 `open_url` fallback so older phase-one clients remain useful.
 
+The shell owns an injectable installed-distribution resolver. It combines a
+package resource with platform evidence and uses the workspace package version
+plus compiled target architecture. Windows Store classification requires a
+Store-signed package; other packaged Windows builds are sideloaded. macOS App
+Store classification requires both matching provenance and an App Store receipt;
+sandboxing alone is insufficient. Debian classification requires matching
+provenance and the official package metadata. Older packages without provenance,
+conflicts, source errors, custom/debug/demo builds and unsupported architectures
+resolve conservatively and never enable direct installation.
+
 Publishers validate the entire catalog and update entries only after confirming
 the corresponding edition and architecture are publicly obtainable. Withdrawal
 removes the entry; clients never interpret removal or an older entry as a

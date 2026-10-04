@@ -51,6 +51,9 @@ jobs:
               - 'scripts/tests/test_release_workflow.py'
               - 'scripts/tests/test_linux_installer.py'
               - 'scripts/tests/test_rebrand_identity.py'
+              - 'scripts/tests/test_distribution_packaging.py'
+              - 'src-tauri/distribution/**'
+              - 'src-tauri/tauri.*.conf.json'
               - 'scripts/remove-signing-wait.py'
               - 'scripts/tests/test_signing_wait.py'
               - 'packaging/linux/**'
@@ -101,6 +104,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -p test_store_upload.py
       - run: python3 -m unittest discover -s scripts/tests -p test_linux_installer.py
       - run: python3 -m unittest discover -s scripts/tests -p test_rebrand_identity.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_distribution_packaging.py
       - run: python3 -m unittest discover -s scripts/tests -p test_signing_wait.py
 
   rust:

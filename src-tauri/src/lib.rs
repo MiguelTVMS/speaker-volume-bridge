@@ -4,6 +4,7 @@ mod commands;
 mod config;
 #[cfg(any(test, feature = "ui-demo"))]
 mod demo;
+mod distribution;
 mod logging;
 mod night_schedule;
 mod runtime;
@@ -118,6 +119,13 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             };
             let guard = logging::initialize(&app.path().app_log_dir()?, configuration.log_level)?;
             tracing::info!("SpeakerVolumeBridge application shell starting");
+            let resolver = distribution::InstalledDistributionResolver::from_runtime(
+                &app.path().resource_dir()?,
+                cfg!(debug_assertions) || ui_demo_enabled(),
+            );
+            let installed_distribution = distribution::resolve_at_startup(&resolver);
+            tracing::info!(edition = ?installed_distribution.edition, "resolved installed distribution");
+            app.manage(installed_distribution);
             #[cfg(target_os = "macos")]
             if migrated_fixed_output {
                 tracing::info!(

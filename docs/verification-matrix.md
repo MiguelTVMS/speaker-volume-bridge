@@ -641,3 +641,21 @@ preserve the source. The NSIS harness executes production location-selection and
 move functions on both Windows CI architectures, including collision and locked
 source cases. Native full-installer, login and toast checks remain manual gates;
 macOS-hosted tests do not establish Windows behavior.
+
+## Installed distribution provenance
+
+Automated resolver tests cover each supported edition, missing and conflicting
+evidence, a reused executable in direct and Store packages, x64 application on an
+ARM64 host, development/demo builds, sideloaded MSIX, and resolver failure during
+application startup. Packaging regressions assert every bundle receives its own
+provenance and that Store MSIX staging replaces direct provenance.
+
+Native acceptance remains required before enabling live catalog entries. On each
+supported architecture, install the direct package and the applicable Store test
+package, then verify the startup log reports the expected edition and compiled
+application architecture. Confirm a development build, copied/repackaged Debian
+binary, test-signed or sideloaded MSIX, App Store-style sandbox without a receipt,
+and package with removed/conflicting metadata report development, sideloaded, or
+unknown rather than an official edition. These installed-package checks are not
+proved by unit tests or bundle inspection and were not performed for phase 1.2 on
+the macOS development host.

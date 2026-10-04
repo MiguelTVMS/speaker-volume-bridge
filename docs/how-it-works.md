@@ -43,6 +43,13 @@ first if it still matches the selected UDN.
 At runtime startup, the selected endpoint is attached and the synchronizer is seeded
 with the latest Sonos read.
 
+Update discovery separately resolves the installed distribution at application
+startup. Direct packages, Store packages and Debian packages carry different
+package metadata even when they reuse the same executable. OS evidence must agree:
+a Store-signed Windows package, App Store receipt, or official Debian package
+registration is required for those editions. Ambiguous/custom packages remain
+unknown and do not affect speaker startup.
+
 ## Synchronization strategy
 
 Two modes are supported:

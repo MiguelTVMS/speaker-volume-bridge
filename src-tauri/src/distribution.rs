@@ -3,6 +3,13 @@ use std::{fs, path::Path};
 
 const OFFICIAL_PUBLISHER: &str = "MiguelTVMS/speaker-volume-bridge";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum PublishedClassification {
+    GA,
+    Alpha,
+    Beta,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DistributionEdition {
@@ -37,6 +44,7 @@ pub struct InstalledDistribution {
     pub version: String,
     pub architecture: ApplicationArchitecture,
     pub channel: ReleaseChannel,
+    pub published_classification: Option<PublishedClassification>,
     pub check_supported: bool,
     pub direct_install_supported: bool,
 }
@@ -52,6 +60,7 @@ impl InstalledDistribution {
             version: version.into(),
             architecture,
             channel: ReleaseChannel::Stable,
+            published_classification: None,
             check_supported: matches!(
                 edition,
                 DistributionEdition::DirectMacos
@@ -62,6 +71,20 @@ impl InstalledDistribution {
             ),
             direct_install_supported: false,
         }
+    }
+    /// Explicit capability resolved from official package provenance, never feed contents.
+    pub fn prerelease_supported(&self) -> bool {
+        self.check_supported
+            && matches!(
+                self.edition,
+                DistributionEdition::DirectMacos
+                    | DistributionEdition::DirectWindows
+                    | DistributionEdition::Debian
+            )
+            && matches!(
+                self.architecture,
+                ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+            )
     }
     pub const fn edition_key(&self) -> &'static str {
         match self.edition {
@@ -111,6 +134,8 @@ struct PackageProvenance {
     schema_version: u32,
     edition: ProvenanceEdition,
     publisher: String,
+    #[serde(default)]
+    release_classification: Option<PublishedClassification>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -157,6 +182,7 @@ impl InstalledDistributionResolver {
                 schema_version: 1,
                 edition,
                 publisher: OFFICIAL_PUBLISHER.into(),
+                release_classification: None,
             }),
             evidence,
             development,
@@ -209,11 +235,15 @@ impl InstalledDistributionResolver {
 
 impl DistributionResolver for InstalledDistributionResolver {
     fn resolve(&self) -> Result<InstalledDistribution, ResolveError> {
-        Ok(InstalledDistribution::new(
-            self.resolved_edition(),
-            self.version,
-            self.architecture,
-        ))
+        let mut resolved =
+            InstalledDistribution::new(self.resolved_edition(), self.version, self.architecture);
+        if resolved.check_supported {
+            resolved.published_classification = self
+                .provenance
+                .as_ref()
+                .and_then(|value| value.release_classification);
+        }
+        Ok(resolved)
     }
 }
 

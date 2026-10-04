@@ -10,7 +10,11 @@ const agents: Record<string, string> = {
   linux: 'X11; Linux x86_64',
 };
 Object.defineProperty(navigator, 'userAgent', { value: agents[platform] ?? 'Preview' });
+const params = new URLSearchParams(location.search);
 const backend = createDemoBackend({
+  edition: params.get('edition') ?? undefined,
+  policyFailure: params.get('policyFailure') === 'true',
+  policyDelay: Number(params.get('policyDelay') ?? 0),
   hour12: new URLSearchParams(location.search).get('hour12') === 'false' ? false : null,
 });
 mockIPC((command, args) => {

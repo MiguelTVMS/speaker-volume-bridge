@@ -275,3 +275,13 @@ on a legacy-app check, or display a conflict warning. Settings and Night Mode ke
 their normal selection/write serialization and explicit stop behavior. See
 [decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
 [manual removal guide](removing-old-app.md).
+
+### Stable releases and Prereleases
+
+Recognized direct macOS, direct Windows and official Debian editions expose a
+persisted release policy. Stable releases is the default. Prereleases includes
+public Alpha/Beta and newer GA releases, including previews with numeric versions.
+Selection requests a check even with automatic checks off, invalidates previous
+links immediately and rejects obsolete responses. Returning to Stable waits for
+its next strictly newer GA release. A missing preview source remains unavailable.
+Both policies preserve speaker settings and notification preferences. See ADR 0019.

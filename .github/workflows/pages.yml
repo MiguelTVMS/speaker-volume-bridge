@@ -59,4 +59,6 @@ jobs:
             --output "$RUNNER_TEMP/catalog.json" \
             "${PAGE_URL%/}/updates/v1/catalog.json"
           python3 scripts/validate-update-catalog.py "$RUNNER_TEMP/catalog.json"
+          curl --fail --silent --show-error "${PAGE_URL%/}/updates/v2/catalog.json" -o "$RUNNER_TEMP/preview-catalog.json"
+          python3 scripts/validate-update-catalog.py "$RUNNER_TEMP/preview-catalog.json"
           grep --ignore-case --quiet '^cache-control:' "$RUNNER_TEMP/catalog-headers.txt"

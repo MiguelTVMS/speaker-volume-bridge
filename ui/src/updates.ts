@@ -2,6 +2,9 @@ export type UpdatePhase =
   'idle' | 'checking' | 'up_to_date' | 'update_available' | 'unavailable' | 'unsupported';
 
 export type UpdateStatus = {
+  policy?: 'stable' | 'prereleases';
+  prereleaseSupported?: boolean;
+  generation?: number;
   phase: UpdatePhase;
   installedVersion: string;
   availableVersion: string | null;
@@ -47,4 +50,9 @@ export function updateStateText(status: UpdateStatus): string {
 
 export function editionLabel(edition: string): string {
   return editions[edition] ?? 'Unknown or custom build';
+}
+
+export function releasePolicyControl(status: UpdateStatus): string {
+  if (!status.prereleaseSupported) return '';
+  return `<label class="toggle"><span>Release policy</span><select id="update-policy" aria-label="Release policy"><option value="stable"${status.policy !== 'prereleases' ? ' selected' : ''}>Stable releases</option><option value="prereleases"${status.policy === 'prereleases' ? ' selected' : ''}>Prereleases</option></select></label><p class="setting-note">Prereleases includes public Alpha/Beta releases and newer stable releases. Switching to Stable never downgrades: you will receive the next newer stable release.</p>`;
 }

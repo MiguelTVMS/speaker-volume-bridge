@@ -184,6 +184,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm --dir ui install --frozen-lockfile
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - name: Verify the tag matches the application version
         env:
@@ -258,6 +262,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm --dir ui install --frozen-lockfile
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - name: Verify the tag matches the application version
         env:
@@ -307,6 +315,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
         with:
@@ -447,6 +459,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
         with:
@@ -618,6 +634,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm --dir ui install --frozen-lockfile
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - run: cargo tauri build --no-bundle
       - name: Verify the compiled executable
@@ -673,6 +693,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace-Windows-${{ matrix.arch }}
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
         with:
@@ -728,6 +752,10 @@ jobs:
         with:
           name: windows-build-${{ matrix.arch }}-${{ needs.prepare-version.outputs.tag }}
           path: .
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+        run: python3 scripts/stamp-release-classification.py
       - name: Build and validate the MSIX from the compiled executable
         shell: pwsh
         run: ./scripts/build-msix.ps1 -Architecture ${{ matrix.arch }}

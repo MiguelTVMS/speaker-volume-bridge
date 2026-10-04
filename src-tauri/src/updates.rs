@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -19,9 +19,27 @@ use tokio::sync::Mutex as AsyncMutex;
 use url::Url;
 
 pub const CATALOG_URL: &str = "https://svb.miguel.ms/updates/v1/catalog.json";
+pub const PRERELEASE_CATALOG_URL: &str = "https://svb.miguel.ms/updates/v2/catalog.json";
 const MAX_CATALOG_BYTES: usize = 256 * 1024;
 #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with the repository's pinned Rust.
 const SUCCESS_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Shared policy contract for checking and future installer revalidation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdatePolicy {
+    #[default]
+    Stable,
+    Prereleases,
+}
+impl UpdatePolicy {
+    const fn key(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Prereleases => "prereleases",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -51,6 +69,10 @@ pub struct UpdateStatus {
     pub prompt_dismissed: bool,
     pub offer_stale: bool,
     pub check_failed: bool,
+    pub policy: UpdatePolicy,
+    pub prerelease_supported: bool,
+    pub generation: u64,
+    pub source_available: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -68,6 +90,8 @@ impl OpenUrlAction {
         let parsed =
             Url::parse(&self.url).map_err(|_| UpdateError::InvalidCatalog("invalid action URL"))?;
         if parsed.scheme() != "https"
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
             || !matches!(
                 parsed.host_str(),
                 Some("svb.miguel.ms" | "github.com" | "apps.microsoft.com" | "apps.apple.com")
@@ -87,7 +111,13 @@ pub struct UpdatePreferences {
     pub last_successful_check: Option<u64>,
     pub last_attempted_check: Option<u64>,
     pub last_notified_target: Option<String>,
+    pub notified_targets: Vec<String>,
     pub cached_offer: Option<CachedOffer>,
+    pub policy: UpdatePolicy,
+    pub freshness_target: Option<CachedTarget>,
+    pub generation: u64,
+    pub stable_source_available: Option<bool>,
+    pub preview_source_available: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -116,7 +146,13 @@ impl Default for UpdatePreferences {
             last_successful_check: None,
             last_attempted_check: None,
             last_notified_target: None,
+            notified_targets: Vec::new(),
             cached_offer: None,
+            policy: UpdatePolicy::Stable,
+            freshness_target: None,
+            generation: 0,
+            stable_source_available: None,
+            preview_source_available: None,
         }
     }
 }
@@ -163,6 +199,9 @@ impl UpdatePersistence for FileUpdatePersistence {
 #[async_trait]
 pub trait CatalogTransport: Send + Sync {
     async fn fetch(&self) -> Result<Vec<u8>, UpdateError>;
+    async fn fetch_policy(&self, _policy: UpdatePolicy) -> Result<Vec<u8>, UpdateError> {
+        self.fetch().await
+    }
 }
 
 pub struct HttpCatalogTransport(reqwest::Client);
@@ -178,7 +217,14 @@ impl HttpCatalogTransport {
 #[async_trait]
 impl CatalogTransport for HttpCatalogTransport {
     async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
-        let response = self.0.get(CATALOG_URL).send().await?.error_for_status()?;
+        self.fetch_policy(UpdatePolicy::Stable).await
+    }
+    async fn fetch_policy(&self, policy: UpdatePolicy) -> Result<Vec<u8>, UpdateError> {
+        let url = match policy {
+            UpdatePolicy::Stable => CATALOG_URL,
+            UpdatePolicy::Prereleases => PRERELEASE_CATALOG_URL,
+        };
+        let response = self.0.get(url).send().await?.error_for_status()?;
         if response
             .content_length()
             .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
@@ -237,6 +283,8 @@ struct CatalogEntry {
     published_at: String,
     release_notes: String,
     action: OpenUrlAction,
+    #[serde(default)]
+    classification: Option<String>,
 }
 
 struct UniqueJson(serde_json::Value);
@@ -322,6 +370,8 @@ pub struct UpdateService {
     dismissed_target: Mutex<Option<String>>,
     opening: AtomicBool,
     in_flight: AsyncMutex<()>,
+    request_sequence: AtomicU64,
+    completed_generation: AtomicU64,
 }
 
 impl UpdateService {
@@ -332,8 +382,28 @@ impl UpdateService {
         persistence: Arc<dyn UpdatePersistence>,
     ) -> Result<Self, UpdateError> {
         let mut preferences = persistence.load(distribution.check_supported)?;
+        if !distribution.prerelease_supported() && preferences.policy != UpdatePolicy::Stable {
+            preferences.policy = UpdatePolicy::Stable;
+            preferences.cached_offer = None;
+            preferences.last_successful_check = None;
+            preferences.last_attempted_check = None;
+            preferences.freshness_target = None;
+            preferences.generation += 1;
+            persistence.save(&preferences)?;
+        }
+        if preferences
+            .freshness_target
+            .as_ref()
+            .is_some_and(|target| target != &policy_target(&distribution, preferences.policy))
+        {
+            preferences.cached_offer = None;
+            preferences.last_successful_check = None;
+            preferences.last_attempted_check = None;
+            preferences.freshness_target = None;
+            persistence.save(&preferences)?;
+        }
         if let Some(offer) = preferences.cached_offer.as_ref()
-            && !cached_offer_valid(offer, &distribution)
+            && !cached_offer_valid_for_policy(offer, &distribution, preferences.policy)
         {
             preferences.cached_offer = None;
             persistence.save(&preferences)?;
@@ -348,6 +418,9 @@ impl UpdateService {
         Ok(Self {
             status: Mutex::new(UpdateStatus {
                 phase,
+                policy: preferences.policy,
+                prerelease_supported: distribution.prerelease_supported(),
+                generation: preferences.generation,
                 installed_version: distribution.version.clone(),
                 edition: edition_name(distribution.edition).into(),
                 available_version: preferences
@@ -371,21 +444,33 @@ impl UpdateService {
             dismissed_target: Mutex::new(None),
             opening: AtomicBool::new(false),
             in_flight: AsyncMutex::new(()),
+            request_sequence: AtomicU64::new(0),
+            completed_generation: AtomicU64::new(0),
         })
     }
     pub fn status(&self) -> Result<UpdateStatus, UpdateError> {
+        let preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
         let mut status = self.status.lock().map_err(|_| UpdateError::State)?.clone();
-        status.automatic_checks = self.preferences()?.automatic_checks;
-        status.update_notifications = self.preferences()?.update_notifications;
+        status.automatic_checks = preferences.automatic_checks;
+        status.update_notifications = preferences.update_notifications;
+        status.policy = preferences.policy;
+        status.generation = preferences.generation;
+        status.prerelease_supported = self.distribution.prerelease_supported();
+        status.source_available = match preferences.policy {
+            UpdatePolicy::Stable => preferences.stable_source_available,
+            UpdatePolicy::Prereleases => preferences.preview_source_available,
+        };
         status.prompt_dismissed = status.available_version.as_ref().is_some_and(|version| {
             self.dismissed_target
                 .lock()
                 .is_ok_and(|value| value.as_ref() == Some(version))
         });
         status.offer_stale = status.available_version.is_some()
-            && status.last_successful_check.is_none_or(|last| {
-                self.clock.now().saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()
-            });
+            && (preferences.freshness_target.as_ref()
+                != Some(&policy_target(&self.distribution, preferences.policy))
+                || status.last_successful_check.is_none_or(|last| {
+                    self.clock.now().saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()
+                }));
         Ok(status)
     }
     pub fn preferences(&self) -> Result<UpdatePreferences, UpdateError> {
@@ -393,6 +478,27 @@ impl UpdateService {
             .lock()
             .map(|value| value.clone())
             .map_err(|_| UpdateError::State)
+    }
+    pub fn set_policy(&self, policy: UpdatePolicy) -> Result<(), UpdateError> {
+        if !self.distribution.prerelease_supported() {
+            return Err(UpdateError::State);
+        }
+        let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
+        let mut next = preferences.clone();
+        next.policy = policy;
+        next.generation += 1;
+        next.cached_offer = None;
+        next.last_successful_check = None;
+        next.last_attempted_check = None;
+        next.freshness_target = None;
+        self.persistence.save(&next)?;
+        *preferences = next;
+        *self
+            .dismissed_target
+            .lock()
+            .map_err(|_| UpdateError::State)? = None;
+        self.replace_status(self.base_status(UpdatePhase::Checking));
+        Ok(())
     }
     pub fn set_automatic_checks(&self, enabled: bool) -> Result<(), UpdateError> {
         let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
@@ -419,7 +525,7 @@ impl UpdateService {
         let Some(version) = status.available_version.as_deref() else {
             return false;
         };
-        let target = format!("{}:{version}", self.distribution.edition_key());
+        let target = notification_target(&self.distribution, version);
         self.preferences().is_ok_and(|preferences| {
             preferences.update_notifications
                 && preferences.last_notified_target.as_deref() != Some(&target)
@@ -432,8 +538,7 @@ impl UpdateService {
             .as_deref()
             .ok_or(UpdateError::State)?;
         let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
-        preferences.last_notified_target =
-            Some(format!("{}:{version}", self.distribution.edition_key()));
+        preferences.last_notified_target = Some(notification_target(&self.distribution, version));
         self.persistence.save(&preferences)
     }
     #[allow(dead_code)] // Used in release builds; test delivery deliberately suppresses native notifications.
@@ -445,22 +550,48 @@ impl UpdateService {
             .available_version
             .as_deref()
             .ok_or(UpdateError::State)?;
-        let target = format!("{}:{version}", self.distribution.edition_key());
+        let target = notification_target(&self.distribution, version);
         let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
-        if !preferences.update_notifications
+        if preferences.generation != status.generation
+            || preferences.policy != status.policy
+            || preferences
+                .cached_offer
+                .as_ref()
+                .is_none_or(|offer| offer.version != version)
+            || !preferences.update_notifications
             || preferences.last_notified_target.as_deref() == Some(&target)
+            || preferences.notified_targets.contains(&target)
         {
             return Ok(false);
         }
+        preferences.notified_targets.push(target.clone());
         preferences.last_notified_target = Some(target);
         self.persistence.save(&preferences)?;
         Ok(true)
     }
+    #[cfg(test)]
     pub fn claim_offer(&self, version: &str, url: &str) -> Result<OpenUrlAction, UpdateError> {
-        let status = self.status()?;
+        self.claim_offer_generation(version, url, self.preferences()?.generation)
+    }
+    pub fn claim_offer_generation(
+        &self,
+        version: &str,
+        url: &str,
+        generation: u64,
+    ) -> Result<OpenUrlAction, UpdateError> {
+        let preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
+        if preferences.generation != generation
+            || preferences.freshness_target.as_ref()
+                != Some(&policy_target(&self.distribution, preferences.policy))
+        {
+            return Err(UpdateError::State);
+        }
+        let status = self.status.lock().map_err(|_| UpdateError::State)?.clone();
         let action = status.action.ok_or(UpdateError::State)?;
         if status.phase != UpdatePhase::UpdateAvailable
-            || status.offer_stale
+            || status.last_successful_check.is_none_or(|last| {
+                self.clock.now().saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()
+            })
             || status.available_version.as_deref() != Some(version)
             || action.url != url
         {
@@ -484,24 +615,23 @@ impl UpdateService {
             && preferences
                 .last_attempted_check
                 .is_none_or(|last| now.saturating_sub(last) >= 60)
-            && preferences
-                .last_successful_check
-                .is_none_or(|last| now.saturating_sub(last) >= SUCCESS_INTERVAL.as_secs())
+            && (preferences.freshness_target.as_ref()
+                != Some(&policy_target(&self.distribution, preferences.policy))
+                || preferences
+                    .last_successful_check
+                    .is_none_or(|last| now.saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()))
     }
     pub async fn check(&self, manual: bool) -> UpdateStatus {
         if !self.distribution.check_supported {
             return self.status().unwrap_or_default();
         }
-        let observed_attempt = self
-            .preferences()
-            .ok()
-            .and_then(|value| value.last_attempted_check);
+        let sequence = self.request_sequence.load(Ordering::SeqCst);
+        let observed = self.preferences().unwrap_or_default();
         let _guard = self.in_flight.lock().await;
-        if self
-            .preferences()
-            .ok()
-            .and_then(|value| value.last_attempted_check)
-            != observed_attempt
+        let current = self.preferences().unwrap_or_default();
+        if current.generation != observed.generation
+            || (self.request_sequence.load(Ordering::SeqCst) != sequence
+                && self.completed_generation.load(Ordering::SeqCst) == observed.generation)
         {
             return self.status().unwrap_or_default();
         }
@@ -509,26 +639,36 @@ impl UpdateService {
             return self.status().unwrap_or_default();
         }
         let now = self.clock.now();
-        if let Ok(mut preferences) = self.preferences.lock() {
-            preferences.last_attempted_check = Some(now);
-            let _ = self.persistence.save(&preferences);
+        if self.begin_check(observed.generation, now).is_err() {
+            return self.status().unwrap_or_default();
         }
-        let mut checking = self.status().unwrap_or_default();
-        checking.phase = if checking.available_version.is_some() {
-            UpdatePhase::UpdateAvailable
-        } else {
-            UpdatePhase::Checking
-        };
-        checking.message = None;
-        self.replace_status(checking);
         let result = self
             .transport
-            .fetch()
+            .fetch_policy(observed.policy)
             .await
-            .and_then(|bytes| self.evaluate(&bytes));
+            .and_then(|bytes| self.evaluate_policy(&bytes, observed.policy));
+        // Commit under the same lock as preference changes: obsolete work cannot
+        // restore caches, success timestamps, offers or notification intent.
+        let Ok(mut preferences) = self.preferences.lock() else {
+            return UpdateStatus::default();
+        };
+        self.completed_generation
+            .store(observed.generation, Ordering::SeqCst);
+        self.request_sequence.fetch_add(1, Ordering::SeqCst);
+        if preferences.generation != observed.generation {
+            drop(preferences);
+            return self.status().unwrap_or_default();
+        }
+        let source_available = result.is_ok();
+        match observed.policy {
+            UpdatePolicy::Stable => preferences.stable_source_available = Some(source_available),
+            UpdatePolicy::Prereleases => {
+                preferences.preview_source_available = Some(source_available);
+            }
+        }
         let status = match result {
             Ok(mut status) => {
-                if let Ok(mut preferences) = self.preferences.lock() {
+                {
                     preferences.last_successful_check = Some(now);
                     preferences.cached_offer = status
                         .available_version
@@ -537,15 +677,20 @@ impl UpdateService {
                         .map(|(version, action)| CachedOffer {
                             version: version.clone(),
                             action: action.clone(),
-                            target: Some(cached_target(&self.distribution)),
+                            target: Some(policy_target(&self.distribution, observed.policy)),
                         });
+                    preferences.freshness_target =
+                        Some(policy_target(&self.distribution, observed.policy));
                     let _ = self.persistence.save(&preferences);
                     status.last_successful_check = Some(now);
                 }
                 status
             }
             Err(error) => {
-                let mut cached = self.status().unwrap_or_default();
+                let mut cached = self
+                    .status
+                    .lock()
+                    .map_or_else(|_| UpdateStatus::default(), |value| value.clone());
                 if cached.phase != UpdatePhase::UpdateAvailable {
                     cached.phase = UpdatePhase::Unavailable;
                 }
@@ -554,15 +699,41 @@ impl UpdateService {
                 cached
             }
         };
+        let mut status = status;
+        status.policy = observed.policy;
+        status.generation = observed.generation;
+        let _ = self.persistence.save(&preferences);
         self.replace_status(status.clone());
+        drop(preferences);
         self.status().unwrap_or(status)
+    }
+    fn begin_check(&self, generation: u64, now: u64) -> Result<(), UpdateError> {
+        let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
+        if preferences.generation != generation {
+            return Err(UpdateError::State);
+        }
+        preferences.last_attempted_check = Some(now);
+        self.persistence.save(&preferences)?;
+        let mut checking = self.status.lock().map_err(|_| UpdateError::State)?.clone();
+        checking.phase = if checking.available_version.is_some() {
+            UpdatePhase::UpdateAvailable
+        } else {
+            UpdatePhase::Checking
+        };
+        checking.message = None;
+        self.replace_status(checking);
+        Ok(())
     }
     fn replace_status(&self, status: UpdateStatus) {
         if let Ok(mut current) = self.status.lock() {
             *current = status;
         }
     }
-    fn evaluate(&self, bytes: &[u8]) -> Result<UpdateStatus, UpdateError> {
+    fn evaluate_policy(
+        &self,
+        bytes: &[u8],
+        policy: UpdatePolicy,
+    ) -> Result<UpdateStatus, UpdateError> {
         if bytes.len() > MAX_CATALOG_BYTES {
             return Err(UpdateError::InvalidCatalog("catalog too large"));
         }
@@ -570,65 +741,53 @@ impl UpdateService {
         let unique = UniqueJson::deserialize(&mut decoder)?.0;
         decoder.end()?;
         let catalog: Catalog = serde_json::from_value(unique)?;
-        if catalog.schema_version != 1 || catalog.generated_at.parse::<jiff::Timestamp>().is_err() {
+        if catalog.schema_version != if policy == UpdatePolicy::Stable { 1 } else { 2 }
+            || catalog.generated_at.parse::<jiff::Timestamp>().is_err()
+        {
             return Err(UpdateError::InvalidCatalog("unsupported schema"));
         }
         let mut targets = std::collections::HashSet::new();
         for entry in &catalog.entries {
-            let expected_os = match entry.edition.as_str() {
-                "direct_macos" | "mac_app_store" => "macos",
-                "direct_windows" | "microsoft_store" => "windows",
-                "debian" => "linux",
-                _ => return Err(UpdateError::InvalidCatalog("unsupported edition")),
-            };
-            if entry.os != expected_os {
-                return Err(UpdateError::InvalidCatalog("unsupported platform"));
-            }
-            if !matches!(entry.architecture.as_str(), "aarch64" | "x86_64") {
-                return Err(UpdateError::InvalidCatalog("unsupported architecture"));
-            }
+            validate_entry(entry, policy)?;
             if !targets.insert((
                 &entry.edition,
                 &entry.channel,
                 &entry.os,
                 &entry.architecture,
+                if policy == UpdatePolicy::Prereleases {
+                    entry.classification.as_deref()
+                } else {
+                    None
+                },
             )) {
                 return Err(UpdateError::InvalidCatalog("duplicate target"));
             }
-            let version = Version::parse(&entry.version)
-                .map_err(|_| UpdateError::InvalidCatalog("invalid semantic version"))?;
-            if entry.channel != "stable" || !version.pre.is_empty() {
-                return Err(UpdateError::InvalidCatalog("invalid stable version"));
-            }
-            entry
-                .published_at
-                .parse::<jiff::Timestamp>()
-                .map_err(|_| UpdateError::InvalidCatalog("invalid publication time"))?;
-            if entry.release_notes.is_empty() || entry.release_notes.len() > 16 * 1024 {
-                return Err(UpdateError::InvalidCatalog("invalid release notes"));
-            }
-            entry.action.clone().validate()?;
         }
         let target = target_key(&self.distribution);
-        let mut matching = catalog.entries.into_iter().filter(|entry| {
-            (
-                entry.edition.as_str(),
-                entry.channel.as_str(),
-                entry.os.as_str(),
-                entry.architecture.as_str(),
-            ) == target
-        });
-        let Some(entry) = matching.next() else {
-            return Ok(self.base_status(UpdatePhase::Unavailable));
+        let entry = catalog
+            .entries
+            .into_iter()
+            .filter(|entry| {
+                entry.edition == target.0 && entry.os == target.2 && entry.architecture == target.3
+            })
+            .max_by(|left, right| {
+                Version::parse(&left.version)
+                    .unwrap()
+                    .cmp_precedence(&Version::parse(&right.version).unwrap())
+            });
+        let Some(entry) = entry else {
+            let mut status = self.base_status(UpdatePhase::Unavailable);
+            status.message = Some(
+                "No compatible release is available in the selected catalog. Check again later."
+                    .into(),
+            );
+            return Ok(status);
         };
-        if matching.next().is_some() {
-            return Err(UpdateError::InvalidCatalog("duplicate target"));
-        }
         let available = Version::parse(&entry.version)
             .map_err(|_| UpdateError::InvalidCatalog("invalid semantic version"))?;
         let installed = Version::parse(&self.distribution.version)
             .map_err(|_| UpdateError::InvalidCatalog("invalid installed version"))?;
-        if available <= installed {
+        if !available.cmp_precedence(&installed).is_gt() {
             return Ok(self.base_status(UpdatePhase::UpToDate));
         }
         let action = entry.action.validate()?;
@@ -645,6 +804,57 @@ impl UpdateService {
             ..UpdateStatus::default()
         }
     }
+}
+
+fn validate_entry(entry: &CatalogEntry, policy: UpdatePolicy) -> Result<(), UpdateError> {
+    let expected_os = match entry.edition.as_str() {
+        "direct_macos" | "mac_app_store" => "macos",
+        "direct_windows" | "microsoft_store" => "windows",
+        "debian" => "linux",
+        _ => return Err(UpdateError::InvalidCatalog("unsupported edition")),
+    };
+    if entry.os != expected_os {
+        return Err(UpdateError::InvalidCatalog("unsupported platform"));
+    }
+    if !matches!(entry.architecture.as_str(), "aarch64" | "x86_64") {
+        return Err(UpdateError::InvalidCatalog("unsupported architecture"));
+    }
+    let version = Version::parse(&entry.version)
+        .map_err(|_| UpdateError::InvalidCatalog("invalid semantic version"))?;
+    let valid = if policy == UpdatePolicy::Stable {
+        entry.channel == "stable"
+            && version.pre.is_empty()
+            && entry
+                .classification
+                .as_deref()
+                .is_none_or(|value| value == "GA")
+    } else {
+        matches!(
+            entry.edition.as_str(),
+            "direct_macos" | "direct_windows" | "debian"
+        ) && match entry.classification.as_deref() {
+            Some("GA") => entry.channel == "stable" && version.pre.is_empty(),
+            Some("Alpha" | "Beta") => entry.channel == "prereleases",
+            _ => false,
+        }
+    };
+    if !valid {
+        return Err(UpdateError::InvalidCatalog("invalid stable version"));
+    }
+    entry
+        .published_at
+        .parse::<jiff::Timestamp>()
+        .map_err(|_| UpdateError::InvalidCatalog("invalid publication time"))?;
+    if entry.release_notes.is_empty() || entry.release_notes.len() > 16 * 1024 {
+        return Err(UpdateError::InvalidCatalog("invalid release notes"));
+    }
+    entry.action.clone().validate()?;
+    if policy == UpdatePolicy::Prereleases && entry.action.url != release_page(&entry.version) {
+        return Err(UpdateError::InvalidCatalog(
+            "preview action must open exact release",
+        ));
+    }
+    Ok(())
 }
 
 fn target_key(
@@ -685,7 +895,26 @@ fn cached_target(distribution: &InstalledDistribution) -> CachedTarget {
     }
 }
 
-fn cached_offer_valid(offer: &CachedOffer, distribution: &InstalledDistribution) -> bool {
+fn release_page(version: &str) -> String {
+    format!("https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{version}")
+}
+fn notification_target(distribution: &InstalledDistribution, version: &str) -> String {
+    let (_, _, os, architecture) = target_key(distribution);
+    format!(
+        "{}:{os}:{architecture}:{version}",
+        distribution.edition_key()
+    )
+}
+fn policy_target(distribution: &InstalledDistribution, policy: UpdatePolicy) -> CachedTarget {
+    let mut target = cached_target(distribution);
+    target.channel = policy.key().into();
+    target
+}
+fn cached_offer_valid_for_policy(
+    offer: &CachedOffer,
+    distribution: &InstalledDistribution,
+    policy: UpdatePolicy,
+) -> bool {
     let Some(target) = offer.target.as_ref() else {
         return false;
     };
@@ -695,14 +924,19 @@ fn cached_offer_valid(offer: &CachedOffer, distribution: &InstalledDistribution)
     let Ok(available) = Version::parse(&offer.version) else {
         return false;
     };
-    available > installed
+    available.cmp_precedence(&installed).is_gt()
         && (
             target.edition.as_str(),
             target.channel.as_str(),
             target.os.as_str(),
             target.architecture.as_str(),
-        ) == target_key(distribution)
+        ) == {
+            let target = target_key(distribution);
+            (target.0, policy.key(), target.2, target.3)
+        }
+        && (policy == UpdatePolicy::Prereleases || available.pre.is_empty())
         && offer.action.clone().validate().is_ok()
+        && (policy == UpdatePolicy::Stable || offer.action.url == release_page(&offer.version))
 }
 
 const fn edition_name(edition: DistributionEdition) -> &'static str {
@@ -895,6 +1129,7 @@ mod tests {
             version: "1.7.1".into(),
             architecture: ApplicationArchitecture::Aarch64,
             channel: ReleaseChannel::Stable,
+            published_classification: None,
             check_supported: true,
             direct_install_supported: false,
         }
@@ -1040,7 +1275,7 @@ mod tests {
             assert!(status.available_version.is_none());
             assert_eq!(status.last_successful_check, Some(100));
             assert_eq!(transport.calls.load(Ordering::Relaxed), 0);
-            assert!(!service.automatic_due());
+            assert!(service.automatic_due()); // Legacy timestamps do not establish target-scoped freshness.
             assert!(
                 persistence
                     .0
@@ -1479,5 +1714,446 @@ mod tests {
     fn existing_preferences_default_update_notifications_on() {
         let preferences: UpdatePreferences = serde_json::from_str("{}").unwrap();
         assert!(preferences.update_notifications);
+    }
+    fn preview_fixture() -> Vec<u8> {
+        include_bytes!("../../tests/fixtures/update-catalog/release-policy.json").to_vec()
+    }
+
+    #[tokio::test]
+    async fn policy_fixture_selects_newer_ga_and_numeric_previews_without_downgrades() {
+        let (service, transport) = service(
+            preview_fixture(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        service.set_automatic_checks(false).unwrap();
+        service.set_update_notifications(false).unwrap();
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        let status = service.check(true).await;
+        assert_eq!(status.available_version.as_deref(), Some("1.10.0"));
+        assert_eq!(status.action.unwrap().url, release_page("1.10.0"));
+        assert!(!status.automatic_checks);
+        assert!(!status.update_notifications);
+        let mut fixture: serde_json::Value = serde_json::from_slice(&preview_fixture()).unwrap();
+        fixture["entries"].as_array_mut().unwrap().remove(0);
+        *transport.result.lock().unwrap() = Ok(serde_json::to_vec(&fixture).unwrap());
+        assert_eq!(
+            service.check(true).await.available_version.as_deref(),
+            Some("1.9.0")
+        );
+        service.set_policy(UpdatePolicy::Stable).unwrap();
+        *transport.result.lock().unwrap() = Ok(catalog("1.7.1"));
+        assert_eq!(service.check(true).await.phase, UpdatePhase::UpToDate);
+        assert!(service.status().unwrap().action.is_none());
+    }
+
+    #[tokio::test]
+    async fn policy_defaults_restart_and_edition_changes_preserve_unrelated_preferences() {
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (service, _) = service(
+            preview_fixture(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence.clone(),
+        );
+        assert_eq!(service.preferences().unwrap().policy, UpdatePolicy::Stable);
+        service.set_automatic_checks(false).unwrap();
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        service.check(true).await;
+        let transport = Arc::new(FakeTransport {
+            result: Mutex::new(Ok(preview_fixture())),
+            calls: AtomicUsize::new(0),
+        });
+        let restarted = UpdateService::new(
+            distribution(),
+            transport.clone(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            restarted.status().unwrap().policy,
+            UpdatePolicy::Prereleases
+        );
+        assert_eq!(
+            restarted.status().unwrap().available_version.as_deref(),
+            Some("1.10.0")
+        );
+        let mut changed = distribution();
+        changed.edition = DistributionEdition::MacAppStore;
+        let changed = UpdateService::new(
+            changed,
+            transport,
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence,
+        )
+        .unwrap();
+        assert_eq!(changed.status().unwrap().policy, UpdatePolicy::Stable);
+        assert!(changed.status().unwrap().action.is_none());
+        assert!(!changed.status().unwrap().automatic_checks);
+        assert!(changed.set_policy(UpdatePolicy::Prereleases).is_err());
+        let legacy: UpdatePreferences =
+            serde_json::from_str(r#"{"automaticChecks":false,"updateNotifications":false}"#)
+                .unwrap();
+        assert_eq!(legacy.policy, UpdatePolicy::Stable);
+        assert!(!legacy.update_notifications);
+    }
+
+    #[test]
+    fn policy_capability_matrix_is_enforced_by_backend() {
+        for edition in [
+            DistributionEdition::DirectMacos,
+            DistributionEdition::DirectWindows,
+            DistributionEdition::Debian,
+            DistributionEdition::MicrosoftStore,
+            DistributionEdition::MacAppStore,
+            DistributionEdition::WindowsSideload,
+            DistributionEdition::Unknown,
+            DistributionEdition::Development,
+        ] {
+            for architecture in [
+                ApplicationArchitecture::Aarch64,
+                ApplicationArchitecture::X86_64,
+                ApplicationArchitecture::Unknown,
+            ] {
+                let mut package = distribution();
+                package.edition = edition;
+                package.architecture = architecture;
+                let expected = matches!(
+                    edition,
+                    DistributionEdition::DirectMacos
+                        | DistributionEdition::DirectWindows
+                        | DistributionEdition::Debian
+                ) && architecture != ApplicationArchitecture::Unknown;
+                let service = UpdateService::new(
+                    package,
+                    Arc::new(FakeTransport {
+                        result: Mutex::new(Ok(catalog("2.0.0"))),
+                        calls: AtomicUsize::new(0),
+                    }),
+                    Arc::new(FakeClock(AtomicU64::new(100))),
+                    Arc::new(MemoryPersistence::default()),
+                )
+                .unwrap();
+                assert_eq!(service.status().unwrap().prerelease_supported, expected);
+                assert_eq!(
+                    service.set_policy(UpdatePolicy::Prereleases).is_ok(),
+                    expected
+                );
+            }
+        }
+    }
+
+    struct GatedPolicyTransport {
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+        calls: AtomicUsize,
+    }
+    #[async_trait]
+    impl CatalogTransport for GatedPolicyTransport {
+        async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
+            self.fetch_policy(UpdatePolicy::Stable).await
+        }
+        async fn fetch_policy(&self, policy: UpdatePolicy) -> Result<Vec<u8>, UpdateError> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+            Ok(if policy == UpdatePolicy::Stable {
+                catalog("1.10.0")
+            } else {
+                preview_fixture()
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn policy_switch_regression_obsolete_response_cannot_restore_cache_or_notify() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let transport = Arc::new(GatedPolicyTransport {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+            calls: AtomicUsize::new(0),
+        });
+        let persistence = Arc::new(MemoryPersistence::default());
+        let service = Arc::new(
+            UpdateService::new(
+                distribution(),
+                transport.clone(),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                persistence.clone(),
+            )
+            .unwrap(),
+        );
+        let notices = Arc::new(AtomicUsize::new(0));
+        let old = {
+            let app = app.handle().clone();
+            let service = service.clone();
+            let notices = notices.clone();
+            tokio::spawn(async move {
+                run_check_and_deliver_with(
+                    &app,
+                    &service,
+                    true,
+                    || async { true },
+                    move |_| async move {
+                        notices.fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+                .await
+            })
+        };
+        transport.entered.notified().await;
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        service.set_policy(UpdatePolicy::Stable).unwrap();
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        assert!(service.status().unwrap().action.is_none());
+        let fresh = {
+            let service = service.clone();
+            tokio::spawn(async move { service.check(true).await })
+        };
+        tokio::task::yield_now().await;
+        transport.release.notify_one();
+        old.await.unwrap();
+        let current = fresh.await.unwrap();
+        assert_eq!(current.policy, UpdatePolicy::Prereleases);
+        assert_eq!(current.available_version.as_deref(), Some("1.10.0"));
+        assert_eq!(notices.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            persistence
+                .0
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .cached_offer
+                .as_ref()
+                .unwrap()
+                .target
+                .as_ref()
+                .unwrap()
+                .channel,
+            "prereleases"
+        );
+        assert!(
+            service
+                .claim_offer_generation("1.10.0", &release_page("1.10.0"), 0)
+                .is_err()
+        );
+        assert!(service.claim_notification(&current).unwrap());
+        service.set_policy(UpdatePolicy::Stable).unwrap();
+        let stable = service.check(true).await;
+        assert!(!service.claim_notification(&stable).unwrap());
+    }
+
+    #[tokio::test]
+    async fn policy_switch_regression_permission_wait_cannot_deliver_old_notice() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let (service, _) = service(
+            catalog("2.0.0"),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let notices = Arc::new(AtomicUsize::new(0));
+        let task = {
+            let app = app.handle().clone();
+            let service = service.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            let notices = notices.clone();
+            tokio::spawn(async move {
+                run_check_and_deliver_with(
+                    &app,
+                    &service,
+                    true,
+                    || async {
+                        entered.notify_one();
+                        release.notified().await;
+                        true
+                    },
+                    move |_| async move {
+                        notices.fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+                .await
+            })
+        };
+        entered.notified().await;
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        release.notify_one();
+        task.await.unwrap();
+        assert_eq!(notices.load(Ordering::SeqCst), 0);
+        assert!(
+            service
+                .preferences()
+                .unwrap()
+                .last_notified_target
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn policy_missing_empty_invalid_feed_and_exact_target_boundaries() {
+        let (service, transport) = service(
+            preview_fixture(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        for entries in [
+            serde_json::json!([]),
+            serde_json::json!([{"edition":"microsoft_store"}]),
+        ] {
+            *transport.result.lock().unwrap() = Ok(serde_json::to_vec(&serde_json::json!({"schemaVersion":2,"generatedAt":"2026-10-04T00:00:00Z","entries":entries})).unwrap());
+            assert_eq!(service.check(true).await.phase, UpdatePhase::Unavailable);
+        }
+        *transport.result.lock().unwrap() = Err("missing preview feed");
+        assert_eq!(service.check(true).await.phase, UpdatePhase::Unavailable);
+        let mut fixture: serde_json::Value = serde_json::from_slice(&preview_fixture()).unwrap();
+        for entry in fixture["entries"].as_array_mut().unwrap() {
+            entry["architecture"] = "x86_64".into();
+        }
+        *transport.result.lock().unwrap() = Ok(serde_json::to_vec(&fixture).unwrap());
+        assert_eq!(service.check(true).await.phase, UpdatePhase::Unavailable);
+    }
+    #[tokio::test]
+    async fn policy_semantic_ordering_promotion_and_return_to_stable_use_running_version() {
+        for (installed, candidate, classification, expected) in [
+            ("1.9.0", "1.10.0", "Alpha", UpdatePhase::UpdateAvailable),
+            (
+                "1.10.0-beta.2",
+                "1.10.0-beta.10",
+                "Beta",
+                UpdatePhase::UpdateAvailable,
+            ),
+            (
+                "1.10.0-beta.10",
+                "1.10.0",
+                "GA",
+                UpdatePhase::UpdateAvailable,
+            ),
+            ("1.10.0", "1.10.0", "GA", UpdatePhase::UpToDate),
+            ("1.10.0", "1.9.0", "GA", UpdatePhase::UpToDate),
+            ("1.10.0+old", "1.10.0+new", "GA", UpdatePhase::UpToDate),
+        ] {
+            let mut fixture: serde_json::Value =
+                serde_json::from_slice(&preview_fixture()).unwrap();
+            fixture["entries"] = serde_json::json!([fixture["entries"][0].clone()]);
+            fixture["entries"][0]["version"] = candidate.into();
+            fixture["entries"][0]["classification"] = classification.into();
+            fixture["entries"][0]["channel"] = if classification == "GA" {
+                "stable"
+            } else {
+                "prereleases"
+            }
+            .into();
+            fixture["entries"][0]["action"]["url"] = release_page(candidate).into();
+            let mut package = distribution();
+            package.version = installed.into();
+            let service = UpdateService::new(
+                package,
+                Arc::new(FakeTransport {
+                    result: Mutex::new(Ok(serde_json::to_vec(&fixture).unwrap())),
+                    calls: AtomicUsize::new(0),
+                }),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                Arc::new(MemoryPersistence::default()),
+            )
+            .unwrap();
+            service.set_policy(UpdatePolicy::Prereleases).unwrap();
+            assert_eq!(
+                service.check(true).await.phase,
+                expected,
+                "{installed} -> {candidate}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn policy_concurrent_same_second_manual_background_triggers_coalesce() {
+        let transport = Arc::new(GatedPolicyTransport {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+            calls: AtomicUsize::new(0),
+        });
+        let service = Arc::new(
+            UpdateService::new(
+                distribution(),
+                transport.clone(),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                Arc::new(MemoryPersistence::default()),
+            )
+            .unwrap(),
+        );
+        let first = {
+            let service = service.clone();
+            tokio::spawn(async move { service.check(true).await })
+        };
+        transport.entered.notified().await;
+        let second = {
+            let service = service.clone();
+            tokio::spawn(async move { service.check(true).await })
+        };
+        let background = {
+            let service = service.clone();
+            tokio::spawn(async move { service.check(false).await })
+        };
+        tokio::task::yield_now().await;
+        transport.release.notify_one();
+        assert_eq!(first.await.unwrap().phase, UpdatePhase::UpdateAvailable);
+        assert_eq!(second.await.unwrap().phase, UpdatePhase::UpdateAvailable);
+        assert_eq!(
+            background.await.unwrap().phase,
+            UpdatePhase::UpdateAvailable
+        );
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn policy_notification_history_survives_intervening_preview_and_restart() {
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (service, transport) = service(
+            catalog("1.10.0"),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence.clone(),
+        );
+        assert!(
+            service
+                .claim_notification(&service.check(true).await)
+                .unwrap()
+        );
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        let mut fixture: serde_json::Value = serde_json::from_slice(&preview_fixture()).unwrap();
+        fixture["entries"][2]["version"] = "1.11.0".into();
+        fixture["entries"][2]["action"]["url"] = release_page("1.11.0").into();
+        *transport.result.lock().unwrap() = Ok(serde_json::to_vec(&fixture).unwrap());
+        assert!(
+            service
+                .claim_notification(&service.check(true).await)
+                .unwrap()
+        );
+        service.set_policy(UpdatePolicy::Stable).unwrap();
+        *transport.result.lock().unwrap() = Ok(catalog("1.10.0"));
+        assert!(
+            !service
+                .claim_notification(&service.check(true).await)
+                .unwrap()
+        );
+        let restarted = UpdateService::new(
+            distribution(),
+            transport,
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence,
+        )
+        .unwrap();
+        assert!(
+            !restarted
+                .claim_notification(&restarted.status().unwrap())
+                .unwrap()
+        );
     }
 }

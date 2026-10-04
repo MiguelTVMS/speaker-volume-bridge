@@ -77,13 +77,14 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
     if not isinstance(catalog, dict):
         raise CatalogError("catalog root must be an object")
     _require_keys(catalog, {"schemaVersion", "generatedAt", "entries"}, "catalog")
-    if catalog["schemaVersion"] != 1:
+    if type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] not in (1, 2):
         raise CatalogError("unsupported schemaVersion")
     _timestamp(catalog["generatedAt"], "generatedAt")
     entries = catalog["entries"]
     if not isinstance(entries, list):
         raise CatalogError("entries must be an array")
 
+    preview = catalog["schemaVersion"] == 2
     targets: set[tuple[object, ...]] = set()
     for index, entry in enumerate(entries):
         context = f"entry {index}"
@@ -105,7 +106,7 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
         )
         for field, allowed in (
             ("edition", EDITIONS),
-            ("channel", CHANNELS),
+            ("channel", {"stable", "prereleases"} if preview else CHANNELS),
             ("os", OPERATING_SYSTEMS),
             ("architecture", ARCHITECTURES),
         ):
@@ -116,8 +117,23 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
         match = SEMVER.fullmatch(entry["version"])
         if match is None:
             raise CatalogError(f"{context} has invalid semantic version")
+        if match.group(4) and any(part.isdigit() and len(part) > 1 and part.startswith("0") for part in match.group(4).split(".")):
+            raise CatalogError(f"{context} has invalid semantic prerelease version")
         if entry["channel"] == "stable" and match.group(4) is not None:
             raise CatalogError(f"{context} stable entry cannot use a prerelease version")
+        classification = entry.get("classification")
+        if preview:
+            if entry["edition"] not in {"direct_macos", "direct_windows", "debian"}:
+                raise CatalogError("preview feed excludes Store editions")
+            if classification not in {"GA", "Alpha", "Beta"}:
+                raise CatalogError("preview feed requires publisher classification")
+            if entry["channel"] != ("stable" if classification == "GA" else "prereleases"):
+                raise CatalogError("classification conflicts with channel")
+        elif classification is not None and classification != "GA":
+            raise CatalogError("stable feed excludes previews")
+        expected_os = {"direct_macos": "macos", "mac_app_store": "macos", "direct_windows": "windows", "microsoft_store": "windows", "debian": "linux"}[entry["edition"]]
+        if entry["os"] != expected_os:
+            raise CatalogError("edition conflicts with platform")
         _timestamp(entry["publishedAt"], f"{context}.publishedAt")
         notes = entry["releaseNotes"]
         if not isinstance(notes, str) or not notes.strip() or len(notes.encode()) > MAX_NOTES_BYTES:
@@ -129,8 +145,12 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
         if not isinstance(action.get("type"), str) or action["type"] != "open_url":
             raise CatalogError(f"{context} has unsupported action")
         _https_url(action["url"], f"{context}.action.url")
+        if preview and action["url"] != "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v" + entry["version"]:
+            raise CatalogError("preview feed requires exact release page")
 
         target = (entry["edition"], entry["channel"], entry["os"], entry["architecture"])
+        if preview:
+            target += (classification,)
         if target in targets:
             raise CatalogError(f"duplicate target: {'/'.join(target)}")
         targets.add(target)

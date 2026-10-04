@@ -18,6 +18,8 @@ on:
       - "scripts/tests/test_update_catalog_publication.py"
       - "tests/fixtures/update-catalog/**"
       - "scripts/prepare-update-catalog.py"
+      - "scripts/verify-catalog-availability.py"
+      - "scripts/stamp-release-classification.py"
       - "scripts/validate-update-catalog.py"
       - ".github/workflows/update-catalog.yml"
       - "scripts/tests/test_website_guide.py"
@@ -66,5 +68,6 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog_publication.py
       - run: python3 scripts/validate-update-catalog.py
+      - run: python3 scripts/validate-update-catalog.py pages/updates/v2/catalog.json
       - run: python3 -m unittest discover -s scripts/tests -p test_website_guide.py
       - run: python3 -m unittest discover -s scripts/tests -p test_website_build_data.py

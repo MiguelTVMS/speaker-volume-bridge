@@ -31,6 +31,28 @@ pub async fn check_for_updates(app: AppHandle) -> Result<crate::updates::UpdateS
 }
 
 #[tauri::command]
+pub async fn set_update_policy(
+    policy: crate::updates::UpdatePolicy,
+    app: AppHandle,
+) -> Result<crate::updates::UpdateStatus, String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    manager
+        .service()
+        .set_policy(policy)
+        .map_err(|_| "Release policy is unavailable for this edition".to_owned())?;
+    let _ = app.emit(
+        "update-status-changed",
+        manager
+            .service()
+            .status()
+            .map_err(|error| error.to_string())?,
+    );
+    Ok(manager.check_and_deliver(&app, true).await)
+}
+
+#[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
 pub fn set_automatic_update_checks(enabled: bool, app: AppHandle) -> Result<(), String> {
     let manager = app
@@ -73,13 +95,18 @@ pub fn open_project_repository() -> Result<(), String> {
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
-pub fn open_update_page(version: String, url: String, app: AppHandle) -> Result<(), String> {
+pub fn open_update_page(
+    version: String,
+    url: String,
+    generation: u64,
+    app: AppHandle,
+) -> Result<(), String> {
     let manager = app
         .try_state::<crate::updates::UpdateManager>()
         .ok_or_else(|| "Update checking is unavailable".to_owned())?;
     let action = manager
         .service()
-        .claim_offer(&version, &url)
+        .claim_offer_generation(&version, &url, generation)
         .map_err(|_| "That update offer changed. Check again before opening it.".to_owned())?;
     let result = open_url_with_system(&action.url);
     manager.service().finish_open();

@@ -59,11 +59,13 @@ def _target(value: dict[str, object], context: str) -> tuple[object, ...]:
     return tuple(value[field] for field in TARGET_FIELDS)
 
 
-def _semver(value: object) -> tuple[int, int, int]:
+def _semver(value: object):
     match = VALIDATOR.SEMVER.fullmatch(value) if isinstance(value, str) else None
-    if match is None or match.group(4) is not None:
-        raise PublicationError("published version must be a stable semantic version")
-    return tuple(int(match.group(index)) for index in range(1, 4))
+    if match is None:
+        raise PublicationError("published version must be a semantic version")
+    pre = match.group(4)
+    identifiers = tuple((0, int(part)) if part.isdigit() else (1, part) for part in pre.split(".")) if pre else ()
+    return (*[int(match.group(index)) for index in range(1, 4)], pre is None, identifiers)
 
 
 def _verify_source(source: object, entry: dict[str, object]) -> None:
@@ -74,10 +76,16 @@ def _verify_source(source: object, entry: dict[str, object]) -> None:
         _exact(
             source,
             {"kind", "draft", "prerelease", "requiredAssets", "availableAssets"},
-            set(),
+            {"releaseBody", "tagName", "public"},
             "source",
         )
-        if source["draft"] is not False or source["prerelease"] is not False:
+        classification = entry.get("classification", "GA")
+        if entry.get("channel") == "prereleases" or "classification" in entry:
+            body = source.get("releaseBody", "")
+            markers = re.findall(r"^\*\*Release channel:\*\* (GA|Alpha|Beta)\s*$", body, re.MULTILINE) if isinstance(body, str) else []
+            if markers != [classification] or source.get("tagName") != "v" + entry["version"] or source.get("public") is not True:
+                raise PublicationError("classification requires independently fetched public release metadata")
+        if source["draft"] is not False or source["prerelease"] is not (classification != "GA"):
             raise PublicationError("draft and prerelease GitHub releases are not publishable")
         required = source["requiredAssets"]
         available = source["availableAssets"]
@@ -130,10 +138,11 @@ def prepare_catalog(
         if not isinstance(entry, dict):
             raise PublicationError("entry must be an object")
         _verify_source(record["source"], entry)
-        candidate = {"schemaVersion": 1, "generatedAt": generated_at, "entries": [entry]}
+        candidate = {"schemaVersion": catalog["schemaVersion"], "generatedAt": generated_at, "entries": [entry]}
         VALIDATOR.validate_catalog_bytes(json.dumps(candidate).encode())
-        target = tuple(entry[field] for field in TARGET_FIELDS)
-        matching = [index for index, current in enumerate(entries) if tuple(current[field] for field in TARGET_FIELDS) == target]
+        fields = TARGET_FIELDS + (("classification",) if catalog["schemaVersion"] == 2 else ())
+        target = tuple(entry[field] for field in fields)
+        matching = [index for index, current in enumerate(entries) if tuple(current[field] for field in fields) == target]
         if matching:
             index = matching[0]
             current = entries[index]
@@ -153,8 +162,10 @@ def prepare_catalog(
             raise PublicationError("withdrawal reason must be non-empty")
         if not isinstance(record["target"], dict):
             raise PublicationError("withdrawal target must be an object")
-        target = _target(record["target"], "target")
-        retained = [entry for entry in entries if tuple(entry[field] for field in TARGET_FIELDS) != target]
+        fields = TARGET_FIELDS + (("classification",) if catalog["schemaVersion"] == 2 else ())
+        _exact(record["target"], set(fields), set(), "target")
+        target = tuple(record["target"][field] for field in fields)
+        retained = [entry for entry in entries if tuple(entry[field] for field in fields) != target]
         changed = len(retained) != len(entries)
         entries = retained
     else:

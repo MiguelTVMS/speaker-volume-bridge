@@ -27,7 +27,7 @@ import { applySpeakerControls, type SpeakerSettings } from './speaker-controls';
 import { SliderInteraction } from './slider-interaction';
 import { LiveStatus } from './live-status';
 import { UserWrites } from './user-writes';
-import { editionLabel, updateStateText, type UpdateStatus } from './updates';
+import { editionLabel, releasePolicyControl, updateStateText, type UpdateStatus } from './updates';
 import './style.css';
 import './platform.css';
 import './windows.css';
@@ -391,9 +391,10 @@ function render(nextSnapshot: Snapshot): void {
           <p id="update-state" class="setting-note update-state${updateStatus.phase === 'update_available' ? ' update-state-available' : ''}" aria-live="polite">${escapeHtml(updateStateText(updateStatus))}</p>
           <div class="settings-group" data-update>
             <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${updateStatus.lastSuccessfulCheck ? escapeHtml(new Date(updateStatus.lastSuccessfulCheck * 1000).toLocaleString()) : 'Never'}</dd></div></dl>
+            ${releasePolicyControl(updateStatus)}
             <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks the project catalog without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
             <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
-            <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="primary" type="button" id="open-update-page" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button></div>
+            <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="primary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button></div>
           </div>`,
         )}
         ${panel(
@@ -499,6 +500,9 @@ function render(nextSnapshot: Snapshot): void {
   document.querySelector('#reset')?.addEventListener('click', reset);
   document.querySelector('#discover')?.addEventListener('click', discoverSonos);
   document.querySelector('#outputs')?.addEventListener('click', refreshAudioOutputs);
+  app.querySelector<HTMLSelectElement>('#update-policy')?.addEventListener('change', (event) => {
+    void setUpdatePolicy((event.target as HTMLSelectElement).value as 'stable' | 'prereleases');
+  });
   document
     .querySelector('#check-for-updates')
     ?.addEventListener('click', () => void checkForUpdates());
@@ -819,12 +823,41 @@ async function checkForUpdates(): Promise<void> {
   updateStatus = { ...updateStatus, phase: 'checking', message: null };
   if (snapshot) render(snapshot);
   try {
-    updateStatus = await invoke<UpdateStatus>('check_for_updates');
+    const result = await invoke<UpdateStatus>('check_for_updates');
+    if ((result.generation ?? 0) >= (updateStatus.generation ?? 0)) updateStatus = result;
     if (snapshot) render(snapshot);
   } catch (error) {
     updateStatus = { ...updateStatus, phase: 'unavailable', message: String(error) };
     if (snapshot) render(snapshot);
   }
+}
+
+let updatePolicyRequest = 0;
+async function setUpdatePolicy(policy: 'stable' | 'prereleases'): Promise<void> {
+  const request = ++updatePolicyRequest;
+  updateStatus = {
+    ...updateStatus,
+    policy,
+    generation: (updateStatus.generation ?? 0) + 1,
+    phase: 'checking',
+    availableVersion: null,
+    action: null,
+    message: null,
+  };
+  if (snapshot) render(snapshot);
+  try {
+    const result = await invoke<UpdateStatus>('set_update_policy', { policy });
+    if (request === updatePolicyRequest) updateStatus = result;
+  } catch (error) {
+    if (request === updatePolicyRequest) {
+      updateStatus = {
+        ...updateStatus,
+        phase: 'unavailable',
+        message: `${String(error)}. Check again to retry.`,
+      };
+    }
+  }
+  if (snapshot) render(snapshot);
 }
 
 async function setAutomaticUpdateChecks(enabled: boolean): Promise<void> {
@@ -861,7 +894,11 @@ async function openProjectRepository(): Promise<void> {
 
 async function openUpdatePage(button: HTMLButtonElement): Promise<void> {
   try {
-    await invoke('open_update_page', { version: button.dataset.version, url: button.dataset.url });
+    await invoke('open_update_page', {
+      version: button.dataset.version,
+      url: button.dataset.url,
+      generation: Number(button.dataset.generation ?? 0),
+    });
     notice('');
   } catch (error) {
     notice(String(error));
@@ -981,7 +1018,8 @@ async function refreshAllSettings(): Promise<void> {
     )
       return;
     setSystemHour12(hour12);
-    if (nextUpdateStatus) updateStatus = nextUpdateStatus;
+    if (nextUpdateStatus && (nextUpdateStatus.generation ?? 0) >= (updateStatus.generation ?? 0))
+      updateStatus = nextUpdateStatus;
     speakerSettings = speaker;
     if (outputs) audioOutputs = outputs;
     if (discovered) {
@@ -1064,6 +1102,7 @@ if (isTauri()) {
     activatePage('schedule');
   });
   void listen<UpdateStatus>('update-status-changed', ({ payload }) => {
+    if ((payload.generation ?? 0) < (updateStatus.generation ?? 0)) return;
     updateStatus = payload;
     if (snapshot) render(snapshot);
   });

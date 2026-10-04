@@ -774,3 +774,38 @@ storefront listing, installed-package classification, native default-browser
 activation, or a Pages deployment. No release was published and no `main` site
 deployment was triggered during phase 1.5; those checks remain separate release
 acceptance gates.
+
+## Release policy prerequisite (#178)
+
+Automated: consumer, validator and actual publication mutations share
+`release-policy.json`. Coverage includes numeric GA/Beta/Alpha classification,
+newer GA selection, metadata retention, stable-feed exclusion, publisher evidence,
+compatible assets, semantic ordering, capability/backend matrix, legacy defaults,
+restart, edition normalization, missing/empty feed, architecture isolation and
+explicit checks with automatic checks off. Production `run_check_and_deliver_with`
+regressions gate a response across rapid Stable/Prereleases switches and gate
+notification permission across a switch. The obsolete-response test fails when
+its commit guard is removed and passes with the guard restored. Browser tests
+exercise selection, copy, progress/error/retry and unsupported-edition absence.
+
+Native acceptance remains unverified: local browser preview uses simulated IPC
+and does not prove signed package provenance, OS notifications or default browser
+opening. On installed direct macOS, Windows x64/ARM64 and official Debian x64/ARM64:
+start with Stable, disable automatic checks, select Prereleases, observe one check,
+restart and confirm selection persists. With a delayed controlled feed, switch
+Stable/Prereleases rapidly and confirm obsolete offers never return. Activate an
+old notification and confirm it opens current Updates state; an old queued link
+must fail. Open the available release page and verify the exact release and native
+browser. Return to Stable on a newer preview and confirm no downgrade. Verify
+Store and sideloaded packages omit/reject policy selection; repeat after distribution
+change with preserved preferences. Keep speaker synchronization active throughout.
+Signed packages and those other operating systems are unavailable in this local
+run; do not infer native acceptance from browser or orchestration tests. No catalog
+entry, deployment, release, download or installation is authorized by this work.
+
+Dark dropdown follow-up: the supplied dark-mode popup used inherited light text on
+an unstyled light native menu surface. Shared option styling now supplies both
+foreground and background from the same palette. Browser regression reproduces
+transparent option backgrounds before the fix, then verifies opaque backgrounds
+and at least 4.5:1 text contrast for Devices, Night schedule and Updates. Native
+platform popup rendering still needs installed-package verification.

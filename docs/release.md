@@ -354,3 +354,25 @@ fails, inspect both before retrying; updates are not atomic across environments.
 This is an explicit administrative step after PR approval: merging the PR does
 not change live settings or initiate a release. See GitHub's
 [environment API](https://docs.github.com/en/rest/deployments/environments#create-or-update-an-environment).
+
+## Release policy publication prerequisite
+
+The release workflow stamps GA/Alpha/Beta package provenance separately from user
+policy. Preserve the existing publisher body marker, even for numeric preview
+versions. Publish no catalog entry until a non-draft public release and the exact
+compatible assets have been independently verified. Stable schema v1 remains GA
+only. Combined schema v2 contains direct macOS/Windows and official Debian GA plus
+Alpha/Beta candidates; never Store entries. The consumer picks the highest compatible
+semantic version, not the newest publication timestamp.
+
+Use the reviewed catalog proposal workflow's `feed` choice (`v1` or `v2`) and the
+digest of that specific feed. V2 entries require classification and an exact release
+page action. The workflow fetches publisher evidence and validates both feeds,
+then opens a focused PR to develop. Review, merge and normal main/site promotion
+are separate gates. A GA intended for both policies needs independently reviewed
+entries in both feeds. Do not assume code merge or release creation deployed either
+catalog. Validate served bytes and cache headers for both after approved deployment.
+For withdrawal, v2 target records additionally name `classification`; preserve other
+classifications/distributions. Conflicts and stale digests require rereading develop.
+Issue #178 implements notification/page delivery only; phases 2 and 3 remain gated
+on acceptance and must reuse its policy before any future installer operation.

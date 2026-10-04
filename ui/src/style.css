@@ -225,6 +225,12 @@ select {
   background: var(--surface-strong);
   color: var(--text);
 }
+/* Popup menus can retain a light native surface even when the closed control
+   inherits dark text colors. Give options both sides of the same palette. */
+select option {
+  background-color: var(--surface-strong);
+  color: var(--text);
+}
 input[type='range'] {
   accent-color: var(--accent);
 }

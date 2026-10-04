@@ -59,11 +59,11 @@ Catalog entries deliberately lag package creation. First complete the ordinary
 `develop` release-candidate flow and publish the stable release through its
 approved promotion PR. Confirm each direct-download asset is publicly retrievable,
 or separately confirm the exact Store edition is publicly listed. Drafts,
-prereleases, submissions and uploads are not availability evidence.
+prereleases in the stable feed, submissions and uploads are not stable availability evidence.
 
 From `develop`, run **Propose update catalog** with a JSON availability record and
 the SHA-256 of the catalog that was reviewed. The workflow serializes writers,
-revalidates the full document, changes only `pages/updates/v1/catalog.json`, and
+revalidates the full document, changes only the selected versioned catalog, and
 opens a focused PR back to `develop`. It never publishes a package or deploys the
 site. Repeated evidence is idempotent; older versions, incomplete asset sets,
 unverified Store listings and stale catalog digests fail closed. Each architecture
@@ -244,3 +244,17 @@ it will become available after the first GA release containing that asset.
 The Windows card likewise provides x64 and ARM64 buttons. Publish both
 Windows installer assets in a stable release before deploying
 the updated website. Generated Markdown and llms.txt carry the same choices.
+
+### Combined preview feed
+
+The proposal workflow now selects v1 (unchanged stable-only transport) or v2
+(combined GA/Alpha/Beta transport). V2 uses the same reviewed writer and site
+promotion flow, with exact release page actions and mandatory publisher
+classification. The workflow independently fetches public GitHub release metadata
+and compatible nonempty assets before preparing direct availability records.
+Numeric preview versions are classified from the publisher's release-body marker
+and matching GitHub prerelease status. V2 excludes Store targets. Duplicate targets
+include classification; withdrawal identifies it too. Select the maximum semantic
+version across matching edition/OS/application-architecture candidates. A GA must
+be proposed to both feeds if it should reach both policies. Validate both served
+catalogs after deployment; a missing/empty preview feed remains unavailable.

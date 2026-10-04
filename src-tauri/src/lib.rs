@@ -196,6 +196,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             commands::set_speaker_level,
             commands::use_tv_audio,
             commands::get_update_status,
+            commands::set_update_policy,
             commands::check_for_updates,
             commands::set_automatic_update_checks,
             commands::dismiss_update,

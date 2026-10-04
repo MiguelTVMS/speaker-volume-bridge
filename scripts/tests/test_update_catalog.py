@@ -67,7 +67,7 @@ class UpdateCatalogTests(unittest.TestCase):
         self.assert_invalid(raw([entry(), entry(version="2.0.1")]), "duplicate target")
 
     def test_rejects_unsupported_schema_and_action(self):
-        self.assert_invalid(raw(schemaVersion=2), "unsupported schemaVersion")
+        self.assert_invalid(raw(schemaVersion=3), "unsupported schemaVersion")
         self.assert_invalid(raw([entry(action={"type": "execute", "url": "https://example.invalid"})]), "unsupported action")
 
     def test_rejects_missing_or_unknown_edition(self):

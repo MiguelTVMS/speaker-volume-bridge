@@ -369,3 +369,10 @@ their normal selection/write serialization and explicit stop behavior. See
 [manual removal guide](removing-old-app.md).
 
 Windows installer directory migration stays in the NSIS adapter: only the former default folder is relocated; custom directories, data identity and Store identity remain stable. See ADR 0018.
+
+The update service also owns the persisted Stable/Prereleases policy and explicit
+package capability. Policy changes increment a generation before clearing offers;
+responses, notification claims and queued page actions revalidate that generation.
+Stable clients retain schema v1; opted-in clients select the newest compatible GA,
+Alpha or Beta from schema v2. Installed publisher classification is separate from
+user preference. Later installers must consume this same contract. See ADR 0019.

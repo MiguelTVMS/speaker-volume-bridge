@@ -656,7 +656,7 @@ mod tests {
         }
     }
     fn catalog(version: &str) -> Vec<u8> {
-        format!(r#"{{"schemaVersion":1,"generatedAt":"2026-10-04T00:00:00Z","entries":[{{"edition":"direct_macos","channel":"stable","os":"macos","architecture":"aarch64","version":"{version}","publishedAt":"2026-10-04T00:00:00Z","releaseNotes":"Notes","action":{{"type":"open_url","url":"https://svb.miguel.ms/upgrade.html"}}}}]}}"#).into_bytes()
+        format!(r#"{{"schemaVersion":1,"generatedAt":"2026-10-04T00:00:00Z","entries":[{{"edition":"direct_macos","channel":"stable","os":"macos","architecture":"aarch64","version":"{version}","publishedAt":"2026-10-04T00:00:00Z","releaseNotes":"Notes","action":{{"type":"open_url","url":"https://svb.miguel.ms/guide/Upgrading.html"}}}}]}}"#).into_bytes()
     }
     fn service(
         bytes: Vec<u8>,
@@ -727,7 +727,10 @@ mod tests {
     async fn invalid_target_never_reaches_persisted_status() {
         let bytes = String::from_utf8(catalog("2.0.0"))
             .unwrap()
-            .replace("https://svb.miguel.ms/upgrade.html", "file:///tmp/run")
+            .replace(
+                "https://svb.miguel.ms/guide/Upgrading.html",
+                "file:///tmp/run",
+            )
             .into_bytes();
         let (active, _) = service(
             bytes,
@@ -789,23 +792,23 @@ mod tests {
         assert!(active.dismiss("2.0.1").is_err());
         assert!(
             active
-                .claim_offer("1.9.0", "https://svb.miguel.ms/upgrade.html")
+                .claim_offer("1.9.0", "https://svb.miguel.ms/guide/Upgrading.html")
                 .is_err()
         );
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/upgrade.html")
+                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
                 .is_ok()
         );
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/upgrade.html")
+                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
                 .is_err()
         );
         active.finish_open();
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/upgrade.html")
+                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
                 .is_ok()
         );
     }

@@ -1,9 +1,13 @@
+---
+layout: null
+---
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <!-- Consent defaults are queued before the consent-gated GTM loader. -->
     <script src="consent.js" defer></script>
+    <script src="external-links.js" defer></script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Speaker Volume Bridge | Sync device and speaker volume</title>
     <meta
@@ -26,9 +30,9 @@
       content="Synchronize your computer’s audio device volume with your Sonos speaker. Free and open source for macOS, Windows, and Linux."
     />
     <meta property="og:url" content="https://svb.miguel.ms/" />
-    <meta property="og:image" content="https://svb.miguel.ms/social-icon.png" />
-    <meta property="og:image:alt" content="Speaker Volume Bridge app icon" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="https://svb.miguel.ms/social-preview.png" />
+    <meta property="og:image:alt" content="Speaker Volume Bridge connecting a computer and speaker" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
       content="Speaker Volume Bridge | Sync device and speaker volume"
@@ -39,7 +43,7 @@
     />
     <meta
       name="twitter:image"
-      content="https://svb.miguel.ms/social-icon.png"
+      content="https://svb.miguel.ms/social-preview.png"
     />
     <link
       rel="alternate"
@@ -64,7 +68,7 @@
         ],
         "isAccessibleForFree": true,
         "license": "https://svb.miguel.ms/license.txt",
-        "image": "https://svb.miguel.ms/social-icon.png",
+        "image": "https://svb.miguel.ms/social-preview.png",
         "downloadUrl": "https://svb.miguel.ms/#downloads",
         "sameAs": "https://github.com/MiguelTVMS/speaker-volume-bridge",
         "offers": {
@@ -74,47 +78,19 @@
         }
       }
     </script>
-  <meta property="og:image:width" content="512" />
-    <meta property="og:image:height" content="512" />
+  <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
     <meta property="og:image:type" content="image/png" />
-    <meta name="twitter:image:alt" content="Speaker Volume Bridge app icon" />
+    <meta name="twitter:image:alt" content="Speaker Volume Bridge connecting a computer and speaker" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
-    <header class="header wrap">
-      <a class="brand" href="./"
-        ><img class="mark" src="icon.svg" width="32" height="32" alt="" /> Speaker Volume Bridge</a
-      >
-      <nav aria-label="Main navigation">
-        <a href="./#features">Features</a><a href="./#downloads">Downloads</a
-        ><a href="privacy.html">Privacy</a
-        ><a href="https://github.com/MiguelTVMS/speaker-volume-bridge/wiki"
-          >Wiki ↗</a
-        >
-        <a
-          class="github-link"
-          href="https://github.com/MiguelTVMS/speaker-volume-bridge"
-          aria-label="View source on GitHub"
-          title="View source on GitHub"
-          ><svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <path
-              d="M12 .297C5.37.297 0 5.67 0 12.297c0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.729.083-.729 1.205.084 1.838 1.237 1.838 1.237 1.07 1.835 2.809 1.305 3.495.998.108-.776.418-1.305.762-1.605-2.665-.305-5.467-1.334-5.467-5.93 0-1.31.469-2.38 1.236-3.22-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.301 1.23a11.52 11.52 0 0 1 3.003-.404c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.655 1.652.243 2.873.12 3.176.77.84 1.235 1.91 1.235 3.22 0 4.61-2.807 5.622-5.479 5.92.43.372.823 1.102.823 2.222 0 1.606-.015 2.898-.015 3.293 0 .322.216.694.825.576C20.565 22.092 24 17.595 24 12.297c0-6.627-5.373-12-12-12"
-            /></svg
-        ></a>
-      </nav>
-    </header>
+    {% include site-header.html %}
     <main id="main">
       <section class="hero wrap">
         <div>
           <p class="eyebrow">
-            <span class="dot"></span> FOR macOS, WINDOWS &amp; LINUX
+            <span class="dot"></span> For macOS, Windows &amp; Linux
           </p>
           <h1>Your device.<br />Your speaker.<br /><span>In sync.</span></h1>
           <p class="intro">
@@ -127,7 +103,7 @@
               >Download the app <span aria-hidden="true">↓</span></a
             ><a
               class="text-link"
-              href="https://github.com/MiguelTVMS/speaker-volume-bridge/wiki"
+              href="/guide/"
               >Read the guide ↗</a
             >
           </div>
@@ -363,7 +339,7 @@
       </section>
       <section id="downloads" class="section wrap downloads">
         <p class="eyebrow">DOWNLOAD SPEAKER VOLUME BRIDGE</p>
-        <p>Formerly Sonos Volume Bridge. <a href="upgrade.html">Upgrade instructions</a>.</p>
+        <p>Formerly Sonos Volume Bridge. <a href="/guide/Upgrading.html">Upgrade instructions</a>.</p>
         <h2>At home on your computer.</h2>
         <p class="intro">
           Free and open source. Choose the download for your operating system.
@@ -522,7 +498,7 @@
         <p class="download-help">
           Need a hand?
           <a
-            href="https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Installation"
+            href="/guide/Installation.html"
             >Read the installation guide ↗</a
           >
         </p>
@@ -538,7 +514,7 @@
             </p>
             <a
               class="text-link"
-              href="https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Installation"
+              href="/guide/Installation.html"
               >Full installation guide ↗</a
             >
           </div>
@@ -574,7 +550,8 @@
           <p>
             No advertising, analytics, or publisher telemetry in the app.
             Preferences and diagnostic logs stay on your computer unless you
-            choose to share them.
+            choose to share them. Optional update checks read the public project
+            catalog without sending speaker or configuration data.
           </p>
           <a class="text-link" href="privacy.html">Read the privacy policy →</a>
         </div>
@@ -609,7 +586,7 @@
           </p>
           <a
             class="text-link"
-            href="https://github.com/MiguelTVMS/speaker-volume-bridge/wiki/Compatibility-and-Limitations"
+            href="/guide/Compatibility-and-Limitations.html"
             >Compatibility &amp; limitations ↗</a
           >
         </div>
@@ -619,136 +596,20 @@
         <h2>Ready to find your volume?</h2>
         <p>
           Free to use and open source under the
-          <a href="license.txt">MIT license</a>.<br />Explore the wiki for
+          <a href="license.txt">MIT license</a>.<br />Explore the guide for
           detailed settings, troubleshooting, and help.
         </p>
         <div class="actions">
           <a class="button" href="#downloads">Choose your download ↓</a
           ><a
             class="text-link"
-            href="https://github.com/MiguelTVMS/speaker-volume-bridge/wiki"
-            >Explore the wiki ↗</a
+            href="/guide/"
+            >Explore the guide ↗</a
           >
         </div>
       </section>
     </main>
-    <footer class="wrap">
-      <div class="footer-top">
-        <a class="brand" href="./"
-          ><img
-            class="mark"
-            src="icon.svg"
-            width="32"
-            height="32"
-            alt=""
-          />Speaker Volume Bridge</a
-        >
-        <div>
-          <button id="consent-open" class="consent-open" type="button">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-              aria-hidden="true"
-            >
-              <path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z" />
-              <path d="m8 12 3 3 5-6" />
-            </svg>
-            Privacy choices
-          </button>
-          <a href="privacy.html">Privacy policy</a
-          ><a href="license.txt">MIT license</a
-          ><a href="https://github.com/MiguelTVMS/speaker-volume-bridge"
-            >Source code ↗</a
-          >
-        </div>
-      </div>
-      <p>
-        Independent software. Not affiliated with, sponsored by, endorsed by, or
-        supported by Sonos. Sonos and related product names are trademarks of
-        their respective owners and are used only to identify compatibility.
-        This project contains no Sonos source code.
-      </p>
-      <small>Made for the volume controls you already use.</small>
-      <noscript
-        ><p>
-          JavaScript is disabled. Optional website tracking is not loaded.
-        </p></noscript
-      >
-    </footer>
-    <section
-      id="consent-banner"
-      class="consent-banner"
-      aria-labelledby="consent-title"
-      hidden
-    >
-      <div class="consent-intro">
-        <h2 id="consent-title">Your privacy choices</h2>
-        <p>
-          We use essential storage to remember your choice. With your
-          permission, Google tags can measure website use and advertising.
-          Optional tracking is off until you choose.
-          <a href="privacy.html#website-privacy"
-            >Read the website privacy notice</a
-          >.
-        </p>
-      </div>
-      <div class="consent-actions">
-        <button id="consent-reject" type="button">Reject optional</button
-        ><button id="consent-accept" type="button">Accept all</button
-        ><button
-          id="consent-customize"
-          type="button"
-          aria-expanded="false"
-          aria-controls="consent-advanced"
-        >
-          Advanced
-        </button>
-      </div>
-      <div id="consent-advanced" hidden>
-        <div class="consent-option">
-          <div>
-            <strong>Essential</strong>
-            <p>
-              Remembers your privacy choice on this browser for up to 180 days.
-              Required for consent preferences.
-            </p>
-          </div>
-          <span>Always on</span>
-        </div>
-        <label class="consent-option" for="consent-analytics"
-          ><span
-            ><strong>Analytics</strong
-            ><span
-              >Allow measurement of page visits and interactions to understand
-              how the website is used.</span
-            ></span
-          ><input id="consent-analytics" type="checkbox"
-        /></label>
-        <label class="consent-option" for="consent-advertising"
-          ><span
-            ><strong>Advertising measurement</strong
-            ><span
-              >Allow advertising cookies and sharing advertising-related
-              interaction data with Google to measure campaigns.</span
-            ></span
-          ><input id="consent-advertising" type="checkbox"
-        /></label>
-        <label class="consent-option" for="consent-personalization"
-          ><span
-            ><strong>Personalized advertising</strong
-            ><span
-              >Allow advertising data to personalize ads. Requires advertising
-              measurement.</span
-            ></span
-          ><input id="consent-personalization" type="checkbox" disabled
-        /></label>
-        <button id="consent-save" type="button">Save choices</button>
-      </div>
-      <p id="consent-status" role="status"></p>
-    </section>
+    {% include site-footer.html %}
+    {% include consent-banner.html %}
   </body>
 </html>

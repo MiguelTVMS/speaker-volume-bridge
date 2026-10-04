@@ -1,22 +1,45 @@
 # Public website
 
-The user-facing website lives in `pages/`. It uses static HTML and CSS with local
-assets, no build dependencies, and no third-party fonts. Optional tracking is
-managed through a consent-gated Google Tag Manager integration. The desktop
-application and its build remain separate.
+The user-facing website lives in `pages/`. Jekyll assembles static HTML from the
+page sources, shared layouts and includes, with local CSS and no third-party
+fonts. Optional tracking is managed through a consent-gated Google Tag Manager
+integration. The desktop application and its build remain separate.
+
+Shared site chrome lives in `pages/_includes/`. The Markdown-backed guide lives
+in `pages/guide/` and uses `pages/_layouts/guide.html`. Edit a shared header,
+footer, consent panel, breadcrumb, or guide navigation once rather than copying
+markup between pages.
+
+Before Jekyll runs, `scripts/generate-website-build-data.py` writes branch/ref,
+revision, and project version into `pages/_data/build.json`. It prefers a root
+`package.json` version when present and otherwise uses the Cargo workspace
+version. The shared footer renders this build identity. The file is generated
+and ignored rather than committed, so local, PR, and `main` builds each describe
+their actual source. This build identity does not replace the separately
+verified GA version stated in the user guide.
+
+The documented GA version has one source: `pages/_data/release.json`. Guide
+Markdown uses `{{ site.data.release.version }}` wherever it refers to the current
+release. Jekyll resolves the token in rendered HTML, and
+`scripts/publish-website-markdown.py` resolves it when publishing raw `.md`
+alternates for people, crawlers, and language models. Update the JSON value once
+when the guide moves to a new GA release; keep historical release and toolchain
+versions literal.
 
 ## Preview
 
-Run `python3 -m http.server 8080 --directory pages` from the repository root and
-open `http://localhost:8080`. Check both the landing page and privacy page at
-mobile and desktop widths. Relative asset and navigation URLs support both a
-GitHub project subpath and a custom domain.
+Use a local Jekyll environment to run `bundle exec jekyll serve --source pages`
+from the repository root, then open `http://localhost:4000`. A plain Python file
+server does not expand the shared includes or render the guide Markdown. Check
+the landing, guide, privacy, and guide upgrade pages at mobile and desktop widths.
 
 ## Publish
 
 In repository Settings > Pages, select **GitHub Actions** as the source. The
-Website workflow publishes only `pages/` when changes to that directory or the
-workflow reach `main`. It does not depend on release creation or application
+Website workflow builds `pages/` with the official GitHub Pages Jekyll action
+when changes to that directory or the workflow reach `main`. It then publishes
+resolved guide Markdown beside the rendered HTML before uploading the artifact.
+It does not depend on release creation or application
 packaging. Manual dispatch is supported on `main` only. Configure the
 `github-pages` environment to allow deployments from `main`.
 
@@ -93,14 +116,14 @@ Example direct-release evidence:
     "version": "1.8.0",
     "publishedAt": "2026-10-04T12:00:00Z",
     "releaseNotes": "Stable release notes.",
-    "action": {"type": "open_url", "url": "https://svb.miguel.ms/upgrade.html"}
+    "action": {"type": "open_url", "url": "https://svb.miguel.ms/guide/Upgrading.html"}
   }
 }
 ```
 
 ## Content maintenance
 
-Keep feature descriptions aligned with README.md and the user wiki. The website
+Keep feature descriptions aligned with README.md and the website guide. The website
 privacy page reproduces PRIVACY.md and adds a separate website hosting notice.
 When the application policy changes, update both copies together, preserving
 its effective date. The policy currently names Windows and macOS audio outputs;
@@ -125,18 +148,22 @@ Older releases do not gain these files automatically.
 
 ## Search and assistant discovery
 
-The canonical origin is `https://svb.miguel.ms`. All three HTML pages declare canonical,
-Open Graph, social-card, and JSON-LD metadata. The sitemap lists only canonical
-HTML pages. robots.txt allows crawling and links to the sitemap. llms.txt is a
+The canonical origin is `https://svb.miguel.ms`. All static and generated guide
+pages declare canonical, Open Graph, social-card, Markdown alternate, and JSON-LD
+metadata. Guide pages also publish breadcrumb markup and structured data. The
+sitemap lists canonical HTML pages and is generated from the source inventory.
+robots.txt allows crawling and links to the sitemap. llms.txt is a
 curated project guide, an emerging convention rather than a ranking guarantee.
 Keep its claims consistent with the visible page and privacy policy. No ratings,
 reviews, or unverified compatibility claims are added to structured data.
 
 The application schema retains the former product name as `alternateName` for
 the rebrand. Social images include their actual dimensions and accessible text.
-Run `python3 -m unittest discover -s scripts/tests -p test_website_seo.py` to
-check metadata consistency, sitemap coverage, image dimensions, and local links
-and fragments. The website validation workflow runs these checks before merge.
+Run `python3 scripts/generate-sitemap.py` after adding or removing a page. Run
+the website SEO and guide unit tests to check metadata consistency, sitemap
+coverage, shared rendering rules, image dimensions, and local links and
+fragments. The website validation workflow also performs the real Jekyll build
+and checks its guide entry point before merge.
 
 After deployment, submit the sitemap in Google Search Console and Bing Webmaster
 Tools. Validate structured data with their inspection tools. Updating these files
@@ -144,13 +171,32 @@ does not itself submit the site or guarantee indexing or rich results.
 
 ## Markdown versions
 
-Every HTML page has a generated Markdown counterpart (`index.md`, `privacy.md`, `upgrade.md`).
+Every hand-authored HTML page has a generated Markdown counterpart (`index.md`
+and `privacy.md`). Upgrade documentation is Markdown-first at
+`pages/guide/Upgrading.md` rather than duplicated as a top-level page.
 The HTML alternate link and llms.txt point to these files. Run
 `python3 scripts/generate-page-markdown.py` after editing page content, and
 `python3 scripts/generate-page-markdown.py --check` to detect stale copies.
-The conversion includes main content and footer notices, preserves absolute
-links, and omits navigation and decorative graphics. The sitemap continues to
-list the canonical HTML pages only.
+The conversion expands shared includes, includes main content and footer notices,
+preserves absolute links, and omits navigation and decorative graphics.
+
+Guide Markdown is the source rather than generated output. Jekyll applies the
+shared guide layout and CSS to produce each HTML page, while the deployment
+workflow also publishes the `.md` file at the matching guide path. Before
+publishing, the script resolves the current-release token so raw Markdown
+contains the same concrete version as the HTML rather than a Liquid expression.
+Each rendered page advertises that source with `rel="alternate"`, and `llms.txt`
+links directly to the most useful Markdown entry points. The sitemap lists the
+canonical rendered HTML pages rather than the alternate Markdown copies.
+
+The two generated top-level Markdown alternates are excluded from Jekyll and
+copied into the finished artifact after the build. This prevents GitHub Pages'
+optional-front-matter plugin from rendering them with a default theme and
+overwriting `index.html` or `privacy.html`.
+
+Do not enable Jekyll's `permalink: pretty` setting. Public guide and policy
+links intentionally use stable `.html` routes; validation checks representative
+rendered paths so a permalink change cannot silently break them.
 
 ## Website consent and Google Tag Manager
 

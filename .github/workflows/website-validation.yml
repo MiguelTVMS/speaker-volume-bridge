@@ -5,14 +5,22 @@ on:
     branches-ignore: [main]
     paths:
       - "pages/**"
+      - "Cargo.toml"
+      - "package.json"
+      - "scripts/generate-website-build-data.py"
+      - "scripts/publish-website-markdown.py"
       - "scripts/generate-page-markdown.py"
+      - "scripts/generate-sitemap.py"
       - "scripts/tests/consent.test.cjs"
+      - "scripts/tests/external-links.test.cjs"
       - "scripts/tests/test_website_seo.py"
       - "scripts/tests/test_update_catalog.py"
       - "scripts/tests/test_update_catalog_publication.py"
       - "scripts/prepare-update-catalog.py"
       - "scripts/validate-update-catalog.py"
       - ".github/workflows/update-catalog.yml"
+      - "scripts/tests/test_website_guide.py"
+      - "scripts/tests/test_website_build_data.py"
       - ".github/workflows/website-validation.yml"
 
 permissions:
@@ -28,9 +36,34 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
+      - name: Resolve website build metadata
+        run: python3 scripts/generate-website-build-data.py
+      - name: Build website and Markdown guide
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./pages
+          destination: ./_site
+      - name: Publish resolved Markdown guide sources
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" _site
+          python3 scripts/publish-website-markdown.py --destination _site
+      - name: Verify rendered guide entry point
+        run: |
+          test -f _site/index.html
+          test -f _site/guide/index.html
+          test -f _site/guide/Installation.html
+          test -f _site/privacy.html
+          test -f _site/guide/Upgrading.html
+          test -f _site/guide/Upgrading.md
+          test -f _site/guide/index.md
+          ! grep -R -F "site.data.release.version" _site --include="*.md"
       - run: node --test scripts/tests/consent.test.cjs
+      - run: node --test scripts/tests/external-links.test.cjs
       - run: python3 scripts/generate-page-markdown.py --check
+      - run: python3 scripts/generate-sitemap.py --check
       - run: python3 -m unittest discover -s scripts/tests -p test_website_seo.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog_publication.py
       - run: python3 scripts/validate-update-catalog.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_website_guide.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_website_build_data.py

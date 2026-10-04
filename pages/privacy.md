@@ -80,16 +80,22 @@ Your choice is saved in this browser’s local storage under `svb-consent-v1` fo
 
 When you withdraw a category, the site attempts to remove accessible Google Analytics or advertising cookies for that category. It cannot delete third-party or HTTP-only cookies. Other service retention periods depend on the tags and Google service settings; the 180-day period applies only to your consent preference.
 
-Download, wiki, and support links lead to GitHub; the Microsoft Store link leads to Microsoft. Those services apply their own privacy terms. Questions about this website’s data practices can be raised through the [project issue tracker](https://github.com/MiguelTVMS/speaker-volume-bridge/issues) . Do not post private data in a public issue.
+Download and support links lead to GitHub; the Microsoft Store link leads to Microsoft. Those services apply their own privacy terms. Questions about this website’s data practices can be raised through the [project issue tracker](https://github.com/MiguelTVMS/speaker-volume-bridge/issues) . Do not post private data in a public issue.
 
-## Legacy application checks
+## Removing the former app
 
-The app inspects local process identity to detect a running older version and prevent competing speaker commands. This information stays on your device and is not stored as telemetry or sent to a server. Conflict notifications are local desktop notifications.
+The app does not inspect running processes to look for the former Sonos Volume Bridge app. Before using the renamed app, quit and remove the former app and its startup entry manually to avoid competing speaker commands. See the [complete removal guide](https://svb.miguel.ms/guide/Removing-the-Old-App.html) .
 
 [Speaker Volume Bridge](https://svb.miguel.ms/)
 
-[Privacy policy](https://svb.miguel.ms/privacy.html) [MIT license](https://svb.miguel.ms/license.txt) [Source code ↗](https://github.com/MiguelTVMS/speaker-volume-bridge)
+[Privacy policy](https://svb.miguel.ms/privacy.html)  [MIT license](https://svb.miguel.ms/license.txt)  [Miguel’s website ↗](https://miguel.ms)  [Source code ↗](https://github.com/MiguelTVMS/speaker-volume-bridge)
 
 Independent software. Not affiliated with, sponsored by, endorsed by, or supported by Sonos. Sonos and related product names are trademarks of their respective owners and are used only to identify compatibility. This project contains no Sonos source code.
 
 Made for the volume controls you already use.
+
+{% if site.data.build %}
+
+Version {{ site.data.build.version }} · {{ site.data.build.ref }} · {{ site.data.build.revision }}
+
+{% endif %}

@@ -2,8 +2,10 @@
 //! so macOS uses UserNotifications for both authorization and delivery.
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
+#[cfg(any(target_os = "macos", test))]
 const UPDATE_NOTIFICATION_CATEGORY: &str = "speaker-volume-bridge-update";
 
+#[cfg(any(target_os = "macos", test))]
 fn notification_opens_updates(category: &str) -> bool {
     category == UPDATE_NOTIFICATION_CATEGORY
 }

@@ -94,6 +94,17 @@ pub struct UpdatePreferences {
 pub struct CachedOffer {
     pub version: String,
     pub action: OpenUrlAction,
+    #[serde(default)]
+    pub target: Option<CachedTarget>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedTarget {
+    pub edition: String,
+    pub channel: String,
+    pub os: String,
+    pub architecture: String,
 }
 
 impl Default for UpdatePreferences {
@@ -128,7 +139,14 @@ impl UpdatePersistence for FileUpdatePersistence {
                 ..UpdatePreferences::default()
             });
         }
-        Ok(serde_json::from_slice(&fs::read(&self.0)?)?)
+        let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&self.0)?)?;
+        let cached_offer = value
+            .as_object_mut()
+            .and_then(|object| object.remove("cachedOffer"));
+        let mut preferences: UpdatePreferences = serde_json::from_value(value)?;
+        preferences.cached_offer =
+            cached_offer.and_then(|offer| serde_json::from_value(offer).ok());
+        Ok(preferences)
     }
     fn save(&self, preferences: &UpdatePreferences) -> Result<(), UpdateError> {
         if let Some(parent) = self.0.parent() {
@@ -239,7 +257,13 @@ impl UpdateService {
         clock: Arc<dyn UpdateClock>,
         persistence: Arc<dyn UpdatePersistence>,
     ) -> Result<Self, UpdateError> {
-        let preferences = persistence.load(distribution.check_supported)?;
+        let mut preferences = persistence.load(distribution.check_supported)?;
+        if let Some(offer) = preferences.cached_offer.as_ref()
+            && !cached_offer_valid(offer, &distribution)
+        {
+            preferences.cached_offer = None;
+            persistence.save(&preferences)?;
+        }
         let phase = if !distribution.check_supported {
             UpdatePhase::Unsupported
         } else if preferences.cached_offer.is_some() {
@@ -439,6 +463,7 @@ impl UpdateService {
                         .map(|(version, action)| CachedOffer {
                             version: version.clone(),
                             action: action.clone(),
+                            target: Some(cached_target(&self.distribution)),
                         });
                     let _ = self.persistence.save(&preferences);
                     status.last_successful_check = Some(now);
@@ -571,6 +596,36 @@ fn target_key(
         ReleaseChannel::Stable => "stable",
     };
     (edition, channel, os, architecture)
+}
+
+fn cached_target(distribution: &InstalledDistribution) -> CachedTarget {
+    let (edition, channel, os, architecture) = target_key(distribution);
+    CachedTarget {
+        edition: edition.into(),
+        channel: channel.into(),
+        os: os.into(),
+        architecture: architecture.into(),
+    }
+}
+
+fn cached_offer_valid(offer: &CachedOffer, distribution: &InstalledDistribution) -> bool {
+    let Some(target) = offer.target.as_ref() else {
+        return false;
+    };
+    let Ok(installed) = Version::parse(&distribution.version) else {
+        return false;
+    };
+    let Ok(available) = Version::parse(&offer.version) else {
+        return false;
+    };
+    available > installed
+        && (
+            target.edition.as_str(),
+            target.channel.as_str(),
+            target.os.as_str(),
+            target.architecture.as_str(),
+        ) == target_key(distribution)
+        && offer.action.clone().validate().is_ok()
 }
 
 const fn edition_name(edition: DistributionEdition) -> &'static str {
@@ -848,6 +903,131 @@ mod tests {
         assert_eq!(restored.last_successful_check, Some(100));
     }
 
+    fn cached_offer(version: &str, target: Option<CachedTarget>, url: &str) -> CachedOffer {
+        CachedOffer {
+            version: version.into(),
+            action: OpenUrlAction {
+                kind: "open_url".into(),
+                url: url.into(),
+            },
+            target,
+        }
+    }
+
+    fn this_target() -> CachedTarget {
+        cached_target(&distribution())
+    }
+
+    #[tokio::test]
+    async fn startup_revalidates_cached_offer_after_manual_upgrade_and_distribution_change() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        for offer in [
+            cached_offer(
+                "1.7.1",
+                Some(this_target()),
+                "https://svb.miguel.ms/guide/Upgrading.html",
+            ),
+            cached_offer(
+                "1.7.0",
+                Some(this_target()),
+                "https://svb.miguel.ms/guide/Upgrading.html",
+            ),
+            cached_offer(
+                "not-semver",
+                Some(this_target()),
+                "https://svb.miguel.ms/guide/Upgrading.html",
+            ),
+            cached_offer(
+                "2.0.0",
+                Some(CachedTarget {
+                    edition: "debian".into(),
+                    channel: "stable".into(),
+                    os: "linux".into(),
+                    architecture: "x86_64".into(),
+                }),
+                "https://svb.miguel.ms/guide/Upgrading.html",
+            ),
+            cached_offer("2.0.0", None, "https://svb.miguel.ms/guide/Upgrading.html"),
+            cached_offer("2.0.0", Some(this_target()), "https://evil.example/upgrade"),
+        ] {
+            let persistence = Arc::new(MemoryPersistence::default());
+            *persistence.0.lock().unwrap() = Some(UpdatePreferences {
+                automatic_checks: true,
+                last_successful_check: Some(100),
+                cached_offer: Some(offer),
+                ..UpdatePreferences::default()
+            });
+            let (service, transport) =
+                service(catalog("2.0.0"), clock.clone(), persistence.clone());
+            let status = service.status().unwrap();
+            assert!(status.available_version.is_none());
+            assert_eq!(status.last_successful_check, Some(100));
+            assert_eq!(transport.calls.load(Ordering::Relaxed), 0);
+            assert!(!service.automatic_due());
+            assert!(
+                persistence
+                    .0
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .cached_offer
+                    .is_none()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_preserves_valid_newer_cache_offline_and_migrates_target_identity() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        *persistence.0.lock().unwrap() = Some(UpdatePreferences {
+            automatic_checks: true,
+            last_successful_check: Some(100),
+            cached_offer: Some(cached_offer(
+                "2.0.0",
+                Some(this_target()),
+                "https://svb.miguel.ms/guide/Upgrading.html",
+            )),
+            ..UpdatePreferences::default()
+        });
+        let (service, transport) = service(catalog("2.0.0"), clock, persistence.clone());
+        assert_eq!(
+            service.status().unwrap().available_version.as_deref(),
+            Some("2.0.0")
+        );
+        assert_eq!(transport.calls.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            persistence
+                .0
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .last_successful_check,
+            Some(100)
+        );
+    }
+
+    #[test]
+    fn file_preferences_drop_malformed_cached_offer_without_losing_success_timestamp() {
+        let directory =
+            std::env::temp_dir().join(format!("svb-update-cache-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("updates.json");
+        std::fs::write(
+            &path,
+            br#"{"automaticChecks":true,"updateNotifications":false,"lastSuccessfulCheck":100,"cachedOffer":{"version":4,"action":{"type":"install_package","url":"file:///tmp/pkg"},"target":[]}}"#,
+        )
+        .unwrap();
+        let loaded = FileUpdatePersistence::new(path).load(true).unwrap();
+        assert!(loaded.cached_offer.is_none());
+        assert!(loaded.automatic_checks);
+        assert!(!loaded.update_notifications);
+        assert_eq!(loaded.last_successful_check, Some(100));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[tokio::test]
     async fn successful_refresh_withdraws_cached_offer_and_invalidates_open_action() {
         let clock = Arc::new(FakeClock(AtomicU64::new(100)));
@@ -1030,6 +1210,49 @@ mod tests {
             unsupported.check(true).await.phase,
             UpdatePhase::Unavailable
         );
+    }
+
+    #[tokio::test]
+    async fn shared_catalog_fixture_additive_metadata_is_accepted() {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/update-catalog/additive-metadata.json"
+        ))
+        .unwrap();
+        let (service, _) = service(
+            bytes,
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::default(),
+        );
+        let status = service.check(true).await;
+        assert_eq!(status.phase, UpdatePhase::UpdateAvailable, "{status:?}");
+    }
+
+    #[tokio::test]
+    async fn shared_catalog_fixture_rejection_documents_are_rejected() {
+        for name in [
+            "missing-required.json",
+            "unsupported-action.json",
+            "duplicate-key.json",
+            "duplicate-target.json",
+        ] {
+            let bytes = std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../tests/fixtures/update-catalog")
+                    .join(name),
+            )
+            .unwrap();
+            let (service, _) = service(
+                bytes,
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                Arc::default(),
+            );
+            assert_eq!(
+                service.check(true).await.phase,
+                UpdatePhase::Unavailable,
+                "{name}"
+            );
+        }
     }
 
     #[tokio::test]

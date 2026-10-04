@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("update_catalog", ROOT / "scripts/validate-update-catalog.py")
@@ -34,6 +35,19 @@ class UpdateCatalogTests(unittest.TestCase):
     def test_repository_catalog_is_valid_and_empty_until_published(self):
         parsed = CATALOG.validate_catalog_bytes((ROOT / "pages/updates/v1/catalog.json").read_bytes())
         self.assertEqual(parsed["entries"], [])
+
+    def test_shared_cross_consumer_fixtures(self):
+        fixtures = ROOT / "tests/fixtures/update-catalog"
+        for name in ("additive-metadata.json", "missing-required.json", "unsupported-action.json", "duplicate-key.json", "duplicate-target.json"):
+            with self.subTest(name=name):
+                raw_fixture = (fixtures / name).read_bytes()
+                if name == "additive-metadata.json":
+                    CATALOG.validate_catalog_bytes(raw_fixture)
+                else:
+                    with self.assertRaises(CATALOG.CatalogError):
+                        CATALOG.validate_catalog_bytes(raw_fixture)
+        result = subprocess.run(["cargo", "test", "-p", "speaker-volume-bridge", "updates::tests::shared_catalog_fixture", "--", "--nocapture"], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_accepts_each_supported_distribution(self):
         entries = [

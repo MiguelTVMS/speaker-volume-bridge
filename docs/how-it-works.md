@@ -238,10 +238,19 @@ Activating the native notification opens Settings and selects Updates; choosing
 the tray's **Check for updates** action also selects Updates. Other notifications
 retain their existing Settings activation behavior.
 
-Phase-one clients ignore additive catalog metadata while validating required
-fields and rejecting unsupported actions. An `open_url` action remains sufficient
+All phase-one consumers ignore additive catalog, entry, and `open_url` action
+metadata while validating required fields and rejecting unsupported actions. An
+`open_url` action remains sufficient
 for clients that do not understand later update metadata; no package installation
 is performed.
+
+On startup, a persisted offer is shown only when its version is valid and newer
+than the installed package, its edition/channel/OS/application-architecture
+identity matches the running package, and its HTTPS action still passes URL
+validation. Older cache records without target identity and malformed or stale
+offers are discarded without changing the last successful check time. This lets
+manual upgrades remove obsolete offers while offline startup retains a valid
+newer offer until its normal freshness interval expires.
 
 ## UI demo builds
 

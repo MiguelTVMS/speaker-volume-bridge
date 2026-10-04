@@ -60,6 +60,19 @@ class PublicationTests(unittest.TestCase):
         )
         self.assertEqual(second, first_raw)
 
+    def test_additive_metadata_round_trips_through_publication_validation(self):
+        enriched = entry()
+        enriched["futureMetadata"] = {"rollout": "gradual"}
+        enriched["action"]["autoUpdate"] = {"package": "com.example.app"}
+        record = direct_record(enriched)
+        output = self.prepare([], record)
+        self.assertEqual(output["entries"][0]["action"]["autoUpdate"], {"package": "com.example.app"})
+
+    def test_shared_additive_fixture_is_accepted_and_preserved(self):
+        fixture = (ROOT / "tests/fixtures/update-catalog/additive-metadata.json").read_bytes()
+        output = publication.prepare_catalog(fixture, json.dumps({"operation": "withdraw", "target": {"edition": "direct_windows", "channel": "stable", "os": "windows", "architecture": "x86_64"}, "reason": "fixture parity"}).encode(), STAMP)
+        self.assertEqual(json.loads(output), json.loads(fixture))
+
     def test_draft_prerelease_and_missing_assets_are_rejected(self):
         for field in ("draft", "prerelease"):
             record = direct_record()
@@ -116,7 +129,8 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(publication.VALIDATOR.CatalogError):
             publication.prepare_catalog(b"{}", json.dumps(direct_record()).encode(), STAMP)
         record = direct_record()
-        record["entry"]["unexpected"] = True
+        record["entry"].pop("unexpected", None)
+        record["entry"].pop("edition")
         with self.assertRaises(publication.VALIDATOR.CatalogError):
             self.prepare([], record)
 

@@ -25,8 +25,9 @@ Schema v1 contains `schemaVersion`, `generatedAt` and `entries`. Each entry has:
 - non-empty human-readable `releaseNotes`, limited to 16 KiB UTF-8;
 - `action`: `{ "type": "open_url", "url": "https://..." }`.
 
-The complete UTF-8 JSON document is limited to 256 KiB. Object members and entry
-targets must be unique. Additive metadata fields are ignored by phase-one clients;
+The complete UTF-8 JSON document is limited to 256 KiB. Duplicate JSON object
+members and duplicate entry targets are invalid. Additive metadata fields are
+ignored by phase-one clients at the catalog, entry, and `open_url` action levels;
 required fields, editions, channels, platforms, architectures, actions and schema
 versions remain validated. Unknown actions invalidate the document. Stable
 entries cannot contain prerelease versions. URLs must be absolute HTTPS URLs
@@ -73,7 +74,13 @@ schedule notices continue to open Settings. Its HTTPS transport is bounded
 to 10 seconds, 256 KiB and three redirects, and accepted actions are `open_url`
 targets on approved project/Store origins. The service persists automatic-check
 preference, last attempt, last success and last-notified target separately from
-speaker configuration, including validated offers for restart recovery. Recognized
+speaker configuration, including validated offers for restart recovery. Each
+cached offer includes edition, channel, OS, and application architecture and is
+checked at startup against the running package version and target. Malformed,
+equal or older, and different-target offers are discarded. Legacy cache records
+without target identity are discarded conservatively while preferences and the
+last successful check remain intact. A retained offer's action URL is revalidated
+before it can be opened. Recognized
 release packages default on; development and unknown packages are unsupported.
 Startup waits 30 seconds. Successful refreshes replace or withdraw the cached
 offer; failed refreshes retain the last known offer without advancing success time.

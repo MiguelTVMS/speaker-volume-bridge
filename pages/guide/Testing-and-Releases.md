@@ -57,6 +57,9 @@ Record only non-sensitive model, operating-system, firmware, and pass/fail infor
 
 The Release workflow runs from `develop`, increments the single Cargo workspace version, validates that exact commit, builds Windows x64/ARM64 installers, an Apple Silicon macOS DMG, and Ubuntu x64/ARM64 Debian packages, creates the annotated version tag, and publishes GitHub release assets. Microsoft Store submission is opt-in for GA releases after GitHub publication. Mac App Store package creation is also opt-in and does not submit to Apple automatically.
 
+Direct-download macOS signing follows the prerequisite builds without an extra
+fixed delay. Apple notarization must complete before the package is published.
+
 Release channels are:
 
 - **GA** for a full generally available release.

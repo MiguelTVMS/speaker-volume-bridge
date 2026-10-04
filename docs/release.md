@@ -342,6 +342,13 @@ Complete both Store submissions manually with the verified packages.
 
 ### Signing wait timer maintenance
 
+Direct-download Apple signing starts after its prerequisite builds complete and
+the existing approval is granted. It has no additional fixed waiting period:
+the preceding builds already take longer than the former five-minute delay.
+Apple notarization still waits for acceptance before verification and publication.
+This timing change applies to direct-download signing; Mac App Store signing
+is managed separately.
+
 GitHub environment wait timers are repository settings, not workflow delays.
 After review, preview the maintenance operation with
 `python3 scripts/remove-signing-wait.py --repo OWNER/REPOSITORY`.

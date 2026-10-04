@@ -45,6 +45,7 @@ Most settings are saved automatically. The Night schedule grid uses **Save sched
 - Exposes supported Sonos sound settings such as Night sound, Loudness, Status light, Speech enhancement, Treble, and Bass.
 - Schedules Night Mode in weekly 30-minute blocks for the selected compatible speaker, with optional desktop notifications.
 - Reconnects after temporary speaker, output, or network interruptions.
+- Checks the public project catalog for edition-compatible updates when enabled, without downloading or installing packages.
 - Shows live status and sanitized diagnostics.
 
 ## What it does not do
@@ -58,7 +59,7 @@ Speaker Volume Bridge does not play, stream, capture, redirect, or modify audio.
 | Operating system | Windows x64/ARM64; Apple Silicon with macOS 13 and later; or x64/ARM64 Ubuntu with PulseAudio or PipeWire and `pactl` |
 | Sonos | A compatible speaker on the same local network |
 | Computer audio | An output whose volume can be changed by software |
-| Internet | Needed to download the app, but not for normal synchronization |
+| Internet | Needed for downloads and optional update checks, but not for normal synchronization |
 
 Development is hands-on tested primarily with a Sonos Ray. Other speaker and audio-device combinations may need validation. Read [Compatibility and limitations](/guide/Compatibility-and-Limitations.html) before relying on the app in a new setup.
 
@@ -67,6 +68,7 @@ Development is hands-on tested primarily with a Sonos Ray. Other speaker and aud
 - [Getting started](/guide/Getting-Started.html)
 - [Ubuntu guide](/guide/Ubuntu.html)
 - [Settings guide](/guide/Settings.html)
+- [Update checks](/guide/Updates.html)
 - [Night schedule](/guide/Night-Schedule.html)
 - [What changed](/guide/Whats-New.html)
 - [Upgrading from the old app](/guide/Upgrading.html)

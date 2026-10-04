@@ -78,3 +78,19 @@ The domain owns weekly half-hour intervals and time-zone-aware boundary calculat
 One global schedule follows the selected speaker. The worker runs independently of local audio and volume fallback polling. Configuration changes and Night Mode commands share a write gate to prevent stale-selection writes. Wake, clock changes, and recovery reconcile current state without replaying missed boundaries. Schedule commands preserve the existing volume synchronization state machine.
 
 See the [Night Mode schedule decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/0013-global-night-mode-schedule.md).
+
+## Distribution-aware updates
+
+At startup, the application shell conservatively resolves the installed edition,
+application version, and compiled architecture from package provenance and
+platform evidence. Unknown, conflicting, custom, debug, demo, and unverifiable
+installations remain unsupported for automatic checks and cannot affect speaker
+startup.
+
+One shell-owned update service reads the bounded public catalog after a startup
+delay, enforces freshness and retry timing, persists update-only state, and
+shares one in-flight request across callers. It validates the exact edition,
+platform, architecture, version, and approved HTTPS action before the UI can
+open an update page. It does not download or install packages and never uses the
+Sonos adapter. See [Update checks](/guide/Updates.html) and the
+[distribution-aware update decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/develop/docs/decisions/0019-distribution-aware-updates.md).

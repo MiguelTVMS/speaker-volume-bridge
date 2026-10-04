@@ -68,6 +68,20 @@ Not as a separate mode in v{{ site.data.release.version }}. The design question 
 
 Yes. Open [Night schedule](/guide/Night-Schedule.html), select weekly half-hour blocks, save, and enable the schedule. One global schedule follows the speaker selected under Devices.
 
+## Does the app install updates automatically?
+
+No. Recognized releases can check the public project catalog for a compatible
+update and open a validated release or Store page. The app does not download or
+run an installer. Automatic checks and native update notifications have separate
+switches under **Updates**. See [Update checks](/guide/Updates.html).
+
+## What does an unknown distribution mean?
+
+The app could not safely prove which official edition is installed. Custom,
+debug, demo, sideloaded, conflicting, and older packages can be classified this
+way. Normal speaker synchronization continues, but the app does not claim an
+edition-compatible update or enable automatic checks.
+
 ## Why can I not turn Night sound off?
 
 An enabled schedule keeps it on during selected periods. Disable **Night schedule** first, then turn Night sound off. Disabling scheduling alone does not change the speaker.

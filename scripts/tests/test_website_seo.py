@@ -89,6 +89,18 @@ class WebsiteSeoTests(unittest.TestCase):
         self.assertCountEqual(urls, expected)
         self.assertIn('Sitemap: ' + ORIGIN + 'sitemap.xml', (PAGES / 'robots.txt').read_text())
 
+    def test_every_static_page_has_a_markdown_alternate(self):
+        for name, page in self.pages.items():
+            markdown_name = f'{Path(name).stem}.md'
+            expected = ORIGIN + markdown_name
+            alternates = [
+                link.get('href') for link in page.links
+                if link.get('rel') == 'alternate' and link.get('type') == 'text/markdown'
+            ]
+            with self.subTest(page=name):
+                self.assertTrue((PAGES / markdown_name).is_file())
+                self.assertEqual(alternates, [expected])
+
     def test_local_links_and_fragments_exist(self):
         for name, page in self.pages.items():
             for link in page.links:

@@ -1,6 +1,6 @@
 <!-- Generated from index.html; edit the HTML source. -->
 
-FOR macOS, WINDOWS & LINUX
+For macOS, Windows & Linux
 
 # Your device. Your speaker. In sync.
 
@@ -100,7 +100,7 @@ LOCAL BY DESIGN
 
 ## Your volume stays between your devices.
 
-No advertising, analytics, or publisher telemetry in the app. Preferences and diagnostic logs stay on your computer unless you choose to share them.
+No advertising, analytics, or publisher telemetry in the app. Preferences and diagnostic logs stay on your computer unless you choose to share them. Optional update checks read the public project catalog without sending speaker or configuration data.
 
 [Read the privacy policy →](https://svb.miguel.ms/privacy.html)
 

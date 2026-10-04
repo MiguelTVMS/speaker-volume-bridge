@@ -14,6 +14,15 @@ This guide follows generally available releases only. For normal use, install th
 
 If your installed app is still called **Sonos Volume Bridge**, start with [Upgrading to Speaker Volume Bridge](/guide/Upgrading.html). Quit it from its menu bar or system tray before installing the renamed app.
 
+## In-app update checks
+
+Recognized release installations can check the public project catalog for an
+edition- and architecture-compatible update. Open **Updates** in Settings to run
+a manual check, change automatic checks or native notifications, and open the
+validated release or Store page. The app does not download or install packages.
+See [Update checks](/guide/Updates.html) for timing, privacy, and distribution
+rules.
+
 ## Windows direct-download updates
 
 Download and run the newer full-release installer. A newer version is installed in place and preserves application data and shortcuts.
@@ -49,6 +58,9 @@ Remove the application through Ubuntu's software manager or package manager. Rem
 ## Store updates
 
 Use the store that installed the app to check for updates. GitHub publication and Store certification are separate, so a store installation may remain on an earlier version after v{{ site.data.release.version }} becomes available as a direct download.
+
+The in-app catalog treats each Store and direct-download edition independently.
+It never redirects one edition to an unverified package for another channel.
 
 ## Switching distribution channels
 

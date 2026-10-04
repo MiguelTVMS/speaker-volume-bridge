@@ -4,7 +4,7 @@ layout: guide
 
 # Settings guide
 
-Open Settings from the Windows or Ubuntu system tray, or the macOS menu bar. The sidebar contains seven sections: Devices, Speaker, Night schedule, Volume, General, Diagnostics, and About.
+Open Settings from the Windows or Ubuntu system tray, or the macOS menu bar. The sidebar contains eight sections: Devices, Speaker, Night schedule, Volume, General, Updates, Diagnostics, and About.
 
 Most configuration changes save automatically after a short delay. Speaker sound controls are applied directly to the selected speaker. The Night schedule grid is saved explicitly with **Save schedule**; its enable switch and notification preference save immediately.
 
@@ -26,6 +26,8 @@ If Settings shows **Sonos Volume Bridge is still running**, quit the old app and
 | Night schedule notifications | Never | Optional native desktop notifications |
 | Start at login | Off | Starts the app after sign-in |
 | Keep checking if updates are missed | On | Polls as a recovery path when events are missing |
+| Automatically check for updates | On for recognized releases | Checks the public catalog for the installed edition |
+| Update notifications | On for recognized releases | Allows native notices when a verified update is available |
 
 ## Settings sections
 
@@ -34,6 +36,7 @@ If Settings shows **Sonos Volume Bridge is still running**, quit the old app and
 - [Night schedule](/guide/Night-Schedule.html) sets weekly Night Mode periods and notifications.
 - [Volume](/guide/Volume-Settings.html) controls direction, maximum volume, mapping, and testing.
 - [General](/guide/General-Settings.html) controls startup and fallback checking.
+- [Updates](/guide/Updates.html) shows the installed distribution, manual and automatic checks, and notification choices.
 - [Diagnostics](/guide/Diagnostics-and-Troubleshooting.html) shows live connection information and reset tools.
 - **About** shows the installed version, source repository, license, and independence notice.
 

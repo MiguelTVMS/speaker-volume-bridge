@@ -8,7 +8,7 @@ layout: guide
 
 Speaker Volume Bridge communicates directly with Sonos devices on the local network. Normal volume synchronization does not require an online account or an Internet connection.
 
-The app does not include advertising, analytics, or publisher telemetry. It does not automatically upload configuration or log files.
+The app does not include advertising, analytics, or publisher telemetry. It does not automatically upload configuration or log files. Recognized releases can make a bounded HTTPS request to the public project update catalog; automatic checks can be disabled in Settings.
 
 ## Information used by the app
 
@@ -17,6 +17,7 @@ The app accesses only what it needs to discover devices, show status, remember c
 - Sonos device identity, friendly name, local address, volume, mute, and supported settings.
 - Selected Windows, macOS, or Ubuntu audio-output identity, volume, and mute.
 - Application preferences such as device selection, synchronization direction, mapping, maximum volume, startup behavior, and diagnostic level.
+- Update preferences and the last attempt, last successful check, and last-notified edition/version.
 
 It does not intentionally collect names, email addresses, contacts, payment details, precise location, authentication credentials, or audio content.
 
@@ -41,6 +42,15 @@ For the complete policy, read the v{{ site.data.release.version }} [Privacy Poli
 The Sonos client accepts only local HTTP device locations using private, loopback, or link-local literal IP addresses. Public addresses and host names from discovery responses are rejected. Protocol responses are bounded and control requests use short deadlines.
 
 Install releases only from the [official GitHub repository](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest) or an official store listing.
+
+## Update catalog requests
+
+Update checks request the public catalog from `svb.miguel.ms`. They contain no
+speaker or configuration data, analytics, advertising data, or persistent
+installation identifier. The website host can receive ordinary request metadata
+such as the public IP address, time, catalog path, and network headers. The app
+accepts only a bounded, valid catalog and approved HTTPS project or Store links.
+See [Update checks](/guide/Updates.html).
 
 ## Schedules and desktop notifications
 

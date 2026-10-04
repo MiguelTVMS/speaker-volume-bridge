@@ -43,6 +43,30 @@ first if it still matches the selected UDN.
 At runtime startup, the selected endpoint is attached and the synchronizer is seeded
 with the latest Sonos read.
 
+Update discovery separately resolves the installed distribution at application
+startup. Direct packages, Store packages and Debian packages carry different
+package metadata even when they reuse the same executable. OS evidence must agree:
+a Store-signed Windows package, App Store receipt, or official Debian package
+registration is required for those editions. Ambiguous/custom packages remain
+unknown and do not affect speaker startup.
+
+Recognized release installations check the bounded HTTPS site catalog 30 seconds
+after startup by default and no more than once per 24 hours after a successful
+check. Manual checks bypass freshness but join an in-flight request. The persisted
+record contains only the preference, last attempt/success times, and last-notified
+edition/version. Background failures remain quiet and never change audio behavior;
+manual failures are visible and retryable. Debug, demo, custom and ambiguous
+packages do not check automatically.
+
+The Updates page shows the installed version and distribution, last successful
+check and every checker state. An available offer remains discoverable after
+Later or notification denial. The persisted Update notifications switch suppresses
+native update notices independently from automatic checks; enabling it is the
+only update flow that may request OS permission. Open update page is enabled only for the exact
+validated offer; the shell rechecks version and URL immediately before invoking
+the operating system's default HTTPS handler. No browser opens at startup and no
+package is downloaded or installed.
+
 ## Synchronization strategy
 
 Two modes are supported:
@@ -149,6 +173,15 @@ changes are allowed. Leaving a scheduled period turns Night Mode off once.
 The tray has a checked **Night schedule** item directly above **Night sound**.
 The checkmark represents enabled scheduling; the editor opens through Settings.
 
+**Disable loudness during night schedule** is off by default and saves immediately.
+When enabled, Loudness is kept off while the current time is inside the enabled
+schedule. If the bridge turned Loudness off, it restores Loudness after the period,
+when scheduling is disabled, or when this option is disabled. Loudness that was
+already off remains off. Restart-safe restoration state belongs to the selected
+speaker; it is never transferred to another speaker. A Loudness capability or
+network failure is retried independently and never stops Night Mode scheduling.
+Manual Loudness enable actions are unavailable while this policy is active.
+
 **Night schedule notifications** saves immediately and offers **On start**,
 **On end**, **On start and end**, and **Never** (the default). Confirmed boundaries notify
 only when their direction is selected. Applying an edited schedule also notifies
@@ -180,7 +213,7 @@ On Linux, a dedicated Schedule status row below notifications shows the current
 state, including disabled and outside-period states. Schedule errors appear in
 that same row instead of beneath the editor. Successful saves show no confirmation.
 
-On Windows, the third Night schedule card is the single Status area. It shows
+On Windows, the dedicated Night schedule Status card is the single Status area. It shows
 disabled/outside-period state as well as active restrictions, the next change,
 notification guidance and action errors. Its label sits on the left and its text
 wraps on the right. Successful saves and other settings actions show no confirmation
@@ -188,6 +221,36 @@ message; a successful retry clears the prior error. Other platform layouts are u
 Windows local runs register the app as a notification sender, so notifications
 use Speaker Volume Bridge rather than relying on PowerShell. Existing Windows
 notification preferences and Do not disturb still apply.
+
+## Update checks and notifications
+
+Startup, periodic, wake and manual update checks use the same orchestration. It
+publishes each resulting status to the UI and reserves each update notice before
+sending, so overlapping triggers do not deliver duplicate notifications. Automatic
+checks re-evaluate every minute and run only when no successful check has occurred
+in the previous 24 hours. The last success and the validated offer survive restart.
+Successful catalog reads replace the cached offer, including withdrawing it when
+the installed edition has no current catalog entry. A network or invalid-catalog
+failure leaves the last validated offer and success timestamp available.
+
+Sending an update notification leaves the current Settings page unchanged.
+Activating the native notification opens Settings and selects Updates; choosing
+the tray's **Check for updates** action also selects Updates. Other notifications
+retain their existing Settings activation behavior.
+
+All phase-one consumers ignore additive catalog, entry, and `open_url` action
+metadata while validating required fields and rejecting unsupported actions. An
+`open_url` action remains sufficient
+for clients that do not understand later update metadata; no package installation
+is performed.
+
+On startup, a persisted offer is shown only when its version is valid and newer
+than the installed package, its edition/channel/OS/application-architecture
+identity matches the running package, and its HTTPS action still passes URL
+validation. Older cache records without target identity and malformed or stale
+offers are discarded without changing the last successful check time. This lets
+manual upgrades remove obsolete offers while offline startup retains a valid
+newer offer until its normal freshness interval expires.
 
 ## UI demo builds
 
@@ -212,3 +275,13 @@ on a legacy-app check, or display a conflict warning. Settings and Night Mode ke
 their normal selection/write serialization and explicit stop behavior. See
 [decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
 [manual removal guide](removing-old-app.md).
+
+### Stable releases and Prereleases
+
+Recognized direct macOS, direct Windows and official Debian editions expose a
+persisted release policy. Stable releases is the default. Prereleases includes
+public Alpha/Beta and newer GA releases, including previews with numeric versions.
+Selection requests a check even with automatic checks off, invalidates previous
+links immediately and rejects obsolete responses. Returning to Stable waits for
+its next strictly newer GA release. A missing preview source remains unavailable.
+Both policies preserve speaker settings and notification preferences. See ADR 0019.

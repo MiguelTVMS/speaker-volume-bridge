@@ -87,6 +87,7 @@ foreach ($directory in @($stagingDirectory, $verificationDirectory)) {
 $assetsDirectory = Join-Path $stagingDirectory 'Assets'
 New-Item -ItemType Directory -Path $assetsDirectory | Out-Null
 Copy-Item -LiteralPath $ExecutablePath -Destination (Join-Path $stagingDirectory 'speaker-volume-bridge.exe')
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src-tauri\distribution\microsoft-store.json') -Destination (Join-Path $stagingDirectory 'distribution.json')
 Copy-Item -LiteralPath (Join-Path $packageSource 'Assets\StoreLogo.png') -Destination $assetsDirectory
 Copy-Item -LiteralPath (Join-Path $packageSource 'Assets\Square44x44Logo.png') -Destination $assetsDirectory
 Copy-Item -LiteralPath (Join-Path $packageSource 'Assets\Square150x150Logo.png') -Destination $assetsDirectory
@@ -126,6 +127,10 @@ if ($identity.Name -ne 'Miguel.MS.SonosVolumeBridge' -or
 }
 if (-not (Test-Path -LiteralPath (Join-Path $verificationDirectory 'speaker-volume-bridge.exe') -PathType Leaf)) {
     throw 'The generated package does not contain the application executable.'
+}
+$provenance = Get-Content -LiteralPath (Join-Path $verificationDirectory 'distribution.json') -Raw | ConvertFrom-Json
+if ($provenance.schemaVersion -ne 1 -or $provenance.edition -ne 'microsoft_store') {
+    throw 'The generated package does not contain Microsoft Store provenance.'
 }
 
 Write-Output "Created Microsoft Store package: $packagePath"

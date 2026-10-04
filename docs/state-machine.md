@@ -37,6 +37,14 @@ remain inside/outside and saves with recurrence disabled stay silent. On start/O
 that intent without changing controller state. Selection or schedule changes discard old
 pending intent. Notification preferences never reset this controller. See ADR 0013.
 
+The optional night schedule Loudness policy runs beside the Night Mode controller.
+Active plus opted-in enforces Loudness off. The bridge persists speaker-scoped
+ownership before changing an on value, retains it across restart, and restores on
+exit or policy disablement. An already-off value creates no restoration ownership.
+Unavailable or unsupported Loudness retries independently without changing the
+Night Mode state or notification intent. A restoration marker for one speaker is
+never applied to a different selected speaker.
+
 Enabling a previously disabled schedule during a selected period applies Night Mode
 immediately and sends a start notification after speaker confirmation when On start or
 On start and end is selected. Enabling outside selected periods, enabling an already
@@ -52,6 +60,16 @@ Audio echo suppression retains repeated and overlapping expected local states fo
 See [ADR 0017](decisions/0017-volume-feedback-suppression.md) for platform behavior,
 regression coverage, and the limitations of value-based origin detection.
 
+## Update checks
+
+The application-level update state is independent of synchronization:
+`idle`, `checking`, `up_to_date`, `update_available`, `unavailable`, or
+`unsupported`. `unavailable` is never presented as current. Only a valid exact
+edition/channel/OS/application-architecture entry can become available. Missing,
+withdrawn, malformed, prerelease, equal and older catalog data cannot create a
+new offer. Shutdown aborts the scheduler; Settings reopening and runtime restarts
+do not create another checker.
+
 ## Upgrading from the former app
 
 Users quit and remove the former app before using the renamed app. The shell
@@ -60,3 +78,9 @@ on a legacy-app check, or display a conflict warning. Settings and Night Mode ke
 their normal selection/write serialization and explicit stop behavior. See
 [decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
 [manual removal guide](removing-old-app.md).
+
+A policy change transitions immediately to `checking`, clears the previous offer
+and increments the preference generation. Only a matching generation can commit a
+result or claim a notification/action. Stable uses v1; Prereleases uses the combined
+GA/Alpha/Beta v2 feed. Empty/missing feeds yield `unavailable`. Strict semantic
+precedence prevents downgrade or equal-version promotion offers.

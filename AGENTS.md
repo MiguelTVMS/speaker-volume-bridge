@@ -85,6 +85,10 @@ Use `gh` for issue operations when available.
 ## Documentation maintenance
 
 - Keep `/docs` and `/docs/decisions` updated for behavior and architecture changes.
+- Every development change must include a website documentation review. Update
+  `pages/` and its Markdown guide when the change affects user-visible behavior,
+  setup, compatibility, releases, privacy, troubleshooting, or architecture;
+  record an explicit no-update reason in the PR when no website change is needed.
 - Before making a behavior-related change in code, read:
   - `docs/architecture.md`
   - `docs/how-it-works.md`

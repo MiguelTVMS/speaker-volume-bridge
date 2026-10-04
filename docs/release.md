@@ -51,6 +51,16 @@ release branch, or a previously closed PR require manual review.
 
 See the repository Releases page for the current published version.
 
+Release creation does not update the site update catalog. The catalog starts
+empty and gains an edition/architecture entry only through the separately
+reviewed publication flow after that exact distribution is publicly available.
+Store availability is independent of direct downloads. Catalog preparation preserves
+additive top-level metadata and retained entry/action metadata on insertion,
+version update and withdrawal; repeated operations keep the original content.
+Validate any proposed
+catalog with `python3 scripts/validate-update-catalog.py`; see
+[ADR 0019](decisions/0019-distribution-aware-updates.md).
+
 The release workflow compiles one macOS ARM64 executable, Ubuntu AMD64 and
 ARM64 Debian packages, and Windows x64 and ARM64 executables per version. The protected macOS direct-download job downloads the exact
 executable produced by the unprivileged build job, imports the Developer ID
@@ -209,7 +219,9 @@ The release tag identifies the version; duplicate versioned files are not upload
 The website uses `releases/latest/download/<filename>` so stable downloads follow
 the latest non-prerelease without a website deployment. Missing or empty source
 installers fail preparation before any inputs are renamed. Preparation can be
-repeated safely. Store packages remain separate workflow artifacts. Existing
+repeated safely. Release publication does not create aliases using the former
+product name; every downloadable installer uses the current
+product name. Store packages remain separate workflow artifacts. Existing
 published releases are not rewritten by this change.
 
 The macOS DMG contains the notarized app and an Applications shortcut. The release
@@ -342,3 +354,25 @@ fails, inspect both before retrying; updates are not atomic across environments.
 This is an explicit administrative step after PR approval: merging the PR does
 not change live settings or initiate a release. See GitHub's
 [environment API](https://docs.github.com/en/rest/deployments/environments#create-or-update-an-environment).
+
+## Release policy publication prerequisite
+
+The release workflow stamps GA/Alpha/Beta package provenance separately from user
+policy. Preserve the existing publisher body marker, even for numeric preview
+versions. Publish no catalog entry until a non-draft public release and the exact
+compatible assets have been independently verified. Stable schema v1 remains GA
+only. Combined schema v2 contains direct macOS/Windows and official Debian GA plus
+Alpha/Beta candidates; never Store entries. The consumer picks the highest compatible
+semantic version, not the newest publication timestamp.
+
+Use the reviewed catalog proposal workflow's `feed` choice (`v1` or `v2`) and the
+digest of that specific feed. V2 entries require classification and an exact release
+page action. The workflow fetches publisher evidence and validates both feeds,
+then opens a focused PR to develop. Review, merge and normal main/site promotion
+are separate gates. A GA intended for both policies needs independently reviewed
+entries in both feeds. Do not assume code merge or release creation deployed either
+catalog. Validate served bytes and cache headers for both after approved deployment.
+For withdrawal, v2 target records additionally name `classification`; preserve other
+classifications/distributions. Conflicts and stale digests require rereading develop.
+Issue #178 implements notification/page delivery only; phases 2 and 3 remain gated
+on acceptance and must reuse its policy before any future installer operation.

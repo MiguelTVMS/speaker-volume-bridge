@@ -1,5 +1,25 @@
 # Hardware verification matrix
 
+## Phase-one update catalog recovery
+
+- Automated production-orchestration coverage: `UpdateService::new` revalidates
+  persisted offers on startup, removing offers equal to/older than the installed
+  version, malformed versions/actions, wrong distribution targets, and legacy
+  cache entries without target identity. It preserves valid newer offers and the
+  last successful check while offline; it makes no request and does not bypass
+  the 24-hour freshness interval.
+- Shared JSON fixtures under `tests/fixtures/update-catalog` are exercised by the
+  Rust consumer, site validator, and publication preparation tests. They cover
+  additive catalog/entry/action metadata, missing required fields, unsupported
+  actions, duplicate object keys, and duplicate targets.
+- Native acceptance (not available in this environment): install an older signed
+  package, obtain a newer offer, install that update manually, disconnect the
+  network, and restart. Confirm the former offer is absent, the last successful
+  check is retained, and no browser opens. Repeat after changing edition/channel/
+  platform/architecture or restoring a legacy cache file; confirm the offer is
+  discarded. Restore connectivity and confirm a valid newer offer remains
+  discoverable. No live catalog entry is published by these checks.
+
 ## Linux ARM64 build
 
 Local validation (2026-09-26): Ubuntu 26.04 ARM64, Rust 1.98.1, Node.js
@@ -250,7 +270,7 @@ is enabled in branch builds.
 
 ### Night schedule notification dropdown sizing
 
-The macOS Settings window opens at 740 by 700 points. Check Night schedule at
+The macOS Settings window opens at 740 by 760 points. Check Night schedule at
 that default size for unnecessary vertical scrolling; horizontal resizing must
 remain disabled. Browser coverage also checks the page with save feedback shown.
 
@@ -296,6 +316,16 @@ an empty schedule and enable: manual on/off is available outside active periods.
 Repeat after restarting with an enabled active schedule, including opening Speaker
 immediately before the first scheduler tick. Cross a half-hour start/end boundary
 and verify on enforcement, one-time off at exit, and the selected notification mode.
+
+With Loudness initially on, enable **Disable loudness during night schedule** and enter
+an active block. Confirm Loudness turns off, Settings and tray reject manual enable,
+and Night Mode remains scheduled. Exit the block and confirm Loudness returns on.
+Repeat with Loudness initially off and confirm it remains off after exit. Restart
+during the active block and confirm restoration still occurs afterward. Disable the
+option and then the schedule during separate active runs; each must restore only a
+bridge-owned change. Select another speaker while restoration ownership exists and
+confirm the marker is not applied to that speaker. Simulate unsupported and
+temporarily unavailable Loudness reads and confirm Night Mode scheduling continues.
 
 Restart: demo app settings persist and the real runtime reconciles fresh simulated
 speaker state. Repeat with `ui-windows`, `ui-macos`, and `ui-ubuntu`; native window
@@ -378,6 +408,15 @@ check `dpkg-deb -f <package.deb> Architecture`, and install on the matching Ubun
 machine. The ARM64 stable link is unavailable until that asset reaches a GA release.
 
 ## macOS release DMG
+
+For direct-download signing, run the release once without the optional Developer
+ID profile and once with it. Both must bundle the direct-distribution metadata,
+sign successfully, pass notarization, and pass the existing artifact checks. The
+profile case must also embed the profile and its application/team entitlements.
+The CI distribution-packaging regression executes the production bundle command
+with a recording Cargo adapter and verifies configuration, entitlement-file
+availability and profile selection. It does not perform Apple signing or
+notarization; those require the protected macOS release job.
 
 After a GA release, download the DMG from the website. Verify its stapled ticket
 and Gatekeeper assessment, open it, drag the app to Applications, eject the image,
@@ -631,3 +670,142 @@ preserve the source. The NSIS harness executes production location-selection and
 move functions on both Windows CI architectures, including collision and locked
 source cases. Native full-installer, login and toast checks remain manual gates;
 macOS-hosted tests do not establish Windows behavior.
+
+## Installed distribution provenance
+
+Automated resolver tests cover each supported edition, missing and conflicting
+evidence, a reused executable in direct and Store packages, x64 application on an
+ARM64 host, development/demo builds, sideloaded MSIX, and resolver failure during
+application startup. Packaging regressions assert every bundle receives its own
+provenance and that Store MSIX staging replaces direct provenance.
+
+Native acceptance remains required before enabling live catalog entries. On each
+supported architecture, install the direct package and the applicable Store test
+package, then verify the startup log reports the expected edition and compiled
+application architecture. Confirm a development build, copied/repackaged Debian
+binary, test-signed or sideloaded MSIX, App Store-style sandbox without a receipt,
+and package with removed/conflicting metadata report development, sideloaded, or
+unknown rather than an official edition. These installed-package checks are not
+proved by unit tests or bundle inspection and were not performed for phase 1.2 on
+the macOS development host.
+
+## Background update checking
+
+Automated fake transport/clock/persistence and shared-orchestration tests cover
+available/current/missing, malformed, prerelease and additive-metadata catalogs,
+required fields, unsupported actions, exact target selection, invalid action
+targets, persisted offers and success time across restart, withdrawal of a cached
+offer, the 24-hour interval, and concurrent manual/background calls sharing one
+request. Wake orchestration verifies UI delivery without page navigation before
+notification activation. The production scheduler starts once after speaker
+synchronization, reevaluates due state every minute, uses bounded retry, and aborts
+on drop. Native sleep/wake timing, proxy/redirect
+behavior and shutdown cancellation remain installed-app checks on macOS, Windows
+x64/ARM64 and Linux x64/ARM64; they were not performed during phase 1.3.
+
+Settings and orchestration tests cover all visible update states, the persisted
+notification switch and deduplication, denied-permission rollback, Later, manual
+rediscovery of a prior offer, stale and invalid activation, concurrent open
+requests, and native-opener invocation for the explicit HTTPS repository link.
+
+### Native update acceptance (manual; required on every supported OS/architecture)
+
+Use a signed, installed package for the target distribution and architecture, plus
+an approved non-production catalog fixture that contains a valid `open_url` offer.
+Do not enable or publish a live catalog entry for this verification. Record the OS
+version, architecture, package edition, and fixture revision with the results.
+
+1. Install and launch the package from the OS app launcher. Confirm the installed
+   edition and architecture are reported correctly. Open **General** in Settings,
+   then open **Updates** and enable automatic checks and update notifications.
+2. Start with a fresh isolated test profile, return to **General**, and allow the
+   startup check to run after its 30-second delay. Confirm Settings stays on
+   **General**, the last-success time updates, and exactly one update notification
+   is delivered for the offer. Separately verify the 24-hour scheduled interval;
+   use an isolated profile whose last-success time is over 24 hours old if the
+   acceptance harness can seed persisted state, otherwise wait for the interval.
+3. With the check due, put the machine to sleep, then wake it. Confirm the UI
+   check status updates and at most one notification is delivered for that check.
+   Repeat with notifications disabled and confirm the status still updates with
+   no notification.
+4. Activate the update notification. Confirm it opens **Updates** and the cached
+   offer is visible. Return to **General**, then activate the tray's Updates
+   action and confirm it opens **Updates**. Trigger a schedule notification and
+   activate it; confirm it opens the schedule page rather than **Updates**.
+5. With the offer cached, quit and relaunch the app. Confirm the offer and last
+   successful check are restored. Make the fixture unavailable and check again:
+   the offer remains discoverable, is marked stale when past its freshness window,
+   and cannot launch its action while stale. Restore the fixture with no offer,
+   check again, and confirm the withdrawn offer is removed.
+6. With a fresh valid offer available, click its `open_url` action and confirm the
+   system's default browser opens the expected HTTPS page. Deny notification
+   permission in OS settings, attempt to enable notifications in the app, and
+   confirm the preference rolls back with an error. Restore permission afterward.
+
+The automated suite covers shared orchestration, notification identity/deduplication,
+platform action metadata and the Windows activation callback. It cannot verify
+actual OS notification delivery, notification-center activation, real sleep/wake
+timing, installed-package classification, or LaunchServices/default-browser
+behavior. These checks remain outstanding on macOS, Windows x64/ARM64, and Linux
+x64/ARM64; source-level macOS tests do not establish Windows or Linux behavior.
+
+## Update catalog publication
+
+Shared additive-metadata fixture regressions exercise actual insertion, version
+update and withdrawal through `prepare_catalog`. All three fail before metadata
+preservation and pass afterward. They compare the complete document, including
+retained entry/action metadata, and verify byte-identical repeats with a later
+timestamp. These run in the existing CI and website validation publication suite.
+This tooling coverage does not establish native installed-package acceptance or
+served catalog deployment.
+
+Catalog publication tests reject drafts, prereleases, missing assets, unverified
+or mismatched Store availability, invalid documents, stale concurrent inputs,
+same-version changes and downgrades. They also cover partial publication,
+idempotent repeats and target-specific withdrawal. The normal CI path filters run
+these tests, while the Pages job deploys the catalog in the same artifact as the
+site and then validates the public bytes plus the presence of cache-control.
+
+The controlled application fixture verifies that an older direct macOS build
+selects its exact edition/architecture entry, retains only the validated HTTPS
+page, and claims that action without any install path. UI automation verifies the
+same page action remains available after Later. This does not prove a real
+storefront listing, installed-package classification, native default-browser
+activation, or a Pages deployment. No release was published and no `main` site
+deployment was triggered during phase 1.5; those checks remain separate release
+acceptance gates.
+
+## Release policy prerequisite (#178)
+
+Automated: consumer, validator and actual publication mutations share
+`release-policy.json`. Coverage includes numeric GA/Beta/Alpha classification,
+newer GA selection, metadata retention, stable-feed exclusion, publisher evidence,
+compatible assets, semantic ordering, capability/backend matrix, legacy defaults,
+restart, edition normalization, missing/empty feed, architecture isolation and
+explicit checks with automatic checks off. Production `run_check_and_deliver_with`
+regressions gate a response across rapid Stable/Prereleases switches and gate
+notification permission across a switch. The obsolete-response test fails when
+its commit guard is removed and passes with the guard restored. Browser tests
+exercise selection, copy, progress/error/retry and unsupported-edition absence.
+
+Native acceptance remains unverified: local browser preview uses simulated IPC
+and does not prove signed package provenance, OS notifications or default browser
+opening. On installed direct macOS, Windows x64/ARM64 and official Debian x64/ARM64:
+start with Stable, disable automatic checks, select Prereleases, observe one check,
+restart and confirm selection persists. With a delayed controlled feed, switch
+Stable/Prereleases rapidly and confirm obsolete offers never return. Activate an
+old notification and confirm it opens current Updates state; an old queued link
+must fail. Open the available release page and verify the exact release and native
+browser. Return to Stable on a newer preview and confirm no downgrade. Verify
+Store and sideloaded packages omit/reject policy selection; repeat after distribution
+change with preserved preferences. Keep speaker synchronization active throughout.
+Signed packages and those other operating systems are unavailable in this local
+run; do not infer native acceptance from browser or orchestration tests. No catalog
+entry, deployment, release, download or installation is authorized by this work.
+
+Dark dropdown follow-up: the supplied dark-mode popup used inherited light text on
+an unstyled light native menu surface. Shared option styling now supplies both
+foreground and background from the same palette. Browser regression reproduces
+transparent option backgrounds before the fix, then verifies opaque backgrounds
+and at least 4.5:1 text contrast for Devices, Night schedule and Updates. Native
+platform popup rendering still needs installed-package verification.

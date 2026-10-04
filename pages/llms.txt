@@ -14,6 +14,7 @@
 - Linux: Ubuntu on x64 and ARM64 with PulseAudio or PipeWire and pactl.
 - Hands-on speaker testing is currently limited to Sonos Ray; other models need validation.
 - The app has no advertising, analytics, or publisher telemetry. Settings and diagnostic logs are stored locally unless the user chooses to share them.
+- Recognized releases can check a public, edition-aware update catalog. Automatic checks are optional; the app does not download or install packages and sends no speaker or configuration data.
 - Not affiliated with, sponsored by, endorsed by, or supported by Sonos.
 
 The website offers optional analytics and advertising through Google Tag Manager after consent. This is separate from the desktop app. See the website privacy notice for choices and storage details.
@@ -21,14 +22,20 @@ The website offers optional analytics and advertising through Google Tag Manager
 ## Website
 
 - [Overview and features](https://svb.miguel.ms/index.md): Product capabilities and limitations.
-- [Upgrade guide](https://svb.miguel.ms/upgrade.md): Migration, legacy-app warnings and local notifications.
+- [Upgrade guide](https://svb.miguel.ms/guide/Upgrading.md): Migration, legacy-app warnings and local notifications.
 - [Downloads](https://svb.miguel.ms/#downloads): Current platform download options.
 - [Privacy policy](https://svb.miguel.ms/privacy.md): Application data practices and website hosting information.
 - [MIT license](https://svb.miguel.ms/license.txt): License terms.
 
 ## Detailed documentation
 
-- [User wiki](https://github.com/MiguelTVMS/speaker-volume-bridge/wiki): Installation, settings, compatibility, and troubleshooting.
+- [User guide](https://svb.miguel.ms/guide/index.md): Complete Markdown documentation index.
+- [Installation](https://svb.miguel.ms/guide/Installation.md): Platform installation instructions.
+- [Settings](https://svb.miguel.ms/guide/Settings.md): Settings index and detailed configuration guides.
+- [Update checks](https://svb.miguel.ms/guide/Updates.md): Edition-aware checks, notifications, privacy, and manual update actions.
+- [Compatibility](https://svb.miguel.ms/guide/Compatibility-and-Limitations.md): Supported platforms and known limits.
+- [Troubleshooting](https://svb.miguel.ms/guide/Diagnostics-and-Troubleshooting.md): Diagnostics and recovery steps.
+- [FAQ](https://svb.miguel.ms/guide/FAQ.md): Common questions and concise answers.
 - [Source repository](https://github.com/MiguelTVMS/speaker-volume-bridge): Code and project documentation.
 - [Latest stable release](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest): Current release and packages; versions are not hardcoded in this guide.
 - [Support](https://github.com/MiguelTVMS/speaker-volume-bridge/issues): Public issue tracker.

@@ -1,6 +1,14 @@
 // Lightweight in-memory simulator for development-only browser layout previews.
 // No native commands, device discovery, files, or audio APIs are used here.
-export function createDemoBackend(options: { hour12?: boolean | null; now?: () => Date } = {}) {
+export function createDemoBackend(
+  options: {
+    hour12?: boolean | null;
+    now?: () => Date;
+    edition?: string;
+    policyFailure?: boolean;
+    policyDelay?: number;
+  } = {},
+) {
   const snapshot = {
     configuration: {
       schemaVersion: 1,
@@ -9,6 +17,8 @@ export function createDemoBackend(options: { hour12?: boolean | null; now?: () =
         blocks: Array.from({ length: 7 }, () => Array<boolean>(48).fill(false)),
       },
       notifyNightModeScheduleTransitions: 'never',
+      disableLoudnessDuringNightSchedule: false,
+      nightScheduleLoudnessRestoreSpeakerId: null,
       selectedSonosId: 'sample-speaker',
       lastKnownSonosAddress: null,
       followDefaultAudioDevice: true,
@@ -37,6 +47,24 @@ export function createDemoBackend(options: { hour12?: boolean | null; now?: () =
   };
   const initialSnapshot = structuredClone(snapshot);
   const initialSpeakerSettings = structuredClone(speakerSettings);
+  const updateStatus = {
+    phase: 'update_available',
+    installedVersion: '1.7.1',
+    availableVersion: '1.8.0',
+    edition: options.edition ?? 'direct_macos',
+    policy: 'stable',
+    prereleaseSupported: ['direct_macos', 'direct_windows', 'debian'].includes(
+      options.edition ?? 'direct_macos',
+    ),
+    generation: 0,
+    lastSuccessfulCheck: 1791108000,
+    action: { type: 'open_url', url: 'https://svb.miguel.ms/guide/Upgrading.html' },
+    message: null,
+    automaticChecks: true,
+    updateNotifications: true,
+    promptDismissed: false,
+    offerStale: false,
+  };
   const dispatch = (command: string, payload?: Record<string, unknown>): unknown => {
     switch (command) {
       case 'plugin:app|version':
@@ -73,8 +101,41 @@ export function createDemoBackend(options: { hour12?: boolean | null; now?: () =
           payload as { mode: string }
         ).mode;
         return snapshot;
+      case 'set_disable_loudness_during_night_schedule':
+        snapshot.configuration.disableLoudnessDuringNightSchedule = (
+          payload as { enabled: boolean }
+        ).enabled;
+        return snapshot;
       case 'get_system_hour12':
         return options.hour12 ?? null;
+      case 'get_update_status':
+      case 'check_for_updates':
+        return updateStatus;
+      case 'set_update_policy': {
+        if (!updateStatus.prereleaseSupported) throw new Error('Unsupported edition');
+        updateStatus.policy = String(payload?.policy);
+        updateStatus.generation += 1;
+        return new Promise((resolve, reject) =>
+          setTimeout(() => {
+            if (options.policyFailure) reject(new Error('Preview feed unavailable'));
+            else resolve({ ...updateStatus });
+          }, options.policyDelay ?? 0),
+        );
+      }
+      case 'set_automatic_update_checks':
+        updateStatus.automaticChecks = (payload as { enabled: boolean }).enabled;
+        return;
+      case 'dismiss_update':
+        updateStatus.promptDismissed = true;
+        return;
+      case 'request_update_notification_permission':
+        return true;
+      case 'set_update_notifications':
+        updateStatus.updateNotifications = (payload as { enabled: boolean }).enabled;
+        return updateStatus.updateNotifications;
+      case 'open_update_page':
+      case 'open_project_repository':
+        return;
       case 'get_snapshot':
         return snapshot;
       case 'save_configuration':
@@ -124,6 +185,10 @@ export function createDemoBackend(options: { hour12?: boolean | null; now?: () =
         throw new Error(`Unexpected preview command: ${command}`);
     }
   };
-  return (command: string, payload?: Record<string, unknown>): unknown =>
-    structuredClone(dispatch(command, structuredClone(payload)));
+  return (command: string, payload?: Record<string, unknown>): unknown => {
+    const result = dispatch(command, structuredClone(payload));
+    return result instanceof Promise
+      ? result.then((value: unknown) => structuredClone(value))
+      : structuredClone(result);
+  };
 }

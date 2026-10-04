@@ -52,6 +52,12 @@ class Page(HTMLParser):
 class WebsiteSeoTests(unittest.TestCase):
     def setUp(self):
         self.pages = {p.name: Page(p) for p in PAGES.glob('*.html')}
+        self.guide_routes = {'guide/': PAGES / 'guide' / 'index.md'}
+        self.guide_routes.update({
+            f'guide/{path.stem}.html': path
+            for path in (PAGES / 'guide').glob('*.md')
+            if path.name != 'index.md'
+        })
 
     def test_metadata_agrees_with_canonical_and_structured_data(self):
         for name, page in self.pages.items():
@@ -63,24 +69,41 @@ class WebsiteSeoTests(unittest.TestCase):
                 for prefix in ('og', 'twitter'):
                     self.assertEqual(page.meta[f'{prefix}:title'], page.title)
                     self.assertEqual(page.meta[f'{prefix}:description'], page.meta['description'])
-                    self.assertEqual(page.meta[f'{prefix}:image'], ORIGIN + 'social-icon.png')
-                    self.assertEqual(page.meta[f'{prefix}:image:alt'], 'Speaker Volume Bridge app icon')
+                    self.assertEqual(page.meta[f'{prefix}:image'], ORIGIN + 'social-preview.png')
+                    self.assertEqual(
+                        page.meta[f'{prefix}:image:alt'],
+                        'Speaker Volume Bridge connecting a computer and speaker',
+                    )
                 self.assertEqual(page.meta['og:url'], canonical)
                 self.assertEqual(page.meta['og:site_name'], 'Speaker Volume Bridge')
+                self.assertEqual(page.meta['twitter:card'], 'summary_large_image')
                 self.assertEqual(len(page.structured), 1)
                 schema = page.structured[0]
                 self.assertEqual(schema['url'], canonical)
                 self.assertEqual(schema['description'], page.meta['description'])
                 self.assertIn('Speaker Volume Bridge', schema['name'])
-                width, height = struct.unpack('>II', (PAGES / 'social-icon.png').read_bytes()[16:24])
+                width, height = struct.unpack('>II', (PAGES / 'social-preview.png').read_bytes()[16:24])
                 self.assertEqual(int(page.meta['og:image:width']), width)
                 self.assertEqual(int(page.meta['og:image:height']), height)
 
     def test_sitemap_covers_canonical_pages(self):
         urls = [e.text for e in ET.parse(PAGES / 'sitemap.xml').iter('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]
         expected = [ORIGIN + ('' if name == 'index.html' else name) for name in self.pages]
+        expected.extend(ORIGIN + route for route in self.guide_routes)
         self.assertCountEqual(urls, expected)
         self.assertIn('Sitemap: ' + ORIGIN + 'sitemap.xml', (PAGES / 'robots.txt').read_text())
+
+    def test_every_static_page_has_a_markdown_alternate(self):
+        for name, page in self.pages.items():
+            markdown_name = f'{Path(name).stem}.md'
+            expected = ORIGIN + markdown_name
+            alternates = [
+                link.get('href') for link in page.links
+                if link.get('rel') == 'alternate' and link.get('type') == 'text/markdown'
+            ]
+            with self.subTest(page=name):
+                self.assertTrue((PAGES / markdown_name).is_file())
+                self.assertEqual(alternates, [expected])
 
     def test_local_links_and_fragments_exist(self):
         for name, page in self.pages.items():
@@ -91,9 +114,35 @@ class WebsiteSeoTests(unittest.TestCase):
                     continue
                 path = target.path.lstrip('/') or 'index.html'
                 with self.subTest(page=name, href=href):
-                    self.assertTrue((PAGES / path).is_file(), path)
+                    self.assertTrue((PAGES / path).is_file() or path in self.guide_routes, path)
                     if target.fragment and path in self.pages:
                         self.assertIn(target.fragment, self.pages[path].ids)
+
+    def test_static_pages_use_shared_header_and_footer(self):
+        for name in ('index.html', 'privacy.html'):
+            source = (PAGES / name).read_text()
+            with self.subTest(page=name):
+                self.assertIn('{% include site-header.html %}', source)
+                self.assertIn('{% include site-footer.html %}', source)
+
+    def test_shared_footer_links_to_author_website(self):
+        footer = (PAGES / '_includes' / 'site-footer.html').read_text()
+        self.assertIn(
+            '<a href="https://miguel.ms" target="_blank" rel="noopener noreferrer">Miguel’s website ↗</a>',
+            footer,
+        )
+
+    def test_all_rendered_pages_load_external_link_policy(self):
+        script = (PAGES / 'external-links.js').read_text()
+        self.assertIn('destination.origin === currentOrigin', script)
+        self.assertIn('link.target = "_blank"', script)
+        self.assertIn('relationships.add("noopener")', script)
+        self.assertIn('relationships.add("noreferrer")', script)
+        for name in ('index.html', 'privacy.html'):
+            with self.subTest(page=name):
+                self.assertIn('<script src="external-links.js" defer></script>', (PAGES / name).read_text())
+        layout = (PAGES / '_layouts' / 'guide.html').read_text()
+        self.assertIn('<script src="/external-links.js" defer></script>', layout)
 
 
 if __name__ == '__main__':

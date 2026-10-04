@@ -1,4 +1,9 @@
 {
+  "bundle": {
+    "resources": {
+      "distribution/direct-windows.json": "distribution.json"
+    }
+  },
   "app": {
     "windows": [
       {

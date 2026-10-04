@@ -153,6 +153,30 @@ The shell preloads optional tray speaker controls asynchronously at startup and
 refreshes them when connection state changes or the tray is clicked. Network
 reads never block the menu event handler; menu updates run on the main thread.
 
+Update checks share one shell orchestration path for startup, scheduled, wake and
+manual triggers. The shell persists the last successful check and validated offer
+across restarts, revalidates the cached offer's version, complete target identity,
+and HTTPS action at startup, replaces cached offers only after a successful
+catalog read, and deduplicates update notifications before delivery. Native update
+notifications
+carry activation intent; only activating one or choosing the tray Updates action
+navigates to the Updates page.
+
+At shell startup, a single installed-distribution resolver combines package-level
+provenance with conservative platform evidence. It reports the workspace
+application version and compiled application architecture. Debug/demo, missing,
+conflicting, sideloaded or unverifiable packages never silently enroll in official
+checks. Resolution failure is an update-only condition and cannot stop audio
+synchronization. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
+
+The shell also owns one update service with injected catalog transport, clock,
+distribution metadata and persistence. It starts only after synchronization has
+started, waits 30 seconds, and performs at most one shared request at a time.
+Successful checks impose a 24-hour freshness interval; transient failures use
+bounded backoff. Wake and clock changes cannot bypass the attempt guard. Catalog
+requests never use the Sonos adapter and contain no speaker/configuration data or
+persistent installation identifier.
+
 Settings refreshes are asynchronous and guarded against edits and pending writes.
 Speech Enhancement chooses the same model-appropriate EQ for reads and writes;
 see [ADR 0009](decisions/0009-sonos-speaker-controls.md).
@@ -179,6 +203,11 @@ origin/expected-write suppression remains in the synchronization adapters. Sonos
 notifications do not identify the originating controller, so an echoed value is
 not treated as proof of authorship and genuine external changes remain observable.
 
+Catalog publication retains the validated document and updates only `generatedAt`
+and `entries`, preserving additive catalog fields and unchanged entry/action
+metadata. The complete result is validated again before writing; repeated
+publication returns the original content. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
+
 ## Global Night Mode scheduling
 
 A separate shell worker applies one global weekly half-hour schedule exclusively
@@ -188,6 +217,13 @@ not enter the volume synchronization state machine. Native wake and notification
 adapters stay in the shell. A shared configuration/Night Mode write gate prevents
 selection races, while volume synchronization continues independently. See
 [ADR 0013](decisions/0013-global-night-mode-schedule.md).
+
+The default-off night schedule Loudness policy uses a separate integration port over
+the same shell-owned Sonos adapter. On entry it records speaker-scoped restoration
+ownership before disabling Loudness. While active it enforces Loudness off without
+coupling failures to Night Mode scheduling. On exit, schedule disablement, or policy
+disablement it restores Loudness only when the bridge previously changed it. The
+persisted ownership marker survives restart and is never applied to another speaker.
 
 Tray speaker controls retain their native menu objects for the tray lifetime.
 Refreshes update values in place; capability changes only attach or detach cached
@@ -202,7 +238,7 @@ Windows schedule tooltips use an opaque platform surface in both color schemes;
 the shared hover interaction remains in the frontend (ADR 0013).
 
 Windows Night schedule presents current state, next change, notification guidance,
-and action errors together in the third settings card. The shared notice output
+and action errors together in its dedicated Status card. The shared notice output
 moves into this card while the schedule page is active (ADR 0012).
 The Status label sits left of the right-aligned, wrapping text. The Windows default
 height is 820 logical pixels to allow multiline status. Successful settings actions
@@ -258,7 +294,7 @@ responsive grouped controls. Vertical resizing remains available.
 The platform stylesheet stays inside the frontend; the shell selects Linux
 window bounds through `tauri.linux.conf.json`. See ADR 0012.
 Linux Night schedule status, notification permission guidance, and schedule error
-feedback share the third settings row below notifications (ADR 0013).
+feedback share the dedicated Status row below notifications (ADR 0013).
 The shell requires Tauri 2.12 with Tao's repaired Wayland decorations so native
 title-bar buttons receive clicks on first show and after reopening (ADR 0012).
 
@@ -286,6 +322,11 @@ target. Full NSIS uninstall removes the per-user notification sender and COM
 activation registration; in-place updates preserve them (ADR 0013).
 
 ## Release artifact flow
+
+macOS direct-download configurations share distribution provenance resources.
+The configuration without a provisioning profile uses checked-in base
+entitlements; the profile variant uses generated profile-specific entitlements
+and embeds the profile (ADR 0015).
 
 Release jobs verify the prepared commit belongs to trusted `develop` history,
 then detach at that exact commit before executing release code. Moving the branch
@@ -328,3 +369,10 @@ their normal selection/write serialization and explicit stop behavior. See
 [manual removal guide](removing-old-app.md).
 
 Windows installer directory migration stays in the NSIS adapter: only the former default folder is relocated; custom directories, data identity and Store identity remain stable. See ADR 0018.
+
+The update service also owns the persisted Stable/Prereleases policy and explicit
+package capability. Policy changes increment a generation before clearing offers;
+responses, notification claims and queued page actions revalidate that generation.
+Stable clients retain schema v1; opted-in clients select the newest compatible GA,
+Alpha or Beta from schema v2. Installed publisher classification is separate from
+user preference. Later installers must consume this same contract. See ADR 0019.

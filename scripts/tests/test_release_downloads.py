@@ -2,6 +2,7 @@
 import subprocess
 import tempfile
 import unittest
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -13,25 +14,35 @@ DESTINATIONS = tuple("linux-x64.deb" if suffix == "linux-amd64.deb" else suffix 
 
 class ReleaseDownloadsTests(unittest.TestCase):
     def test_site_links_to_published_installers(self):
-        links = []
+        links_by_page = {}
 
         class Links(HTMLParser):
             def handle_starttag(self, tag, attrs):
                 if tag == "a":
-                    links.append(dict(attrs).get("href", ""))
+                    self.links.append(dict(attrs).get("href", ""))
 
-        Links().feed((SCRIPT.parent.parent / "pages" / "index.html").read_text())
-        store = [link for link in links if urlparse(link).hostname == 'apps.microsoft.com']
-        self.assertEqual(len(store), 1)
-        self.assertEqual(parse_qs(urlparse(store[0]).query), {
-            'cid': ['website'], 'referrer': ['download'], 'source': ['svb.miguel.ms'],
-        })
-        self.assertIn(store[0], (SCRIPT.parent.parent / 'pages/index.md').read_text())
+            def __init__(self):
+                super().__init__()
+                self.links = []
+
+        pages = (("index.html", "index.md"), ("guide/Upgrading.md", "guide/Upgrading.md"))
+        for page, markdown in pages:
+            parser = Links()
+            parser.feed((SCRIPT.parent.parent / "pages" / page).read_text())
+            links_by_page[page] = parser.links
+            store = [link for link in parser.links if urlparse(link).hostname == 'apps.microsoft.com']
+            self.assertEqual(len(store), 1, page)
+            self.assertEqual(parse_qs(urlparse(store[0]).query), {
+                'cid': ['website'], 'referrer': ['download'], 'source': ['svb.miguel.ms'],
+            })
+            self.assertIn(store[0], unescape((SCRIPT.parent.parent / 'pages' / markdown).read_text()))
         for suffix in ("macos.dmg", "windows-x64-unsigned.exe", "windows-arm64-unsigned.exe", "linux-x64.deb", "linux-arm64.deb"):
             self.assertIn(suffix, DESTINATIONS)
-            self.assertTrue(any(link.endswith(
-                f"/releases/latest/download/speaker-volume-bridge-{suffix}"
-            ) for link in links))
+            for page, page_links in links_by_page.items():
+                with self.subTest(page=page, suffix=suffix):
+                    self.assertTrue(any(link.endswith(
+                        f"/releases/latest/download/speaker-volume-bridge-{suffix}"
+                    ) for link in page_links))
 
     def test_publication_contains_one_file_per_package_and_can_be_repeated(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -42,11 +53,14 @@ class ReleaseDownloadsTests(unittest.TestCase):
                 subprocess.run(["bash", str(SCRIPT), directory, "v1.2.3"], check=True)
                 self.assertEqual(
                     {path.name for path in root.iterdir()},
-                    {f"{prefix}-{suffix}" for prefix in ("speaker-volume-bridge", "sonos-volume-bridge") for suffix in DESTINATIONS},
+                    {f"speaker-volume-bridge-{suffix}" for suffix in DESTINATIONS},
                 )
                 for source, destination in zip(SUFFIXES, DESTINATIONS):
-                    self.assertEqual((root / f"speaker-volume-bridge-{destination}").read_bytes(), source.encode())
-                    self.assertEqual((root / f"sonos-volume-bridge-{destination}").read_bytes(), source.encode())
+                    self.assertEqual(
+                        (root / f"speaker-volume-bridge-{destination}").read_bytes(),
+                        source.encode(),
+                    )
+                    self.assertFalse((root / f"sonos-volume-bridge-{destination}").exists())
 
     def test_missing_or_empty_installer_leaves_all_inputs_untouched(self):
         for missing in SUFFIXES:

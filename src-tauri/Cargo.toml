@@ -9,7 +9,7 @@ default-run = "speaker-volume-bridge"
 
 [features]
 default = []
-ui-demo = ["dep:reqwest"]
+ui-demo = []
 ui-windows = ["ui-demo"]
 ui-macos = ["ui-demo"]
 ui-ubuntu = ["ui-demo"]
@@ -22,7 +22,8 @@ tauri = { version = "2.12.0", features = ["test"] }
 reqwest.workspace = true
 
 [dependencies]
-reqwest = { workspace = true, optional = true }
+reqwest.workspace = true
+semver = "1"
 jiff = "0.2.37"
 tauri-plugin-notification = "2"
 async-trait.workspace = true
@@ -45,9 +46,9 @@ url.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.62.2"
-winreg = "0.55"
+winreg = "0.56"
 dunce = "1"
-windows = { workspace = true, features = ["ApplicationModel", "Data_Xml_Dom", "UI_Notifications", "Win32_System_Power", "Win32_Globalization", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_UI_Notifications", "Win32_System_Com", "Win32_Storage_FileSystem", "Win32_UI_Shell_PropertiesSystem", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
+windows = { workspace = true, features = ["ApplicationModel", "Data_Xml_Dom", "UI_Notifications", "Win32_System_Power", "Win32_Globalization", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_UI_Notifications", "Win32_System_Com", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-service-management = "0.3.2"

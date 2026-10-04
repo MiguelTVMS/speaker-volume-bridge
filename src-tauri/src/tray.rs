@@ -68,6 +68,7 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
     let diagnostics = MenuItem::with_id(app, "diagnostics", "Diagnostics", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let speaker_separator = PredefinedMenuItem::separator(app)?;
@@ -80,6 +81,7 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             &status,
             &separator,
             &settings,
+            &updates,
             &diagnostics,
             &quit,
         ],
@@ -91,6 +93,10 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .tooltip("Speaker Volume Bridge")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "settings" | "diagnostics" => show_settings(app),
+            "updates" => {
+                show_settings(app);
+                let _ = app.emit("open-updates", ());
+            }
             "night-schedule-enabled" => toggle_schedule(app),
             "speaker-night-sound" => {
                 toggle_speaker_setting(app, SpeakerSetting::NightSound, event.id().as_ref());
@@ -224,15 +230,17 @@ fn update_speaker_controls<R: Runtime>(app: &AppHandle<R>, settings: &SpeakerSet
         let _ = items.menu.insert(&items.speaker_separator, 3);
     }
     for (id, label, enabled) in available {
-        let locked = id == "speaker-night-sound"
-            && app.try_state::<AppState>().is_some_and(|state| {
-                state
-                    .configuration
-                    .lock()
-                    .is_ok_and(|configuration| crate::night_schedule::locked(&configuration))
-            });
-        let label = if locked {
+        let locked = app.try_state::<AppState>().is_some_and(|state| {
+            state.configuration.lock().is_ok_and(|configuration| {
+                (id == "speaker-night-sound" && crate::night_schedule::locked(&configuration))
+                    || (id == "speaker-loudness"
+                        && crate::night_schedule::loudness_locked(&configuration))
+            })
+        });
+        let label = if locked && id == "speaker-night-sound" {
             "Night sound (disable schedule to turn off)"
+        } else if locked {
+            "Loudness (disabled during night schedule)"
         } else {
             label
         };
@@ -368,6 +376,14 @@ fn toggle_speaker_setting<R: Runtime>(app: &AppHandle<R>, setting: SpeakerSettin
             if matches!(setting, SpeakerSetting::NightSound)
                 && !enabled
                 && crate::night_schedule::locked(&current)
+            {
+                show_settings(&app);
+                let _ = app.emit("open-night-schedule", ());
+                return;
+            }
+            if matches!(setting, SpeakerSetting::Loudness)
+                && enabled
+                && crate::night_schedule::loudness_locked(&current)
             {
                 show_settings(&app);
                 let _ = app.emit("open-night-schedule", ());
@@ -619,7 +635,7 @@ mod tests {
                 ("speaker-status-light", "Status light", false),
             ]
         );
-        assert!(available_speaker_controls(&SpeakerSettings::default()).is_empty());
+        assert_eq!(available_speaker_controls(&SpeakerSettings::default()), []);
     }
 
     #[test]
@@ -659,7 +675,10 @@ mod tests {
             available_tray_controls(&settings, true)[0],
             ("night-schedule-enabled", "Night schedule", true)
         );
-        assert!(available_tray_controls(&SpeakerSettings::default(), false).is_empty());
+        assert_eq!(
+            available_tray_controls(&SpeakerSettings::default(), false),
+            []
+        );
         assert_eq!(
             available_tray_controls(&SpeakerSettings::default(), true),
             vec![("night-schedule-enabled", "Night schedule", true)]

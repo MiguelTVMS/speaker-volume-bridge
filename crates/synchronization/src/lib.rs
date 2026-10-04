@@ -383,7 +383,7 @@ mod tests {
                 at_ms: 2,
             })
             .unwrap();
-        assert!(effects.is_empty());
+        assert_eq!(effects, []);
         assert_eq!(machine.confirmed().unwrap().volume, s(35));
         assert_eq!(machine.state(), SyncState::Synchronized);
     }

@@ -1,4 +1,9 @@
 {
+  "bundle": {
+    "resources": {
+      "distribution/debian.json": "distribution.json"
+    }
+  },
   "app": {
     "windows": [
       {

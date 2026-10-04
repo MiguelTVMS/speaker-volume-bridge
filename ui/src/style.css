@@ -225,6 +225,12 @@ select {
   background: var(--surface-strong);
   color: var(--text);
 }
+/* Popup menus can retain a light native surface even when the closed control
+   inherits dark text colors. Give options both sides of the same palette. */
+select option {
+  background-color: var(--surface-strong);
+  color: var(--text);
+}
 input[type='range'] {
   accent-color: var(--accent);
 }
@@ -462,6 +468,24 @@ button.icon-button {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.update-state {
+  margin: 0;
+}
+.update-state-available {
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-weight: 650;
 }
 
 .feature-status {

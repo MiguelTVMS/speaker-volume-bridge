@@ -4,6 +4,7 @@ export const settingsPages = [
   'schedule',
   'volume',
   'general',
+  'updates',
   'diagnostics',
   'about',
 ] as const;

@@ -1,11 +1,18 @@
 //! Process-lifetime native wake registrations. Callbacks only mark reconciliation.
 use crate::state::AppState;
 use tauri::{AppHandle, Manager, Runtime};
-fn wake<R: Runtime>(app: &AppHandle<R>) {
+pub(crate) fn wake<R: Runtime>(app: &AppHandle<R>) {
     if let Some(state) = app.try_state::<AppState>() {
         state
             .schedule_reconcile
             .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    if let Some(manager) = app.try_state::<crate::updates::UpdateManager>() {
+        let service = manager.service().clone();
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::updates::UpdateManager::wake_service(&app, service).await;
+        });
     }
 }
 #[cfg(target_os = "macos")]

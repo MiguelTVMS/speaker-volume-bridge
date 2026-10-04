@@ -50,3 +50,22 @@ publicly available. Direct downloads and Store editions can therefore offer
 different versions at the same time. A missing catalog entry means no verified
 offer is available for that installation; it does not prove the installed
 version is current.
+
+## Stable releases or Prereleases
+
+Recognized direct macOS, direct Windows and official Debian packages offer
+**Release policy** in Updates. **Stable releases** is the default and includes
+public GA releases. **Prereleases** opts into public Alpha/Beta releases and newer
+stable releases. Preview packages may use ordinary numeric version numbers.
+Store, sideloaded, development, unknown and custom editions omit this selector.
+
+Changing the policy saves it for the next launch and checks once, even when
+automatic checks are off. Previous offers and links disappear immediately while
+checking. Errors remain visible with **Check for updates** available to retry.
+Your automatic-check, notification and speaker preferences are preserved.
+
+Switching to Stable never downgrades or replaces the app: you will receive the
+next newer stable release. Equal-version GA promotion does not reinstall a preview.
+Offers always match your distribution and application architecture. Preview offers
+open that specific release's page. Empty or missing preview information means
+unavailable, not up to date. A release offered through both policies notifies once.

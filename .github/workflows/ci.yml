@@ -53,6 +53,8 @@ jobs:
               - 'scripts/tests/test_rebrand_identity.py'
               - 'scripts/tests/test_distribution_packaging.py'
               - 'scripts/prepare-update-catalog.py'
+              - 'scripts/verify-catalog-availability.py'
+              - 'scripts/stamp-release-classification.py'
               - 'scripts/tests/test_update_catalog_publication.py'
               - 'scripts/tests/test_update_catalog.py'
               - 'scripts/validate-update-catalog.py'

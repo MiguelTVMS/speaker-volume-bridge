@@ -199,3 +199,69 @@ class PublicationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ReleasePolicyTests(unittest.TestCase):
+    def fixture(self):
+        return (ROOT / "tests/fixtures/update-catalog/release-policy.json").read_bytes()
+
+    def record(self, value):
+        record = direct_record(value)
+        record["source"].update(prerelease=value["classification"] != "GA", releaseBody="**Release channel:** " + value["classification"], tagName="v" + value["version"], public=True)
+        return record
+
+    def test_shared_fixture_validator_publisher_and_actual_metadata_preservation(self):
+        original = json.loads(self.fixture())
+        publication.VALIDATOR.validate_catalog_bytes(self.fixture())
+        empty = dict(original, entries=[])
+        for value in original["entries"]:
+            output = publication.prepare_catalog(json.dumps(empty).encode(), json.dumps(self.record(value)).encode(), STAMP)
+            actual = json.loads(output)
+            self.assertEqual(actual["futureCatalog"], original["futureCatalog"])
+            self.assertEqual(actual["entries"][0], value)
+            self.assertEqual(publication.prepare_catalog(output, json.dumps(self.record(value)).encode(), STAMP), output)
+        beta = dict(original["entries"][2], version="1.11.0-beta.2")
+        beta["action"] = dict(beta["action"], url="https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.11.0-beta.2")
+        output = publication.prepare_catalog(self.fixture(), json.dumps(self.record(beta)).encode(), STAMP)
+        actual = json.loads(output)
+        self.assertEqual(actual["futureCatalog"], original["futureCatalog"])
+        self.assertIn(original["entries"][0], actual["entries"])
+        self.assertIn(original["entries"][1], actual["entries"])
+        self.assertIn(beta, actual["entries"])
+        with self.assertRaises(publication.PublicationError):
+            publication.prepare_catalog(output, json.dumps(self.record(original["entries"][2])).encode(), STAMP)
+
+    def test_classification_requires_matching_public_publisher_evidence(self):
+        for classification in ["GA", "Beta", "Alpha"]:
+            value = next(entry for entry in json.loads(self.fixture())["entries"] if entry["classification"] == classification)
+            for field, wrong in [("draft", True), ("public", False), ("releaseBody", "**Release channel:** Unknown"), ("tagName", "v0.1.0"), ("availableAssets", []), ("prerelease", classification == "GA")]:
+                record = self.record(value)
+                record["source"][field] = wrong
+                with self.subTest(classification=classification, field=field), self.assertRaises(publication.PublicationError):
+                    publication.prepare_catalog(self.fixture(), json.dumps(record).encode(), STAMP)
+
+    def test_stable_feed_rejects_numeric_previews_and_preview_feed_rejects_store(self):
+        original = json.loads(self.fixture())
+        for value in original["entries"][1:]:
+            with self.assertRaises((publication.PublicationError, publication.VALIDATOR.CatalogError)):
+                publication.prepare_catalog(catalog(), json.dumps(self.record(value)).encode(), STAMP)
+        original["entries"][0]["edition"] = "mac_app_store"
+        with self.assertRaises(publication.VALIDATOR.CatalogError):
+            publication.VALIDATOR.validate_catalog_bytes(json.dumps(original).encode())
+
+    def test_semantic_precedence_and_same_version_promotion(self):
+        self.assertLess(publication._semver("1.9.0"), publication._semver("1.10.0"))
+        self.assertLess(publication._semver("1.10.0-beta.2"), publication._semver("1.10.0-beta.10"))
+        self.assertLess(publication._semver("1.10.0-beta.10"), publication._semver("1.10.0"))
+        self.assertEqual(publication._semver("1.10.0+old"), publication._semver("1.10.0+new"))
+
+    def test_independent_verifier_uses_release_body_and_exact_architecture_asset(self):
+        spec = importlib.util.spec_from_file_location("verify", ROOT / "scripts/verify-catalog-availability.py")
+        verifier = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verifier)
+        value = json.loads(self.fixture())["entries"][2]
+        release = {"draft": False, "prerelease": True, "tag_name": "v" + value["version"], "body": "**Release channel:** Beta", "published_at": STAMP, "assets": [{"name": "speaker-volume-bridge-macos.dmg", "state": "uploaded", "size": 100}]}
+        verified = verifier.verify(self.record(value), release)
+        self.assertEqual(verified["source"]["requiredAssets"], ["speaker-volume-bridge-macos.dmg"])
+        release["assets"] = [{"name": "speaker-volume-bridge-windows-arm64-unsigned.exe", "state": "uploaded", "size": 100}]
+        with self.assertRaises(verifier.publication.PublicationError):
+            verifier.verify(self.record(value), release)

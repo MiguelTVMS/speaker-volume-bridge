@@ -78,3 +78,9 @@ on a legacy-app check, or display a conflict warning. Settings and Night Mode ke
 their normal selection/write serialization and explicit stop behavior. See
 [decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
 [manual removal guide](removing-old-app.md).
+
+A policy change transitions immediately to `checking`, clears the previous offer
+and increments the preference generation. Only a matching generation can commit a
+result or claim a notification/action. Stable uses v1; Prereleases uses the combined
+GA/Alpha/Beta v2 feed. Empty/missing feeds yield `unavailable`. Strict semantic
+precedence prevents downgrade or equal-version promotion offers.

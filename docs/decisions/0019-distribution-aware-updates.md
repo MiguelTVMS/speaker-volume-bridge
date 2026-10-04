@@ -97,3 +97,48 @@ The catalog can lag releases and different editions can legitimately advertise
 different versions. Publication needs an explicit availability workflow rather
 than being coupled directly to compilation or release creation. Phase 1 performs
 no package download or installation.
+
+## Release policy prerequisite (issue #178)
+
+The persisted `UpdatePolicy` is separate from installed package provenance and
+`publishedClassification` (GA, Alpha or Beta; absent evidence remains unknown).
+The release workflow stamps that classification into package resources; it never
+selects the user's policy. Existing preferences migrate to Stable. An explicit
+provenance-based capability permits selection only for recognized direct macOS,
+direct Windows and official Debian packages on supported application architectures.
+Store, sideloaded, custom, development and unknown architectures reject the backend
+command as well as omitting the control. Later installers must reuse this capability,
+policy, generation and exact target contract and revalidate before installing.
+
+Stable continues to read schema v1 at `/updates/v1/catalog.json`; its contract is
+unchanged. Prereleases reads only schema v2 at `/updates/v2/catalog.json`. V2 contains
+both GA and Alpha/Beta candidates, with one entry per edition/channel/OS/architecture/
+classification. `classification` is mandatory: GA uses `stable`; Alpha/Beta use
+`prereleases`. Store targets are forbidden. Select the maximum semantic version
+precedence across compatible candidates, ignoring publication time and build metadata.
+Only strictly newer versions produce offers; numeric Alpha/Beta versions are valid.
+An equal numeric GA promotion cannot reinstall the same version. Returning to Stable
+waits for the next newer GA, never downgrading. V2 actions must point to the exact
+published release tag page; latest-stable redirects are forbidden.
+
+Publication independently fetches the public release's tag, draft/prerelease flags,
+publisher body classification and nonempty compatible uploaded assets. The
+`**Release channel:** GA|Alpha|Beta` marker is the existing publisher contract, not a
+version-suffix guess. Conflicting or absent evidence fails closed. V1 rejects previews;
+v2 permits only validated public GA/Alpha/Beta records. Availability remains independent
+per distribution and classification. Existing additive metadata, duplicate rejection,
+reviewed digest, serialized writers, idempotency and approved PR/site flow remain.
+Both checked-in feeds remain empty until separately authorized publication.
+
+An explicit policy change atomically persists a new generation, clears offers,
+dismissals and freshness, emits checking state and requests one manual check even
+when automatic checks are disabled. Requests retain their starting policy/generation;
+obsolete results cannot commit cache, timestamps or notification intent. Notification
+permission completion revalidates generation and current cache. Queued page actions
+carry a generation and are rejected after a switch. Freshness/cache target includes
+policy, edition, OS and architecture. Source availability is persisted independently
+for stable and preview feeds. A missing, empty or incompatible preview feed is unavailable,
+never current. Unsupported policy or changed cache target is normalized conservatively
+on restart without modifying speaker settings or notification/automatic preferences.
+Persisted notice history includes edition/OS/architecture/version but excludes policy
+so a GA reachable in both feeds notifies once, including after intervening previews. All network and platform work stays in the shell.

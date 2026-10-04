@@ -3,6 +3,11 @@ name: Propose update catalog
 on:
   workflow_dispatch:
     inputs:
+      feed:
+        description: Versioned catalog to propose
+        type: choice
+        options: [v1, v2]
+        default: v1
       availability_record:
         description: Verified availability JSON matching the publication contract
         required: true
@@ -33,18 +38,24 @@ jobs:
         env:
           AVAILABILITY_RECORD: ${{ inputs.availability_record }}
         run: printf '%s\n' "$AVAILABILITY_RECORD" > "$RUNNER_TEMP/availability.json"
+      - name: Verify public GitHub release metadata and compatible assets
+        run: python3 scripts/verify-catalog-availability.py "$RUNNER_TEMP/availability.json"
       - name: Validate and prepare catalog
         env:
+          CATALOG_FEED: ${{ inputs.feed }}
           EXPECTED_CATALOG_SHA256: ${{ inputs.expected_catalog_sha256 }}
         run: >-
           python3 scripts/prepare-update-catalog.py
           "$RUNNER_TEMP/availability.json"
+          --catalog "pages/updates/$CATALOG_FEED/catalog.json"
           --expected-sha256 "$EXPECTED_CATALOG_SHA256"
-      - run: python3 scripts/validate-update-catalog.py
+      - run: |
+          python3 scripts/validate-update-catalog.py
+          python3 scripts/validate-update-catalog.py pages/updates/v2/catalog.json
       - name: Require a focused catalog change
         run: |
-          git diff --exit-code -- . ':!pages/updates/v1/catalog.json'
-          test -n "$(git diff -- pages/updates/v1/catalog.json)"
+          git diff --exit-code -- . ':!pages/updates/v1/catalog.json' ':!pages/updates/v2/catalog.json'
+          test -n "$(git diff -- pages/updates/)"
       - name: Open catalog review PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,7 +64,7 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git switch -c "$BRANCH"
-          git add pages/updates/v1/catalog.json
+          git add pages/updates/
           git commit -m "chore: update verified release catalog"
           git push origin "$BRANCH"
           gh pr create --base develop --head "$BRANCH" \

@@ -93,6 +93,22 @@ class DistributionPackagingTests(unittest.TestCase):
             },
         )
 
+    def test_release_classification_stamping_preserves_package_identity(self):
+        import importlib.util
+        import tempfile
+        spec = importlib.util.spec_from_file_location("stamp", ROOT / "scripts/stamp-release-classification.py")
+        stamp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(stamp)
+        for classification in ["GA", "Alpha", "Beta"]:
+            with tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                original = json.loads((ROOT / "src-tauri/distribution/direct-macos.json").read_text())
+                (directory / "direct.json").write_text(json.dumps(original))
+                stamp.stamp(directory, classification)
+                self.assertEqual(json.loads((directory / "direct.json").read_text()), dict(original, releaseClassification=classification))
+                with self.assertRaises(ValueError):
+                    stamp.stamp(directory, "Unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -323,6 +323,11 @@ activation registration; in-place updates preserve them (ADR 0013).
 
 ## Release artifact flow
 
+macOS direct-download configurations share distribution provenance resources.
+The configuration without a provisioning profile uses checked-in base
+entitlements; the profile variant uses generated profile-specific entitlements
+and embeds the profile (ADR 0015).
+
 Release jobs verify the prepared commit belongs to trusted `develop` history,
 then detach at that exact commit before executing release code. Moving the branch
 forward does not change or invalidate the selected release. Native

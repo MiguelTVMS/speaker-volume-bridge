@@ -1,4 +1,9 @@
 import json
+import os
+import plistlib
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 import unittest
 
@@ -6,6 +11,49 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class DistributionPackagingTests(unittest.TestCase):
+    def test_release_bundle_resolves_entitlements_with_and_without_profile(self):
+        workflow = (ROOT / ".github/workflows/release-candidate.yml").read_text()
+        step = workflow.split("      - name: Bundle, sign, notarize, and staple the existing executable\n", 1)[1]
+        block = step.split("      - name:", 1)[0].split("        run: |\n", 1)[1]
+        command = "\n".join(line[10:] for line in block.splitlines())
+        for with_profile in (False, True):
+            with self.subTest(with_profile=with_profile), tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                shutil.copytree(ROOT / "src-tauri", workspace / "src-tauri",
+                                ignore=shutil.ignore_patterns("target"))
+                generated = workspace / "src-tauri/Entitlements.direct.plist"
+                generated.unlink(missing_ok=True)
+                if with_profile:
+                    generated.write_bytes(plistlib.dumps({
+                        "com.apple.security.app-sandbox": True,
+                        "com.apple.security.network.client": True,
+                        "com.apple.security.network.server": True,
+                        "com.apple.application-identifier": "TEST.example.app",
+                        "com.apple.developer.team-identifier": "TEST",
+                    }))
+                    (workspace / "src-tauri/macos-developer-id.provisionprofile").write_text("fixture")
+                bin_dir = workspace / "bin"
+                bin_dir.mkdir()
+                cargo = bin_dir / "cargo"
+                cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > bundle-arguments\n')
+                cargo.chmod(0o755)
+                subprocess.run(["bash", "-e", "-c", command], cwd=workspace, check=True,
+                               env={**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+                                    "HAS_DEVELOPER_ID_PROFILE": str(with_profile).lower()})
+                arguments = (workspace / "bundle-arguments").read_text().splitlines()
+                config_path = workspace / arguments[arguments.index("--config") + 1]
+                bundle = json.loads(config_path.read_text())["bundle"]
+                entitlements = plistlib.loads((config_path.parent / bundle["macOS"]["entitlements"]).read_bytes())
+                for key in ("app-sandbox", "network.client", "network.server"):
+                    self.assertTrue(entitlements["com.apple.security." + key])
+                self.assertEqual(bundle["resources"], {"distribution/direct-macos.json": "distribution.json"})
+                if with_profile:
+                    self.assertEqual(entitlements["com.apple.application-identifier"], "TEST.example.app")
+                    self.assertTrue((config_path.parent / bundle["macOS"]["files"]["embedded.provisionprofile"]).is_file())
+                else:
+                    self.assertNotIn("files", bundle["macOS"])
+                    self.assertNotIn("com.apple.application-identifier", entitlements)
+
     def test_each_package_kind_embeds_distinct_provenance(self):
         expected = {
             "tauri.direct.conf.json": "direct-macos.json",

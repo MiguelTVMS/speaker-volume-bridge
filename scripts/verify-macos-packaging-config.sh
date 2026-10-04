@@ -33,7 +33,9 @@ assert bundle["macOS"]["entitlements"] == "./Entitlements.plist"
 assert bundle["macOS"]["minimumSystemVersion"] == "13.0"
 assert app_store["bundle"]["macOS"]["entitlements"] == "./Entitlements.appstore.plist"
 assert app_store["bundle"]["macOS"]["files"]["embedded.provisionprofile"] == "macos-app-store.provisionprofile"
-assert direct["bundle"]["macOS"]["entitlements"] == "./Entitlements.direct.plist"
+assert direct["bundle"]["macOS"]["entitlements"] == "./Entitlements.plist"
+assert "files" not in direct["bundle"]["macOS"]
+assert direct_profile["bundle"]["macOS"]["entitlements"] == "./Entitlements.direct.plist"
 assert direct_profile["bundle"]["macOS"]["files"]["embedded.provisionprofile"] == "macos-developer-id.provisionprofile"
 assert direct["bundle"]["resources"] == direct_profile["bundle"]["resources"]
 PY

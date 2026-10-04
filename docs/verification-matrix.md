@@ -409,6 +409,15 @@ machine. The ARM64 stable link is unavailable until that asset reaches a GA rele
 
 ## macOS release DMG
 
+For direct-download signing, run the release once without the optional Developer
+ID profile and once with it. Both must bundle the direct-distribution metadata,
+sign successfully, pass notarization, and pass the existing artifact checks. The
+profile case must also embed the profile and its application/team entitlements.
+The CI distribution-packaging regression executes the production bundle command
+with a recording Cargo adapter and verifies configuration, entitlement-file
+availability and profile selection. It does not perform Apple signing or
+notarization; those require the protected macOS release job.
+
 After a GA release, download the DMG from the website. Verify its stapled ticket
 and Gatekeeper assessment, open it, drag the app to Applications, eject the image,
 and launch the installed app. Confirm Settings, tray and saved configuration work.

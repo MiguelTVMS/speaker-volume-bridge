@@ -16,6 +16,14 @@ GA release providing that asset is published.
 
 ## Verification
 
+Direct-download packaging always embeds its distribution metadata. Without a
+Developer ID provisioning profile it uses the checked-in base sandbox/network
+entitlements. With a profile it selects the separate profile configuration,
+embeds that profile and uses the generated application/team entitlements.
+The release bundle-command regression exercises both configuration selections
+and resolves their entitlement files; actual Apple signing remains a protected
+workflow check.
+
 Release-download tests exercise filename normalization, byte preservation, rejection of
 missing/empty installers, and the website link. Local unsigned DMG verification
 covers the app and Applications shortcut. Apple signing, notarization and

@@ -38,7 +38,7 @@ Speaker Volume Bridge is independently developed and is not affiliated with, end
 
 [Speaker Volume Bridge](https://svb.miguel.ms/)
 
-[Privacy policy](https://svb.miguel.ms/privacy.html) [MIT license](https://svb.miguel.ms/license.txt) [Source code ↗](https://github.com/MiguelTVMS/speaker-volume-bridge)
+[Privacy policy](https://svb.miguel.ms/privacy.html)  [MIT license](https://svb.miguel.ms/license.txt)  [Source code ↗](https://github.com/MiguelTVMS/speaker-volume-bridge)
 
 Independent software. Not affiliated with, sponsored by, endorsed by, or supported by Sonos. Sonos and related product names are trademarks of their respective owners and are used only to identify compatibility. This project contains no Sonos source code.
 

@@ -4,7 +4,6 @@ from html.parser import HTMLParser
 from pathlib import Path
 import struct
 import unittest
-import re
 from urllib.parse import urljoin, urlsplit
 import xml.etree.ElementTree as ET
 
@@ -48,29 +47,6 @@ class Page(HTMLParser):
             else:
                 self.structured.append(json.loads(self.buffer))
             self.capture = None
-
-
-class Chrome(HTMLParser):
-    def __init__(self, markup):
-        super().__init__()
-        self.links, self.buttons, self.images = [], [], []
-        self.feed(markup)
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == 'a':
-            self.links.append((attrs.get('href'), attrs.get('class'), attrs.get('aria-label')))
-        elif tag == 'button':
-            self.buttons.append(attrs.get('id'))
-        elif tag == 'img':
-            self.images.append((attrs.get('src'), attrs.get('class')))
-
-
-def chrome(path, tag):
-    match = re.search(rf'<{tag}\b.*?</{tag}>', path.read_text(), re.DOTALL)
-    if match is None:
-        raise AssertionError(f'{path.name} has no {tag}')
-    return Chrome(match.group())
 
 
 class WebsiteSeoTests(unittest.TestCase):
@@ -126,16 +102,12 @@ class WebsiteSeoTests(unittest.TestCase):
                     if target.fragment and path in self.pages:
                         self.assertIn(target.fragment, self.pages[path].ids)
 
-    def test_upgrade_page_uses_home_header_and_footer(self):
-        home = PAGES / 'index.html'
-        upgrade = PAGES / 'upgrade.html'
-        for tag in ('header', 'footer'):
-            with self.subTest(tag=tag):
-                expected = chrome(home, tag)
-                actual = chrome(upgrade, tag)
-                self.assertEqual(actual.links, expected.links)
-                self.assertEqual(actual.buttons, expected.buttons)
-                self.assertEqual(actual.images, expected.images)
+    def test_static_pages_use_shared_header_and_footer(self):
+        for name in ('index.html', 'privacy.html', 'upgrade.html'):
+            source = (PAGES / name).read_text()
+            with self.subTest(page=name):
+                self.assertIn('{% include site-header.html %}', source)
+                self.assertIn('{% include site-footer.html %}', source)
 
 
 if __name__ == '__main__':

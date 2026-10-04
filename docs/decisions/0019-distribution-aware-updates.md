@@ -54,7 +54,9 @@ resolve conservatively and never enable direct installation.
 Publishers validate the entire catalog and update entries only after confirming
 the corresponding edition and architecture are publicly obtainable. Withdrawal
 removes the entry; clients never interpret removal or an older entry as a
-downgrade offer.
+downgrade offer. Publication preserves all existing top-level catalog fields,
+replacing only `generatedAt` and `entries` when a target changes. Retained entries
+and their action metadata are preserved; a no-op returns the original bytes.
 
 Publication is serialized and fail-closed. An availability record supplies
 independent evidence for exactly one target: a non-draft, non-prerelease GitHub

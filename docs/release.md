@@ -54,7 +54,10 @@ See the repository Releases page for the current published version.
 Release creation does not update the site update catalog. The catalog starts
 empty and gains an edition/architecture entry only through the separately
 reviewed publication flow after that exact distribution is publicly available.
-Store availability is independent of direct downloads. Validate any proposed
+Store availability is independent of direct downloads. Catalog preparation preserves
+additive top-level metadata and retained entry/action metadata on insertion,
+version update and withdrawal; repeated operations keep the original content.
+Validate any proposed
 catalog with `python3 scripts/validate-update-catalog.py`; see
 [ADR 0019](decisions/0019-distribution-aware-updates.md).
 

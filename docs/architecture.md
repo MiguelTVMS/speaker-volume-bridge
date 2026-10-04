@@ -203,6 +203,11 @@ origin/expected-write suppression remains in the synchronization adapters. Sonos
 notifications do not identify the originating controller, so an echoed value is
 not treated as proof of authorship and genuine external changes remain observable.
 
+Catalog publication retains the validated document and updates only `generatedAt`
+and `entries`, preserving additive catalog fields and unchanged entry/action
+metadata. The complete result is validated again before writing; repeated
+publication returns the original content. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
+
 ## Global Night Mode scheduling
 
 A separate shell worker applies one global weekly half-hour schedule exclusively

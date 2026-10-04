@@ -39,10 +39,39 @@ downloads page but never claim binary compatibility. Future schemas use a new
 path. Additive action data may be introduced only while retaining the v1
 `open_url` fallback so older phase-one clients remain useful.
 
+The shell owns an injectable installed-distribution resolver. It combines a
+package resource with platform evidence and uses the workspace package version
+plus compiled target architecture. Windows Store classification requires a
+Store-signed package; other packaged Windows builds are sideloaded. macOS App
+Store classification requires both matching provenance and an App Store receipt;
+sandboxing alone is insufficient. Debian classification requires matching
+provenance and the official package metadata. Older packages without provenance,
+conflicts, source errors, custom/debug/demo builds and unsupported architectures
+resolve conservatively and never enable direct installation.
+
 Publishers validate the entire catalog and update entries only after confirming
 the corresponding edition and architecture are publicly obtainable. Withdrawal
 removes the entry; clients never interpret removal or an older entry as a
 downgrade offer.
+
+Publication is serialized and fail-closed. An availability record supplies
+independent evidence for exactly one target: a non-draft, non-prerelease GitHub
+release with its required public assets, or an explicitly published matching
+Store edition. A reviewed catalog digest prevents stale concurrent mutations.
+The automation is idempotent, rejects same-version changes and downgrades, and
+opens a focused PR to `develop`; it does not deploy or publish. Catalog changes
+reach the site only through the normal release flow into `main`, where the Pages
+job verifies the served document and cache header after its atomic deployment.
+
+One application-level service owns update state. Its HTTPS transport is bounded
+to 10 seconds, 256 KiB and three redirects, and accepted actions are `open_url`
+targets on approved project/Store origins. The service persists automatic-check
+preference, last attempt, last success and last-notified target separately from
+speaker configuration. Recognized release packages default on; development and
+unknown packages are unsupported. Startup waits 30 seconds, successful checks are
+fresh for 24 hours, transient failures use bounded backoff, and all callers share
+one in-flight request. Background failures are quiet; manual failures are visible.
+No package download or installer path exists in phase 1.
 
 ## Consequences
 

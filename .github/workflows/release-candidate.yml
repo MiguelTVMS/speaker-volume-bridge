@@ -372,9 +372,9 @@ jobs:
       - name: Bundle, sign, notarize, and staple the existing executable
         run: |
           if [ "${HAS_DEVELOPER_ID_PROFILE:-false}" = true ]; then
-            cargo tauri bundle --bundles app,dmg --config src-tauri/tauri.direct.conf.json
+            cargo tauri bundle --bundles app,dmg --config src-tauri/tauri.direct-profile.conf.json
           else
-            cargo tauri bundle --bundles app,dmg
+            cargo tauri bundle --bundles app,dmg --config src-tauri/tauri.direct.conf.json
           fi
       - name: Verify the signed and notarized app
         run: |

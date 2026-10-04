@@ -43,6 +43,30 @@ first if it still matches the selected UDN.
 At runtime startup, the selected endpoint is attached and the synchronizer is seeded
 with the latest Sonos read.
 
+Update discovery separately resolves the installed distribution at application
+startup. Direct packages, Store packages and Debian packages carry different
+package metadata even when they reuse the same executable. OS evidence must agree:
+a Store-signed Windows package, App Store receipt, or official Debian package
+registration is required for those editions. Ambiguous/custom packages remain
+unknown and do not affect speaker startup.
+
+Recognized release installations check the bounded HTTPS site catalog 30 seconds
+after startup by default and no more than once per 24 hours after a successful
+check. Manual checks bypass freshness but join an in-flight request. The persisted
+record contains only the preference, last attempt/success times, and last-notified
+edition/version. Background failures remain quiet and never change audio behavior;
+manual failures are visible and retryable. Debug, demo, custom and ambiguous
+packages do not check automatically.
+
+The Updates page shows the installed version and distribution, last successful
+check and every checker state. An available offer remains discoverable after
+Later or notification denial. The persisted Update notifications switch suppresses
+native update notices independently from automatic checks; enabling it is the
+only update flow that may request OS permission. Open update page is enabled only for the exact
+validated offer; the shell rechecks version and URL immediately before invoking
+the operating system's default HTTPS handler. No browser opens at startup and no
+package is downloaded or installed.
+
 ## Synchronization strategy
 
 Two modes are supported:

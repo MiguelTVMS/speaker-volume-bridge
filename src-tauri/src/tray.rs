@@ -68,6 +68,7 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
     let diagnostics = MenuItem::with_id(app, "diagnostics", "Diagnostics", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let speaker_separator = PredefinedMenuItem::separator(app)?;
@@ -80,6 +81,7 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             &status,
             &separator,
             &settings,
+            &updates,
             &diagnostics,
             &quit,
         ],
@@ -91,6 +93,10 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .tooltip("Speaker Volume Bridge")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "settings" | "diagnostics" => show_settings(app),
+            "updates" => {
+                show_settings(app);
+                let _ = app.emit("open-updates", ());
+            }
             "night-schedule-enabled" => toggle_schedule(app),
             "speaker-night-sound" => {
                 toggle_speaker_setting(app, SpeakerSetting::NightSound, event.id().as_ref());

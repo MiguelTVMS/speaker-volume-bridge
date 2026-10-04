@@ -5,7 +5,141 @@ use crate::{
     state::{AppState, UiSnapshot},
 };
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+const PROJECT_REPOSITORY_URL: &str = "https://github.com/MiguelTVMS/speaker-volume-bridge";
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
+pub fn get_update_status(app: AppHandle) -> Result<crate::updates::UpdateStatus, String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    manager
+        .service()
+        .status()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn check_for_updates(app: AppHandle) -> Result<crate::updates::UpdateStatus, String> {
+    let service = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?
+        .service()
+        .clone();
+    let status = service.check(true).await;
+    let _ = app.emit("update-status-changed", &status);
+    Ok(status)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
+pub fn set_automatic_update_checks(enabled: bool, app: AppHandle) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    manager
+        .service()
+        .set_automatic_checks(enabled)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
+pub fn dismiss_update(version: String, app: AppHandle) -> Result<(), String> {
+    app.try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?
+        .service()
+        .dismiss(&version)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn set_update_notifications(enabled: bool, app: AppHandle) -> Result<bool, String> {
+    let service = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?
+        .service()
+        .clone();
+    let permitted = !enabled || crate::schedule_notifications::permitted(&app, true).await;
+    service
+        .set_update_notifications(enabled && permitted)
+        .map_err(|error| error.to_string())?;
+    Ok(enabled && permitted)
+}
+
+#[tauri::command]
+pub fn open_project_repository() -> Result<(), String> {
+    open_url_with_system(PROJECT_REPOSITORY_URL)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
+pub fn open_update_page(version: String, url: String, app: AppHandle) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let action = manager
+        .service()
+        .claim_offer(&version, &url)
+        .map_err(|_| "That update offer changed. Check again before opening it.".to_owned())?;
+    let result = open_url_with_system(&action.url);
+    manager.service().finish_open();
+    result
+}
+
+#[cfg(target_os = "macos")]
+fn open_url_with_system(url: &str) -> Result<(), String> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSString, NSURL};
+    let url = NSURL::URLWithString(&NSString::from_str(url))
+        .ok_or_else(|| "The update page URL is invalid".to_owned())?;
+    if NSWorkspace::sharedWorkspace().openURL(&url) {
+        Ok(())
+    } else {
+        Err("The update page could not be opened".into())
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn open_url_with_system(url: &str) -> Result<(), String> {
+    use windows::{
+        Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        core::PCWSTR,
+    };
+    let wide: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR::null(),
+            PCWSTR(wide.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err("The update page could not be opened".into())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn open_url_with_system(url: &str) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|_| "The update page could not be opened".into())
+}
+
+#[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
+fn open_url_with_system(_: &str) -> Result<(), String> {
+    Err("Opening update pages is unsupported on this platform".into())
+}
 
 // WebView Intl defaults do not include macOS region and clock overrides.
 #[tauri::command]

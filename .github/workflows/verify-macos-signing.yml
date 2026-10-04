@@ -77,7 +77,7 @@ jobs:
           chmod 600 "$api_key_path"
           echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
       - name: Build, sign, notarize, and staple the app
-        run: cargo tauri build --bundles app
+        run: cargo tauri build --bundles app --config src-tauri/tauri.direct.conf.json
       - name: Verify the signed and notarized app
         run: |
           app_path='target/release/bundle/macos/Speaker Volume Bridge.app'

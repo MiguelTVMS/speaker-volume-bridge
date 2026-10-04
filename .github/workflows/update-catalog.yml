@@ -1,0 +1,62 @@
+name: Propose update catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      availability_record:
+        description: Verified availability JSON matching the publication contract
+        required: true
+        type: string
+      expected_catalog_sha256:
+        description: SHA-256 of the reviewed catalog on develop
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-catalog-writer
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          fetch-depth: 0
+      - name: Prepare availability record
+        env:
+          AVAILABILITY_RECORD: ${{ inputs.availability_record }}
+        run: printf '%s\n' "$AVAILABILITY_RECORD" > "$RUNNER_TEMP/availability.json"
+      - name: Validate and prepare catalog
+        env:
+          EXPECTED_CATALOG_SHA256: ${{ inputs.expected_catalog_sha256 }}
+        run: >-
+          python3 scripts/prepare-update-catalog.py
+          "$RUNNER_TEMP/availability.json"
+          --expected-sha256 "$EXPECTED_CATALOG_SHA256"
+      - run: python3 scripts/validate-update-catalog.py
+      - name: Require a focused catalog change
+        run: |
+          git diff --exit-code -- . ':!pages/updates/v1/catalog.json'
+          test -n "$(git diff -- pages/updates/v1/catalog.json)"
+      - name: Open catalog review PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: chore/update-catalog-${{ github.run_id }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git switch -c "$BRANCH"
+          git add pages/updates/v1/catalog.json
+          git commit -m "chore: update verified release catalog"
+          git push origin "$BRANCH"
+          gh pr create --base develop --head "$BRANCH" \
+            --title "chore: update verified release catalog" \
+            --label enhancement --label documentation --label pages \
+            --body "Proposes an independently verified catalog change. Review and merge through the normal Gitflow process. This workflow does not deploy, publish, or modify a release."

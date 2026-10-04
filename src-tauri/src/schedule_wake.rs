@@ -7,6 +7,14 @@ fn wake<R: Runtime>(app: &AppHandle<R>) {
             .schedule_reconcile
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    if let Some(manager) = app.try_state::<crate::updates::UpdateManager>() {
+        let service = manager.service().clone();
+        tauri::async_runtime::spawn(async move {
+            if service.automatic_due() {
+                service.check(false).await;
+            }
+        });
+    }
 }
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)] // Foundation retains a sendable block; observer lives for the app process.

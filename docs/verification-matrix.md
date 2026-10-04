@@ -641,3 +641,57 @@ preserve the source. The NSIS harness executes production location-selection and
 move functions on both Windows CI architectures, including collision and locked
 source cases. Native full-installer, login and toast checks remain manual gates;
 macOS-hosted tests do not establish Windows behavior.
+
+## Installed distribution provenance
+
+Automated resolver tests cover each supported edition, missing and conflicting
+evidence, a reused executable in direct and Store packages, x64 application on an
+ARM64 host, development/demo builds, sideloaded MSIX, and resolver failure during
+application startup. Packaging regressions assert every bundle receives its own
+provenance and that Store MSIX staging replaces direct provenance.
+
+Native acceptance remains required before enabling live catalog entries. On each
+supported architecture, install the direct package and the applicable Store test
+package, then verify the startup log reports the expected edition and compiled
+application architecture. Confirm a development build, copied/repackaged Debian
+binary, test-signed or sideloaded MSIX, App Store-style sandbox without a receipt,
+and package with removed/conflicting metadata report development, sideloaded, or
+unknown rather than an official edition. These installed-package checks are not
+proved by unit tests or bundle inspection and were not performed for phase 1.2 on
+the macOS development host.
+
+## Background update checking
+
+Automated fake transport/clock/persistence tests cover available/current/missing,
+malformed and prerelease catalogs, exact target selection, invalid action targets,
+24-hour restart persistence, and concurrent manual/background calls sharing one
+request. The production scheduler starts once after speaker synchronization,
+uses bounded retry, and aborts on drop. Native sleep/wake timing, proxy/redirect
+behavior and shutdown cancellation remain installed-app checks on macOS, Windows
+x64/ARM64 and Linux x64/ARM64; they were not performed during phase 1.3.
+
+Settings and orchestration tests cover all visible update states, the persisted
+notification switch and deduplication, denied-permission rollback, Later, manual
+rediscovery of a prior offer, stale and invalid activation, concurrent open
+requests, and native-opener invocation for the explicit HTTPS repository link. Native tray navigation,
+notification permission denial/activation and default-browser failure must still
+be checked in installed macOS, Windows x64/ARM64 and Linux x64/ARM64 packages.
+Those native phase 1.4 checks were not performed on this development host.
+
+## Update catalog publication
+
+Catalog publication tests reject drafts, prereleases, missing assets, unverified
+or mismatched Store availability, invalid documents, stale concurrent inputs,
+same-version changes and downgrades. They also cover partial publication,
+idempotent repeats and target-specific withdrawal. The normal CI path filters run
+these tests, while the Pages job deploys the catalog in the same artifact as the
+site and then validates the public bytes plus the presence of cache-control.
+
+The controlled application fixture verifies that an older direct macOS build
+selects its exact edition/architecture entry, retains only the validated HTTPS
+page, and claims that action without any install path. UI automation verifies the
+same page action remains available after Later. This does not prove a real
+storefront listing, installed-package classification, native default-browser
+activation, or a Pages deployment. No release was published and no `main` site
+deployment was triggered during phase 1.5; those checks remain separate release
+acceptance gates.

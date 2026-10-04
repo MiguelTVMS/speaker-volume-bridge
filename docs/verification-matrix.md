@@ -676,3 +676,21 @@ invalid activation, and concurrent open requests. Native tray navigation,
 notification permission denial/activation and default-browser failure must still
 be checked in installed macOS, Windows x64/ARM64 and Linux x64/ARM64 packages.
 Those native phase 1.4 checks were not performed on this development host.
+
+## Update catalog publication
+
+Catalog publication tests reject drafts, prereleases, missing assets, unverified
+or mismatched Store availability, invalid documents, stale concurrent inputs,
+same-version changes and downgrades. They also cover partial publication,
+idempotent repeats and target-specific withdrawal. The normal CI path filters run
+these tests, while the Pages job deploys the catalog in the same artifact as the
+site and then validates the public bytes plus the presence of cache-control.
+
+The controlled application fixture verifies that an older direct macOS build
+selects its exact edition/architecture entry, retains only the validated HTTPS
+page, and claims that action without any install path. UI automation verifies the
+same page action remains available after Later. This does not prove a real
+storefront listing, installed-package classification, native default-browser
+activation, or a Pages deployment. No release was published and no `main` site
+deployment was triggered during phase 1.5; those checks remain separate release
+acceptance gates.

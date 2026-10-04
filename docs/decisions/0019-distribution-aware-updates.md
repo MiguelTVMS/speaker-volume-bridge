@@ -54,6 +54,15 @@ the corresponding edition and architecture are publicly obtainable. Withdrawal
 removes the entry; clients never interpret removal or an older entry as a
 downgrade offer.
 
+Publication is serialized and fail-closed. An availability record supplies
+independent evidence for exactly one target: a non-draft, non-prerelease GitHub
+release with its required public assets, or an explicitly published matching
+Store edition. A reviewed catalog digest prevents stale concurrent mutations.
+The automation is idempotent, rejects same-version changes and downgrades, and
+opens a focused PR to `develop`; it does not deploy or publish. Catalog changes
+reach the site only through the normal release flow into `main`, where the Pages
+job verifies the served document and cache header after its atomic deployment.
+
 One application-level service owns update state. Its HTTPS transport is bounded
 to 10 seconds, 256 KiB and three redirects, and accepted actions are `open_url`
 targets on approved project/Store origins. The service persists automatic-check

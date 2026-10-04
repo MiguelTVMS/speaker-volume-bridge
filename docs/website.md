@@ -30,6 +30,74 @@ verified public availability per distribution and application architecture; a
 build, tag, upload, submission or workspace version is not sufficient evidence.
 See [ADR 0019](decisions/0019-distribution-aware-updates.md) for the v1 contract.
 
+### Catalog publication
+
+Catalog entries deliberately lag package creation. First complete the ordinary
+`develop` release-candidate flow and publish the stable release through its
+approved promotion PR. Confirm each direct-download asset is publicly retrievable,
+or separately confirm the exact Store edition is publicly listed. Drafts,
+prereleases, submissions and uploads are not availability evidence.
+
+From `develop`, run **Propose update catalog** with a JSON availability record and
+the SHA-256 of the catalog that was reviewed. The workflow serializes writers,
+revalidates the full document, changes only `pages/updates/v1/catalog.json`, and
+opens a focused PR back to `develop`. It never publishes a package or deploys the
+site. Repeated evidence is idempotent; older versions, incomplete asset sets,
+unverified Store listings and stale catalog digests fail closed. Each architecture
+and edition advances independently, so partial availability is expected.
+
+For a withdrawn public package, use a `withdraw` record with its four-field target
+and a non-empty reason. Withdrawal removes that target and never exposes an older
+release as a downgrade. Retry a failed or stale proposal from current `develop`.
+After review, the catalog follows the normal release path from `develop` to
+`release/<version>` and then `main`; only the `main` Pages deployment serves it.
+That deployment fetches the public catalog, validates the served bytes, and
+requires a cache-control header before completing.
+
+Operator cases:
+
+- **Initial bootstrap:** start from the checked-in empty valid catalog, calculate
+  its SHA-256, and propose only the first independently verified target. An empty
+  catalog remains a valid normal state until then.
+- **Store lag:** the release operator who observes the exact version publicly
+  obtainable in Microsoft Store or Mac App Store supplies the explicit Store
+  record. Do not reuse build, submission or approval status.
+- **Retry or conflict:** fetch current `develop`, review its new digest and rerun.
+  The concurrency group prevents overlapping writers; a PR conflict is resolved
+  by closing the stale proposal and generating a new one, never by hand-merging
+  unverified entries.
+- **Withdrawal:** use the explicit target and reason. Do not republish a prior
+  version as a substitute.
+- **Failure:** leave the current catalog untouched. Fix the availability evidence,
+  complete asset publication, or wait for Store visibility before retrying. A
+  release without a catalog entry is supported and appears unavailable to clients.
+
+Example direct-release evidence:
+
+```json
+{
+  "operation": "upsert",
+  "verifiedAvailable": true,
+  "source": {
+    "kind": "github_release",
+    "draft": false,
+    "prerelease": false,
+    "requiredAssets": ["SpeakerVolumeBridge-windows-x64.exe"],
+    "availableAssets": ["SpeakerVolumeBridge-windows-x64.exe"]
+  },
+  "entry": {
+    "edition": "direct_windows",
+    "channel": "stable",
+    "os": "windows",
+    "architecture": "x86_64",
+    "version": "1.8.0",
+    "publishedAt": "2026-10-04T12:00:00Z",
+    "releaseNotes": "Stable release notes.",
+    "action": {"type": "open_url", "url": "https://svb.miguel.ms/upgrade.html"}
+  }
+}
+```
+
 ## Content maintenance
 
 Keep feature descriptions aligned with README.md and the user wiki. The website

@@ -52,6 +52,8 @@ jobs:
               - 'scripts/tests/test_linux_installer.py'
               - 'scripts/tests/test_rebrand_identity.py'
               - 'scripts/tests/test_distribution_packaging.py'
+              - 'scripts/prepare-update-catalog.py'
+              - 'scripts/tests/test_update_catalog_publication.py'
               - 'src-tauri/distribution/**'
               - 'src-tauri/tauri.*.conf.json'
               - 'scripts/remove-signing-wait.py'
@@ -61,6 +63,7 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/workflows/release-candidate.yml'
               - '.github/workflows/microsoft-store-package.yml'
+              - '.github/workflows/update-catalog.yml'
               - 'scripts/build-msix*.ps1'
               - 'scripts/publish-msstore.ps1'
               - 'scripts/resolve-store-upload.py'
@@ -105,6 +108,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -p test_linux_installer.py
       - run: python3 -m unittest discover -s scripts/tests -p test_rebrand_identity.py
       - run: python3 -m unittest discover -s scripts/tests -p test_distribution_packaging.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog_publication.py
       - run: python3 -m unittest discover -s scripts/tests -p test_signing_wait.py
 
   rust:

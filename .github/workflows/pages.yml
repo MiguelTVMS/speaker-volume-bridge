@@ -35,3 +35,13 @@ jobs:
       - name: Deploy website
         id: deployment
         uses: actions/deploy-pages@v5
+      - name: Verify served update catalog
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          curl --fail --location --silent --show-error \
+            --dump-header "$RUNNER_TEMP/catalog-headers.txt" \
+            --output "$RUNNER_TEMP/catalog.json" \
+            "${PAGE_URL%/}/updates/v1/catalog.json"
+          python3 scripts/validate-update-catalog.py "$RUNNER_TEMP/catalog.json"
+          grep --ignore-case --quiet '^cache-control:' "$RUNNER_TEMP/catalog-headers.txt"

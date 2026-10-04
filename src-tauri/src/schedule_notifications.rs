@@ -2,6 +2,27 @@
 //! so macOS uses UserNotifications for both authorization and delivery.
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
+const UPDATE_NOTIFICATION_CATEGORY: &str = "speaker-volume-bridge-update";
+
+fn notification_opens_updates(category: &str) -> bool {
+    category == UPDATE_NOTIFICATION_CATEGORY
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn notification_activation_target(
+    id: u32,
+    action: &str,
+    notifications: &std::collections::VecDeque<(u32, bool)>,
+) -> Option<bool> {
+    if action != "default" {
+        return None;
+    }
+    notifications
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map(|(_, open_updates)| *open_updates)
+}
+
 pub fn activate_notification<R: Runtime>(app: &AppHandle<R>, open_updates: bool) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -120,7 +141,7 @@ fn send_macos<R: Runtime>(_: &AppHandle<R>, title: &str, body: &str, update: boo
     content.setTitle(&NSString::from_str(title));
     content.setBody(&NSString::from_str(body));
     if update {
-        content.setCategoryIdentifier(&NSString::from_str("speaker-volume-bridge-update"));
+        content.setCategoryIdentifier(&NSString::from_str(UPDATE_NOTIFICATION_CATEGORY));
     }
     let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
         &NSString::from_str(&format!("night-schedule-{}", jiff::Timestamp::now())),
@@ -179,12 +200,11 @@ async fn send_linux<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str, upd
                 };
                 while let Some(message) = actions.next().await {
                     if let Ok((id, action)) = message.body().deserialize::<(u32, String)>() {
-                        let update_notice = IDS.lock().ok().and_then(|ids| {
-                            ids.iter()
-                                .find(|(known, _)| *known == id)
-                                .map(|(_, update)| *update)
-                        });
-                        if let Some(update) = update_notice.filter(|_| action == "default") {
+                        let update_notice = IDS
+                            .lock()
+                            .ok()
+                            .and_then(|ids| notification_activation_target(id, &action, &ids));
+                        if let Some(update) = update_notice {
                             activate_notification(&handle, update);
                         }
                     }
@@ -321,7 +341,7 @@ mod foreground {
                         .request()
                         .content()
                         .categoryIdentifier();
-                    let open_updates = category.to_string() == "speaker-volume-bridge-update";
+                    let open_updates = super::notification_opens_updates(&category.to_string());
                     super::activate_notification(app, open_updates);
                 }
                 completion.call(());
@@ -362,6 +382,33 @@ pub fn install_windows<R: Runtime>(app: &AppHandle<R>) {
 #[cfg(test)]
 mod tests {
     use super::{ScheduleNotice, schedule_body};
+
+    #[test]
+    fn platform_notification_metadata_distinguishes_updates_from_settings() {
+        use std::collections::VecDeque;
+        assert!(!super::notification_opens_updates("schedule"));
+        assert!(super::notification_opens_updates(
+            super::UPDATE_NOTIFICATION_CATEGORY
+        ));
+
+        let sent = VecDeque::from([(21, false), (22, true)]);
+        assert_eq!(
+            super::notification_activation_target(21, "default", &sent),
+            Some(false)
+        );
+        assert_eq!(
+            super::notification_activation_target(22, "default", &sent),
+            Some(true)
+        );
+        assert_eq!(
+            super::notification_activation_target(22, "reply", &sent),
+            None
+        );
+        assert_eq!(
+            super::notification_activation_target(23, "default", &sent),
+            None
+        );
+    }
 
     #[tokio::test]
     async fn only_update_notification_activation_navigates_to_the_updates_page() {

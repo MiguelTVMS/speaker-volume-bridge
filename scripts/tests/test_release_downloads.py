@@ -13,25 +13,36 @@ DESTINATIONS = tuple("linux-x64.deb" if suffix == "linux-amd64.deb" else suffix 
 
 class ReleaseDownloadsTests(unittest.TestCase):
     def test_site_links_to_published_installers(self):
-        links = []
+        links_by_page = {}
 
         class Links(HTMLParser):
             def handle_starttag(self, tag, attrs):
                 if tag == "a":
-                    links.append(dict(attrs).get("href", ""))
+                    self.links.append(dict(attrs).get("href", ""))
 
-        Links().feed((SCRIPT.parent.parent / "pages" / "index.html").read_text())
-        store = [link for link in links if urlparse(link).hostname == 'apps.microsoft.com']
-        self.assertEqual(len(store), 1)
-        self.assertEqual(parse_qs(urlparse(store[0]).query), {
-            'cid': ['website'], 'referrer': ['download'], 'source': ['svb.miguel.ms'],
-        })
-        self.assertIn(store[0], (SCRIPT.parent.parent / 'pages/index.md').read_text())
+            def __init__(self):
+                super().__init__()
+                self.links = []
+
+        for page in ("index.html", "upgrade.html"):
+            parser = Links()
+            parser.feed((SCRIPT.parent.parent / "pages" / page).read_text())
+            links_by_page[page] = parser.links
+        for page, page_links in links_by_page.items():
+            store = [link for link in page_links if urlparse(link).hostname == 'apps.microsoft.com']
+            self.assertEqual(len(store), 1, page)
+            self.assertEqual(parse_qs(urlparse(store[0]).query), {
+                'cid': ['website'], 'referrer': ['download'], 'source': ['svb.miguel.ms'],
+            })
+            markdown = page.replace('.html', '.md')
+            self.assertIn(store[0], (SCRIPT.parent.parent / 'pages' / markdown).read_text())
         for suffix in ("macos.dmg", "windows-x64-unsigned.exe", "windows-arm64-unsigned.exe", "linux-x64.deb", "linux-arm64.deb"):
             self.assertIn(suffix, DESTINATIONS)
-            self.assertTrue(any(link.endswith(
-                f"/releases/latest/download/speaker-volume-bridge-{suffix}"
-            ) for link in links))
+            for page, page_links in links_by_page.items():
+                with self.subTest(page=page, suffix=suffix):
+                    self.assertTrue(any(link.endswith(
+                        f"/releases/latest/download/speaker-volume-bridge-{suffix}"
+                    ) for link in page_links))
 
     def test_publication_contains_one_file_per_package_and_can_be_repeated(self):
         with tempfile.TemporaryDirectory() as directory:

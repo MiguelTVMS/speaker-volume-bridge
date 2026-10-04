@@ -735,6 +735,13 @@ code {
   flex-direction: column;
   gap: 12px;
 }
+.upgrade-downloads {
+  flex-flow: row wrap;
+  margin: 20px 0 28px;
+}
+.upgrade-downloads .button {
+  justify-content: center;
+}
 .button-secondary {
   background: transparent;
   color: var(--ink);

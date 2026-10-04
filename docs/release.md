@@ -51,6 +51,13 @@ release branch, or a previously closed PR require manual review.
 
 See the repository Releases page for the current published version.
 
+Release creation does not update the site update catalog. The catalog starts
+empty and gains an edition/architecture entry only through the separately
+reviewed publication flow after that exact distribution is publicly available.
+Store availability is independent of direct downloads. Validate any proposed
+catalog with `python3 scripts/validate-update-catalog.py`; see
+[ADR 0019](decisions/0019-distribution-aware-updates.md).
+
 The release workflow compiles one macOS ARM64 executable, Ubuntu AMD64 and
 ARM64 Debian packages, and Windows x64 and ARM64 executables per version. The protected macOS direct-download job downloads the exact
 executable produced by the unprivileged build job, imports the Developer ID

@@ -73,6 +73,30 @@ class PublicationTests(unittest.TestCase):
         output = publication.prepare_catalog(fixture, json.dumps({"operation": "withdraw", "target": {"edition": "direct_windows", "channel": "stable", "os": "windows", "architecture": "x86_64"}, "reason": "fixture parity"}).encode(), STAMP)
         self.assertEqual(json.loads(output), json.loads(fixture))
 
+    def test_shared_rejection_fixtures_are_rejected_by_publication(self):
+        withdrawal = {
+            "operation": "withdraw",
+            "target": {
+                "edition": "direct_windows",
+                "channel": "stable",
+                "os": "windows",
+                "architecture": "x86_64",
+            },
+            "reason": "fixture parity",
+        }
+        for name in (
+            "missing-required.json",
+            "unsupported-action.json",
+            "duplicate-key.json",
+            "duplicate-target.json",
+        ):
+            with self.subTest(name=name), self.assertRaises(publication.VALIDATOR.CatalogError):
+                publication.prepare_catalog(
+                    (ROOT / "tests/fixtures/update-catalog" / name).read_bytes(),
+                    json.dumps(withdrawal).encode(),
+                    STAMP,
+                )
+
     def test_draft_prerelease_and_missing_assets_are_rejected(self):
         for field in ("draft", "prerelease"):
             record = direct_record()

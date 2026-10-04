@@ -3,6 +3,7 @@ use crate::distribution::{
 };
 use async_trait::async_trait;
 use semver::Version;
+use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -236,6 +237,79 @@ struct CatalogEntry {
     published_at: String,
     release_notes: String,
     action: OpenUrlAction,
+}
+
+struct UniqueJson(serde_json::Value);
+
+impl<'de> Deserialize<'de> for UniqueJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct UniqueJsonVisitor;
+        impl<'de> Visitor<'de> for UniqueJsonVisitor {
+            type Value = UniqueJson;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a JSON value without duplicate object members")
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                serde_json::Number::from_f64(value)
+                    .map(|number| UniqueJson(number.into()))
+                    .ok_or_else(|| E::custom("non-finite JSON number"))
+            }
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+            fn visit_none<E>(self) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::Null))
+            }
+            fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::Null))
+            }
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut values = Vec::new();
+                while let Some(UniqueJson(value)) = sequence.next_element()? {
+                    values.push(value);
+                }
+                Ok(UniqueJson(values.into()))
+            }
+            fn visit_map<A>(self, mut object: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut values = serde_json::Map::new();
+                while let Some(key) = object.next_key::<String>()? {
+                    if values.contains_key(&key) {
+                        return Err(serde::de::Error::custom("duplicate object member"));
+                    }
+                    let UniqueJson(value) = object.next_value()?;
+                    values.insert(key, value);
+                }
+                Ok(UniqueJson(values.into()))
+            }
+        }
+        deserializer.deserialize_any(UniqueJsonVisitor)
+    }
 }
 
 pub struct UpdateService {
@@ -492,7 +566,10 @@ impl UpdateService {
         if bytes.len() > MAX_CATALOG_BYTES {
             return Err(UpdateError::InvalidCatalog("catalog too large"));
         }
-        let catalog: Catalog = serde_json::from_slice(bytes)?;
+        let mut decoder = serde_json::Deserializer::from_slice(bytes);
+        let unique = UniqueJson::deserialize(&mut decoder)?.0;
+        decoder.end()?;
+        let catalog: Catalog = serde_json::from_value(unique)?;
         if catalog.schema_version != 1 || catalog.generated_at.parse::<jiff::Timestamp>().is_err() {
             return Err(UpdateError::InvalidCatalog("unsupported schema"));
         }

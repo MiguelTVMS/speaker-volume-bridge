@@ -132,6 +132,18 @@ class WebsiteSeoTests(unittest.TestCase):
             footer,
         )
 
+    def test_all_rendered_pages_load_external_link_policy(self):
+        script = (PAGES / 'external-links.js').read_text()
+        self.assertIn('destination.origin === currentOrigin', script)
+        self.assertIn('link.target = "_blank"', script)
+        self.assertIn('relationships.add("noopener")', script)
+        self.assertIn('relationships.add("noreferrer")', script)
+        for name in ('index.html', 'privacy.html'):
+            with self.subTest(page=name):
+                self.assertIn('<script src="external-links.js" defer></script>', (PAGES / name).read_text())
+        layout = (PAGES / '_layouts' / 'guide.html').read_text()
+        self.assertIn('<script src="/external-links.js" defer></script>', layout)
+
 
 if __name__ == '__main__':
     unittest.main()

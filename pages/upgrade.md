@@ -37,3 +37,9 @@ The old and new names share settings within a distribution. Deleting those files
 Speaker Volume Bridge is independently developed and is not affiliated with, endorsed by, or sponsored by Sonos, Inc. Sonos is a trademark of Sonos, Inc.
 
 [Speaker Volume Bridge](https://svb.miguel.ms/)
+
+[Privacy policy](https://svb.miguel.ms/privacy.html) [MIT license](https://svb.miguel.ms/license.txt) [Source code ↗](https://github.com/MiguelTVMS/speaker-volume-bridge)
+
+Independent software. Not affiliated with, sponsored by, endorsed by, or supported by Sonos. Sonos and related product names are trademarks of their respective owners and are used only to identify compatibility. This project contains no Sonos source code.
+
+Made for the volume controls you already use.

@@ -42,6 +42,7 @@ class WebsiteGuideTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text()
         layout = (ROOT / "pages" / "_layouts" / "guide.html").read_text()
         self.assertIn("actions/jekyll-build-pages@v1", workflow)
+        self.assertIn('sudo chown -R "$(id -u):$(id -g)" _site', workflow)
         self.assertIn("python3 scripts/publish-website-markdown.py --destination _site", workflow)
         self.assertIn('rel="alternate" type="text/markdown"', layout)
         self.assertIn('"@type": "WebPage"', layout)

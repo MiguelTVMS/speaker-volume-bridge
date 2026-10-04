@@ -43,7 +43,9 @@ jobs:
           source: ./pages
           destination: ./_site
       - name: Publish resolved Markdown guide sources
-        run: python3 scripts/publish-website-markdown.py --destination _site
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" _site
+          python3 scripts/publish-website-markdown.py --destination _site
       - name: Verify rendered guide entry point
         run: |
           test -f _site/index.html

@@ -669,7 +669,10 @@ mod tests {
             available_tray_controls(&settings, true)[0],
             ("night-schedule-enabled", "Night schedule", true)
         );
-        assert_eq!(available_tray_controls(&SpeakerSettings::default(), false), []);
+        assert_eq!(
+            available_tray_controls(&SpeakerSettings::default(), false),
+            []
+        );
         assert_eq!(
             available_tray_controls(&SpeakerSettings::default(), true),
             vec![("night-schedule-enabled", "Night schedule", true)]

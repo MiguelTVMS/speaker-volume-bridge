@@ -250,7 +250,7 @@ mod tests {
 
         let already_disabled = Port::new(false);
         assert!(!disable_scheduled_loudness(&already_disabled).await.unwrap());
-        assert!(already_disabled.writes.lock().unwrap().is_empty());
+        assert_eq!(already_disabled.writes.lock().unwrap().as_slice(), []);
     }
     #[tokio::test]
     async fn startup_external_change_exit_and_manual_activation_sequence() {

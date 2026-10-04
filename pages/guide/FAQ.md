@@ -10,7 +10,7 @@ Yes. The app has a new name, icon, and executable, while retaining the existing 
 
 ## Does the new name mean other speaker brands are supported?
 
-No. Sonos is the only supported speaker integration in v1.6.3. The project is independently developed and is not affiliated with or endorsed by Sonos.
+No. Sonos is the only supported speaker integration in v{{ site.data.release.version }}. The project is independently developed and is not affiliated with or endorsed by Sonos.
 
 ## Why did synchronization pause after the rename?
 
@@ -40,7 +40,7 @@ It controls one selected Sonos device. For a group, create the group in the Sono
 
 Two-way synchronization is enabled by default. On the first confirmed connection, Sonos state is applied to the computer. Disable two-way synchronization to make the direction computer to Sonos only.
 
-## Does v1.6.3 include the volume feedback fix?
+## Does v{{ site.data.release.version }} include the volume feedback fix?
 
 Yes. It includes the fixes introduced in v1.5.5 for repeated and overlapping callbacks from the app's own audio writes on macOS and Ubuntu, and skips unchanged local volume and mute writes. The fix works automatically. If volume still moves unexpectedly, follow [Diagnostics and troubleshooting](/guide/Diagnostics-and-Troubleshooting.html).
 
@@ -54,15 +54,15 @@ Polling fallback is a working recovery mode used when normal event delivery is u
 
 ## Why does Windows show SmartScreen?
 
-The v1.6.3 direct-download Windows installer is not digitally signed. Install it only from the project's official full-release page.
+The v{{ site.data.release.version }} direct-download Windows installer is not digitally signed. Install it only from the project's official full-release page.
 
 ## What does Ubuntu require?
 
-The v1.6.3 Ubuntu x64 (AMD64) and ARM64 packages require PulseAudio or PipeWire's PulseAudio compatibility service and the `pactl` command supplied by `pulseaudio-utils`. See the [Ubuntu guide](/guide/Ubuntu.html).
+The v{{ site.data.release.version }} Ubuntu x64 (AMD64) and ARM64 packages require PulseAudio or PipeWire's PulseAudio compatibility service and the `pactl` command supplied by `pulseaudio-utils`. See the [Ubuntu guide](/guide/Ubuntu.html).
 
 ## Can I keep the computer source volume at 100%?
 
-Not as a separate mode in v1.6.3. The design question is tracked in [issue #74](https://github.com/MiguelTVMS/speaker-volume-bridge/issues/74).
+Not as a separate mode in v{{ site.data.release.version }}. The design question is tracked in [issue #74](https://github.com/MiguelTVMS/speaker-volume-bridge/issues/74).
 
 ## Can Night Mode turn on automatically?
 

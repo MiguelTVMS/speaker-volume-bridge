@@ -10,7 +10,7 @@ startup entries and optional saved-data cleanup, follow
 
 ## Update only to full releases
 
-This guide follows generally available releases only. For normal use, install the version returned by the [latest full release link](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest). v1.6.3 includes the rebrand, Windows upgrade fix, volume feedback protection, and Night scheduling. Check **About** after updating to confirm the installed version.
+This guide follows generally available releases only. For normal use, install the version returned by the [latest full release link](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest). v{{ site.data.release.version }} includes the rebrand, Windows upgrade fix, volume feedback protection, and Night scheduling. Check **About** after updating to confirm the installed version.
 
 If your installed app is still called **Sonos Volume Bridge**, start with [Upgrading to Speaker Volume Bridge](/guide/Upgrading.html). Quit it from its menu bar or system tray before installing the renamed app.
 
@@ -18,7 +18,7 @@ If your installed app is still called **Sonos Volume Bridge**, start with [Upgra
 
 Download and run the newer full-release installer. A newer version is installed in place and preserves application data and shortcuts.
 
-The v1.6.3 installer moves the former default **Sonos Volume Bridge** installation folder to **Speaker Volume Bridge**. It preserves custom locations and refuses to merge with an existing destination. Quit the installed app before retrying a blocked folder move.
+The v{{ site.data.release.version }} installer moves the former default **Sonos Volume Bridge** installation folder to **Speaker Volume Bridge**. It preserves custom locations and refuses to merge with an existing destination. Quit the installed app before retrying a blocked folder move.
 
 The normal graphical installer keeps the desktop clear. It uses a Start menu shortcut and does not offer a desktop shortcut by default.
 
@@ -48,7 +48,7 @@ Remove the application through Ubuntu's software manager or package manager. Rem
 
 ## Store updates
 
-Use the store that installed the app to check for updates. GitHub publication and Store certification are separate, so a store installation may remain on an earlier version after v1.6.3 becomes available as a direct download.
+Use the store that installed the app to check for updates. GitHub publication and Store certification are separate, so a store installation may remain on an earlier version after v{{ site.data.release.version }} becomes available as a direct download.
 
 ## Switching distribution channels
 

@@ -1,6 +1,9 @@
 """Validate the Markdown-backed website guide and its published routes."""
+from importlib.util import module_from_spec, spec_from_file_location
+import json
 import re
 from pathlib import Path
+import tempfile
 import unittest
 
 
@@ -39,8 +42,7 @@ class WebsiteGuideTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text()
         layout = (ROOT / "pages" / "_layouts" / "guide.html").read_text()
         self.assertIn("actions/jekyll-build-pages@v1", workflow)
-        self.assertIn("cp pages/index.md pages/privacy.md pages/upgrade.md _site/", workflow)
-        self.assertIn("cp pages/guide/*.md _site/guide/", workflow)
+        self.assertIn("python3 scripts/publish-website-markdown.py --destination _site", workflow)
         self.assertIn('rel="alternate" type="text/markdown"', layout)
         self.assertIn('"@type": "WebPage"', layout)
         self.assertIn('"@type": "BreadcrumbList"', layout)
@@ -64,6 +66,27 @@ class WebsiteGuideTests(unittest.TestCase):
         self.assertIn('<a href="/guide/" aria-current="page">Guide</a>', breadcrumbs)
         self.assertIn('<a href="{{ page.url }}" aria-current="page">{{ guide_title }}</a>', breadcrumbs)
         self.assertRegex(styles, r"\.breadcrumbs a \{[^}]*text-decoration: none;", msg="Breadcrumb links must not be underlined")
+
+    def test_current_release_version_has_one_source(self):
+        release = json.loads((ROOT / "pages" / "_data" / "release.json").read_text())["version"]
+        self.assertRegex(release, r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+        for source in self.sources:
+            with self.subTest(page=source.name):
+                self.assertNotIn(release, source.read_text())
+        self.assertIn("{{ site.data.release.version }}", (GUIDE / "index.md").read_text())
+
+    def test_published_markdown_resolves_release_version(self):
+        script = ROOT / "scripts" / "publish-website-markdown.py"
+        spec = spec_from_file_location("publish_website_markdown", script)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        version = json.loads((ROOT / "pages" / "_data" / "release.json").read_text())["version"]
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory)
+            module.publish(destination)
+            guide = (destination / "guide" / "index.md").read_text()
+            self.assertIn(f"v{version}", guide)
+            self.assertNotIn("{{ site.data.", guide)
 
 
 if __name__ == "__main__":

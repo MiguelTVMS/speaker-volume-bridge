@@ -17,7 +17,7 @@ also resets the renamed app's preferences.
 
 ## If volume or Night Mode changes appear to conflict
 
-Make sure Sonos Volume Bridge is not still running under the former name. Closing its Settings window is not enough: choose **Quit** from its menu bar or system tray and remove any old startup entry. Version 1.6.3 does not inspect running processes automatically. Follow [Upgrading](/guide/Upgrading.html) and [Fully removing the old app](/guide/Removing-the-Old-App.html) before retesting.
+Make sure Sonos Volume Bridge is not still running under the former name. Closing its Settings window is not enough: choose **Quit** from its menu bar or system tray and remove any old startup entry. Version {{ site.data.release.version }} does not inspect running processes automatically. Follow [Upgrading](/guide/Upgrading.html) and [Fully removing the old app](/guide/Removing-the-Old-App.html) before retesting.
 
 ## If the app says Disconnected
 
@@ -48,11 +48,11 @@ On Ubuntu, a missing `pactl` command or unavailable PulseAudio-compatible servic
 - Confirm that **Two-way synchronization** is enabled.
 - Confirm that the local output allows software volume changes.
 - Keep fallback checking enabled in case Sonos event callbacks are blocked.
-- **Two-way synchronization** also applies confirmed Sonos mute state to the computer in v1.6.3. **Synchronize mute** controls ordinary computer-to-Sonos mute commands.
+- **Two-way synchronization** also applies confirmed Sonos mute state to the computer in v{{ site.data.release.version }}. **Synchronize mute** controls ordinary computer-to-Sonos mute commands.
 
 ## If volume keeps changing after an adjustment
 
-1. Check the installed version under **About**. Update older installations to v1.6.3, which includes the feedback fixes introduced in v1.5.5. Confirm that the former app is not also running.
+1. Check the installed version under **About**. Update older installations to v{{ site.data.release.version }}, which includes the feedback fixes introduced in v1.5.5. Confirm that the former app is not also running.
 2. Confirm the selected computer output and review **Two-way synchronization**, **Volume feel**, and **Highest speaker volume**. A Sonos-confirmed computer-volume adjustment is expected in two-way mode.
 3. Retest with one volume controller at a time and note whether the movement follows a keyboard adjustment, a Sonos adjustment, or an output switch.
 4. If the problem persists, record the operating system, generic output type, mapping choice, synchronization direction, and reproduction steps for a support report. Keep raw diagnostics private.

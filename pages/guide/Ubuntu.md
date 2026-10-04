@@ -25,7 +25,7 @@ The Ubuntu adapter uses `pactl` to list output sinks, read and set volume, synch
 
 **Follow system output** follows the current default PulseAudio-compatible sink. A fixed output selection remembers the selected sink name and does not move when the system default changes.
 
-PulseAudio and PipeWire report changes through `pactl subscribe`. In v1.6.3, the bridge retains its own expected writes briefly across repeated and overlapping notifications so a Sonos-confirmed local change does not create a command loop. Unrelated changes continue to be handled immediately.
+PulseAudio and PipeWire report changes through `pactl subscribe`. In v{{ site.data.release.version }}, the bridge retains its own expected writes briefly across repeated and overlapping notifications so a Sonos-confirmed local change does not create a command loop. Unrelated changes continue to be handled immediately.
 
 ## System tray behavior
 

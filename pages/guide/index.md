@@ -14,7 +14,7 @@ items and optional settings cleanup, before using Speaker Volume Bridge.
 Control a Sonos speaker with the volume controls you already use on your computer.
 
 <aside class="guide-callout guide-callout-note" role="note" markdown="1">
-This guide documents [v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3), the current generally available release, including the app rebrand and Windows upgrade fix.
+This guide documents [v{{ site.data.release.version }}](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{{ site.data.release.version }}), the current generally available release, including the app rebrand and Windows upgrade fix.
 </aside>
 
 **Formerly Sonos Volume Bridge.** This is the same app with a new name. Sonos remains the supported speaker family; the rename does not add other speaker integrations. Existing users should read [Upgrading to Speaker Volume Bridge](/guide/Upgrading.html) and quit the old app before installing the update.

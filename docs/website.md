@@ -10,6 +10,22 @@ in `pages/guide/` and uses `pages/_layouts/guide.html`. Edit a shared header,
 footer, consent panel, breadcrumb, or guide navigation once rather than copying
 markup between pages.
 
+Before Jekyll runs, `scripts/generate-website-build-data.py` writes branch/ref,
+revision, and project version into `pages/_data/build.json`. It prefers a root
+`package.json` version when present and otherwise uses the Cargo workspace
+version. The shared footer renders this build identity. The file is generated
+and ignored rather than committed, so local, PR, and `main` builds each describe
+their actual source. This build identity does not replace the separately
+verified GA version stated in the user guide.
+
+The documented GA version has one source: `pages/_data/release.json`. Guide
+Markdown uses `{{ site.data.release.version }}` wherever it refers to the current
+release. Jekyll resolves the token in rendered HTML, and
+`scripts/publish-website-markdown.py` resolves it when publishing raw `.md`
+alternates for people, crawlers, and language models. Update the JSON value once
+when the guide moves to a new GA release; keep historical release and toolchain
+versions literal.
+
 ## Preview
 
 Use a local Jekyll environment to run `bundle exec jekyll serve --source pages`
@@ -21,8 +37,8 @@ the landing, guide, privacy, and upgrade pages at mobile and desktop widths.
 
 In repository Settings > Pages, select **GitHub Actions** as the source. The
 Website workflow builds `pages/` with the official GitHub Pages Jekyll action
-when changes to that directory or the workflow reach `main`. It then copies the
-guide Markdown sources beside the rendered HTML before uploading the artifact.
+when changes to that directory or the workflow reach `main`. It then publishes
+resolved guide Markdown beside the rendered HTML before uploading the artifact.
 It does not depend on release creation or application
 packaging. Manual dispatch is supported on `main` only. Configure the
 `github-pages` environment to allow deployments from `main`.
@@ -165,7 +181,9 @@ preserves absolute links, and omits navigation and decorative graphics.
 
 Guide Markdown is the source rather than generated output. Jekyll applies the
 shared guide layout and CSS to produce each HTML page, while the deployment
-workflow also publishes the original `.md` file at the matching guide path.
+workflow also publishes the `.md` file at the matching guide path. Before
+publishing, the script resolves the current-release token so raw Markdown
+contains the same concrete version as the HTML rather than a Liquid expression.
 Each rendered page advertises that source with `rel="alternate"`, and `llms.txt`
 links directly to the most useful Markdown entry points. The sitemap lists the
 canonical rendered HTML pages rather than the alternate Markdown copies.

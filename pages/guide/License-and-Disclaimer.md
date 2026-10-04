@@ -4,7 +4,7 @@ layout: guide
 
 # License and disclaimer
 
-This page applies to Speaker Volume Bridge v1.6.3, the current generally available release. It summarizes the project's license and relationship with Sonos. If this summary conflicts with the license text, the license text controls.
+This page applies to Speaker Volume Bridge v{{ site.data.release.version }}, the current generally available release. It summarizes the project's license and relationship with Sonos. If this summary conflicts with the license text, the license text controls.
 
 ## Software license
 
@@ -14,7 +14,7 @@ Copyright (c) 2026 João Miguel Tabosa Vaz Marques Silva
 
 The MIT License permits use, copying, modification, merging, publication, distribution, sublicensing, and sale of copies, provided that the copyright and permission notices are included in copies or substantial portions of the software.
 
-Read the complete [MIT License for v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/LICENSE).
+Read the complete [MIT License for v{{ site.data.release.version }}](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/LICENSE).
 
 ## Warranty and liability
 
@@ -44,4 +44,4 @@ Before reporting a problem, read [Compatibility and limitations](/guide/Compatib
 
 - [Privacy and security](/guide/Privacy-and-Security.html)
 - [Source code](https://github.com/MiguelTVMS/speaker-volume-bridge)
-- [v1.6.3 release](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3)
+- [v{{ site.data.release.version }} release](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{{ site.data.release.version }})

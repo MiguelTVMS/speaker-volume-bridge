@@ -25,15 +25,15 @@ The test-support crate provides a local RenderingControl mock server and recorde
 
 ## Volume feedback regression coverage
 
-The v1.6.3 tests cover repeated and overlapping volume/mute callbacks, expiry, tolerance, bounded history, macOS intermediate channel states, Windows callback identity, unchanged local applications, and synchronization mappings and directions. Native Windows and Ubuntu tests run on both supported architectures; macOS tests run on macOS. Simulated callback tests do not establish behavior on every physical output device.
+The v{{ site.data.release.version }} tests cover repeated and overlapping volume/mute callbacks, expiry, tolerance, bounded history, macOS intermediate channel states, Windows callback identity, unchanged local applications, and synchronization mappings and directions. Native Windows and Ubuntu tests run on both supported architectures; macOS tests run on macOS. Simulated callback tests do not establish behavior on every physical output device.
 
-See [the released regression design](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/decisions/0017-volume-feedback-suppression.md).
+See [the released regression design](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/0017-volume-feedback-suppression.md).
 
 ## Rebrand and upgrade verification
 
 The released tests cover the manual upgrade guidance and removal links. Packaging checks cover retained installation identities, renamed downloads and compatibility aliases, Debian replacement, and Windows default-folder migration with custom-path preservation and blocked-move handling.
 
-These checks do not prove a native upgrade on every platform. Verify clean installation and upgrade, preserved settings, stopped/running preferences, startup, shortcuts, notifications, uninstall, and manual old-app removal on the actual signed or packaged distribution. See the [released upgrade checklist](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/rebrand-upgrade.md).
+These checks do not prove a native upgrade on every platform. Verify clean installation and upgrade, preserved settings, stopped/running preferences, startup, shortcuts, notifications, uninstall, and manual old-app removal on the actual signed or packaged distribution. See the [released upgrade checklist](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/rebrand-upgrade.md).
 
 ## Hardware acceptance
 
@@ -71,11 +71,11 @@ Normal release submission and manual retries share the **Microsoft Store Publish
 
 After submission, Store metadata must match the verified package. A combined upload may appear as **Neutral**; that label is accepted only with matching artifact/version evidence and local verification of both architectures. Submission checks are separate from certification and public availability.
 
-Follow the [released Store recovery guide](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/release.md#retry-or-debug-an-existing-microsoft-store-release) and [decision record](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/decisions/0016-store-release-recovery.md).
+Follow the [released Store recovery guide](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/release.md#retry-or-debug-an-existing-microsoft-store-release) and [decision record](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/0016-store-release-recovery.md).
 
 ## Guide release policy
 
-The website guide is maintained with the application repository and published from `main`. It is updated only after a full GA release succeeds. The current GA baseline is v1.6.3. All five platform downloads are published under the new name, with five compatibility copies under the old name. Store availability is separate from GitHub publication.
+The website guide is maintained with the application repository and published from `main`. It is updated only after a full GA release succeeds. The current GA baseline is v{{ site.data.release.version }}. All five platform downloads are published under the new name, with five compatibility copies under the old name. Store availability is separate from GitHub publication.
 
 Before a guide update:
 

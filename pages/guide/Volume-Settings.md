@@ -16,7 +16,7 @@ The current treatment of computer output volume is being discussed in [issue #74
 
 ## Repeated callbacks and volume feedback
 
-In v1.6.3, repeated or overlapping notifications from the app's own computer-volume writes are kept from becoming new Sonos commands on macOS and Ubuntu. The app also skips computer volume and mute writes when the requested property already matches. This protection is automatic and does not pause listening for other volume changes.
+In v{{ site.data.release.version }}, repeated or overlapping notifications from the app's own computer-volume writes are kept from becoming new Sonos commands on macOS and Ubuntu. The app also skips computer volume and mute writes when the requested property already matches. This protection is automatic and does not pause listening for other volume changes.
 
 A computer-volume change at connection time remains expected with two-way synchronization enabled. If volume keeps moving after you stop adjusting it, follow [Diagnostics and troubleshooting](/guide/Diagnostics-and-Troubleshooting.html).
 
@@ -24,7 +24,7 @@ A computer-volume change at connection time remains expected with two-way synchr
 
 When enabled, moving computer volume to 0% also mutes the speaker. Raising volume above zero allows it to be unmuted through normal synchronization, provided the computer itself is not muted.
 
-In v1.6.3, this option also sends the computer's mute state with local changes even when **Synchronize mute** is off. Turn both options off to stop computer-to-Sonos mute commands. Sonos-to-computer mute follows **Two-way synchronization**. See [Devices](/guide/Devices.html).
+In v{{ site.data.release.version }}, this option also sends the computer's mute state with local changes even when **Synchronize mute** is off. Turn both options off to stop computer-to-Sonos mute commands. Sonos-to-computer mute follows **Two-way synchronization**. See [Devices](/guide/Devices.html).
 
 ## Highest speaker volume
 
@@ -40,7 +40,7 @@ Start conservatively, especially with powerful speakers, amplifiers, or unfamili
 | Direct | Keeps Sonos volume close to the computer percentage, subject to the cap | Users who want similar numbers on both sides |
 | Scaled | Maps the full 0% to 100% computer range across 0% to the selected maximum | Using the full range of keyboard or system controls |
 
-In v1.6.3, the Balanced curve reaches 55% Sonos volume when the computer reaches 100%. The highest-volume setting can lower that result, but raising the cap above 55% does not raise the Balanced curve. Choose Direct or Scaled if you need the selected maximum to be reachable above 55%.
+In v{{ site.data.release.version }}, the Balanced curve reaches 55% Sonos volume when the computer reaches 100%. The highest-volume setting can lower that result, but raising the cap above 55% does not raise the Balanced curve. Choose Direct or Scaled if you need the selected maximum to be reachable above 55%.
 
 ## Test speaker volume
 

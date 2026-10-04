@@ -11,7 +11,7 @@ both can cause conflicting volume and Night Mode changes. Use the
 uninstalling, and an optional clean settings reset.
 </aside>
 
-**Speaker Volume Bridge was previously named Sonos Volume Bridge.** This guide applies to [v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3), the current generally available release.
+**Speaker Volume Bridge was previously named Sonos Volume Bridge.** This guide applies to [v{{ site.data.release.version }}](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{{ site.data.release.version }}), the current generally available release.
 
 The app name, icon, executable, and download filenames have changed. The abbreviation **SVB**, [project website](https://svb.miguel.ms/), existing Store products, and Sonos compatibility remain the same. Sonos is still the only supported speaker integration. Speaker Volume Bridge is independently developed and is not affiliated with or endorsed by Sonos.
 
@@ -32,7 +32,7 @@ Eject the disk image and open the renamed app from Applications. Check **Start a
 
 ## Windows direct download
 
-Run the v1.6.3 installer for your architecture over the existing installation. It preserves settings and updates the app's shortcuts and startup targets.
+Run the v{{ site.data.release.version }} installer for your architecture over the existing installation. It preserves settings and updates the app's shortcuts and startup targets.
 
 If the previous installation used the old default **Sonos Volume Bridge** folder, this release moves it to **Speaker Volume Bridge**. A custom installation location is retained.
 
@@ -50,7 +50,7 @@ Update the existing Store app. The rebrand retains the same Store products, so i
 
 ## Prevent conflicts with the old app
 
-Version 1.6.3 replaced automatic old-process detection with clear manual upgrade guidance because operating-system process inspection was not reliable enough on every supported platform. The app does not close, pause, or uninstall the old app for you.
+Version {{ site.data.release.version }} replaced automatic old-process detection with clear manual upgrade guidance because operating-system process inspection was not reliable enough on every supported platform. The app does not close, pause, or uninstall the old app for you.
 
 Before opening Speaker Volume Bridge, quit Sonos Volume Bridge from its menu bar or system tray and remove its old startup entry. Closing the Settings window alone leaves the old app running. If both apps run, quit both, follow the [complete removal guide](/guide/Removing-the-Old-App.html), then start only Speaker Volume Bridge.
 
@@ -60,4 +60,4 @@ The release includes copies of each download under the former `sonos-volume-brid
 
 Some internal settings, notification, startup, and package identifiers deliberately retain the old name to preserve upgrades and saved preferences. These are compatibility details, not a second app or a reason to delete application data.
 
-See [Updating and uninstalling](/guide/Updating-and-Uninstalling.html) for routine updates and removal, or the [released upgrade reference](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/rebrand-upgrade.md) for technical details.
+See [Updating and uninstalling](/guide/Updating-and-Uninstalling.html) for routine updates and removal, or the [released upgrade reference](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/rebrand-upgrade.md) for technical details.

@@ -4,7 +4,7 @@ layout: guide
 
 # What changed
 
-This guide documents [v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3), the current generally available release.
+This guide documents [v{{ site.data.release.version }}](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{{ site.data.release.version }}), the current generally available release.
 
 ## Speaker Volume Bridge is the new name
 
@@ -14,7 +14,7 @@ The existing Store products, saved settings, and upgrade identities are retained
 
 Read [Upgrading to Speaker Volume Bridge](/guide/Upgrading.html) before replacing an older installation.
 
-## Manual old-app removal in v1.6.3
+## Manual old-app removal in v{{ site.data.release.version }}
 
 Automatic old-process detection was replaced with clear manual upgrade guidance because process inspection was not reliable enough across supported platforms. Quit and remove Sonos Volume Bridge, including its startup entry, before running Speaker Volume Bridge. See [Upgrading](/guide/Upgrading.html) and the [complete removal guide](/guide/Removing-the-Old-App.html).
 

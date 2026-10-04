@@ -39,7 +39,7 @@ Stale runtime generations cannot overwrite the state of a newer configuration.
 
 The app uses manual old-app removal guidance rather than operating-system process inspection. This keeps process APIs and unreliable cross-platform detection out of the runtime. Users must quit Sonos Volume Bridge and remove its startup entry before running the renamed app.
 
-The product and executable names change while settings, startup, notification, and Store identities remain stable for upgrades. Windows migrates only the former default installation folder; Debian replaces the old package and supplies a compatibility command. See the [rebrand decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/decisions/0018-rebrand-and-legacy-protection.md) and [upgrade guide](/guide/Upgrading.html).
+The product and executable names change while settings, startup, notification, and Store identities remain stable for upgrades. Windows migrates only the former default installation folder; Debian replaces the old package and supplies a compatibility command. See the [rebrand decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/0018-rebrand-and-legacy-protection.md) and [upgrade guide](/guide/Upgrading.html).
 
 ## State and health layers
 
@@ -51,7 +51,7 @@ Application-originated local callbacks are suppressed so a Sonos-confirmed write
 
 macOS and Ubuntu retain up to 64 expected local states for 500 ms per write. Matching callbacks neither consume nor extend that protection, so repeated and overlapping callbacks remain suppressed. Nonmatching changes are forwarded immediately. macOS includes intermediate per-channel averages and a volume tolerance; Ubuntu matches exact normalized states. Windows uses native callback context identity.
 
-Without native origin metadata, a real change matching a recent expected value can be indistinguishable from an echo until expiry. Very late callbacks and device-specific quantization still need hardware investigation. See [the volume feedback decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/decisions/0017-volume-feedback-suppression.md).
+Without native origin metadata, a real change matching a recent expected value can be indistinguishable from an echo until expiry. Very late callbacks and device-specific quantization still need hardware investigation. See [the volume feedback decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/0017-volume-feedback-suppression.md).
 
 ## Sonos protocol boundary
 
@@ -77,4 +77,4 @@ The domain owns weekly half-hour intervals and time-zone-aware boundary calculat
 
 One global schedule follows the selected speaker. The worker runs independently of local audio and volume fallback polling. Configuration changes and Night Mode commands share a write gate to prevent stale-selection writes. Wake, clock changes, and recovery reconcile current state without replaying missed boundaries. Schedule commands preserve the existing volume synchronization state machine.
 
-See the [Night Mode schedule decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/decisions/0013-global-night-mode-schedule.md).
+See the [Night Mode schedule decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/0013-global-night-mode-schedule.md).

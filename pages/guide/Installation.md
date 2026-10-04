@@ -4,7 +4,7 @@ layout: guide
 
 # Installation
 
-This page covers the current generally available release, [v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3).
+This page covers the current generally available release, [v{{ site.data.release.version }}](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{{ site.data.release.version }}).
 
 Only install Speaker Volume Bridge from the [official latest release](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest) or an official store listing.
 
@@ -25,7 +25,7 @@ The direct-download Windows installer is not digitally signed. Windows SmartScre
 
 The normal graphical installer creates a Start menu shortcut and does not create a desktop shortcut. Installing a newer full release performs an in-place update and preserves application settings.
 
-In v1.6.3, an existing installation in the old default folder is moved to **Speaker Volume Bridge**, while a custom location stays unchanged. If a folder move is blocked, follow the [upgrade guide](/guide/Upgrading.html) before retrying.
+In v{{ site.data.release.version }}, an existing installation in the old default folder is moved to **Speaker Volume Bridge**, while a custom location stays unchanged. If a folder move is blocked, follow the [upgrade guide](/guide/Upgrading.html) before retrying.
 
 ## Microsoft Store on Windows
 

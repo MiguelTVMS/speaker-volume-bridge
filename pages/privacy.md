@@ -93,3 +93,9 @@ The app does not inspect running processes to look for the former Sonos Volume B
 Independent software. Not affiliated with, sponsored by, endorsed by, or supported by Sonos. Sonos and related product names are trademarks of their respective owners and are used only to identify compatibility. This project contains no Sonos source code.
 
 Made for the volume controls you already use.
+
+{% if site.data.build %}
+
+Version {{ site.data.build.version }} · {{ site.data.build.ref }} · {{ site.data.build.revision }}
+
+{% endif %}

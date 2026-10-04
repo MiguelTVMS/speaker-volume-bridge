@@ -28,6 +28,6 @@ On Ubuntu, outputs are PulseAudio-compatible sinks reported by `pactl`. See [Ubu
 
 When enabled, computer mute changes are sent to Sonos immediately rather than waiting for the volume debounce.
 
-In v1.6.3, turning this off stops ordinary computer-to-Sonos mute commands only when **Mute speaker at zero volume** is also off. With **Two-way synchronization** enabled, confirmed Sonos mute state is still applied to the computer. Turn off two-way synchronization if Sonos must not change the computer's volume or mute.
+In v{{ site.data.release.version }}, turning this off stops ordinary computer-to-Sonos mute commands only when **Mute speaker at zero volume** is also off. With **Two-way synchronization** enabled, confirmed Sonos mute state is still applied to the computer. Turn off two-way synchronization if Sonos must not change the computer's volume or mute.
 
 This setting is separate from **Mute speaker at zero volume**, which is explained in [Volume settings](/guide/Volume-Settings.html).

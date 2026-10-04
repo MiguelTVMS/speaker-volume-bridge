@@ -4,7 +4,7 @@ layout: guide
 
 # Night schedule
 
-Included in the documented release, [v1.6.3](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.6.3).
+Included in the documented release, [v{{ site.data.release.version }}](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{{ site.data.release.version }}).
 
 Use **Night schedule** in Settings to turn Night Mode on automatically during selected weekly periods. It controls the same speaker feature labeled **Night sound** on the Speaker page.
 

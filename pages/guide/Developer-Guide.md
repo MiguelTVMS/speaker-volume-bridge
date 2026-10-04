@@ -70,17 +70,17 @@ For behavior changes:
 
 Public issues and pull requests must not contain credentials, local paths, network addresses, device identifiers, raw logs, diagnostic payloads, or other sensitive environment details.
 
-## Useful source documentation at v1.6.3
+## Useful source documentation at v{{ site.data.release.version }}
 
-- [Documentation index](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/README.md)
-- [Architecture](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/architecture.md)
-- [How it works](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/how-it-works.md)
-- [Development](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/development.md)
-- [State machine](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/state-machine.md)
-- [Sonos local protocol](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/sonos-local-protocol.md)
-- [Architecture decisions](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/decisions/README.md)
-- [Verification matrix](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/verification-matrix.md)
-- [Release process](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/release.md)
-- [Night schedule architecture decision (v1.6.3)](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/decisions/0013-global-night-mode-schedule.md)
-- [Rebrand and legacy-app protection decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/decisions/0018-rebrand-and-legacy-protection.md)
-- [Upgrade behavior and validation](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/docs/rebrand-upgrade.md)
+- [Documentation index](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/README.md)
+- [Architecture](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/architecture.md)
+- [How it works](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/how-it-works.md)
+- [Development](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/development.md)
+- [State machine](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/state-machine.md)
+- [Sonos local protocol](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/sonos-local-protocol.md)
+- [Architecture decisions](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/README.md)
+- [Verification matrix](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/verification-matrix.md)
+- [Release process](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/release.md)
+- [Night schedule architecture decision (v{{ site.data.release.version }})](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/0013-global-night-mode-schedule.md)
+- [Rebrand and legacy-app protection decision](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/decisions/0018-rebrand-and-legacy-protection.md)
+- [Upgrade behavior and validation](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/docs/rebrand-upgrade.md)

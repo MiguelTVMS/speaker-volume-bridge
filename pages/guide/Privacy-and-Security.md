@@ -34,7 +34,7 @@ The app does not inspect running processes to look for the former Sonos Volume B
 
 Treat exported diagnostics and logs as private until reviewed. Do not publish raw logs, IP or MAC addresses, device IDs, computer or speaker names, local paths, crash dumps, or screenshots containing those values in a GitHub issue.
 
-For the complete policy, read the v1.6.3 [Privacy Policy](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/PRIVACY.md).
+For the complete policy, read the v{{ site.data.release.version }} [Privacy Policy](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/PRIVACY.md).
 
 ## Network protections
 
@@ -50,4 +50,4 @@ The weekly Night schedule and notification preference are stored locally. Schedu
 
 The desktop app has no publisher analytics. The separate [project website](https://svb.miguel.ms/) offers consent preferences for optional website tracking; these are separate from app settings. See the [website privacy policy](https://svb.miguel.ms/privacy.html).
 
-For a suspected vulnerability, follow the [Security Policy](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v1.6.3/SECURITY.md) and use private reporting rather than publishing details in an issue.
+For a suspected vulnerability, follow the [Security Policy](https://github.com/MiguelTVMS/speaker-volume-bridge/blob/v{{ site.data.release.version }}/SECURITY.md) and use private reporting rather than publishing details in an issue.

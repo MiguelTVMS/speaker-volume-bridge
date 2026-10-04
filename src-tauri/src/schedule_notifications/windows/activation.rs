@@ -17,10 +17,10 @@ use windows::{
     core::{BOOL, GUID, HRESULT, IUnknown, Interface, PCWSTR, Ref, implement},
 };
 
-static OPEN_SETTINGS: OnceLock<Arc<dyn Fn() + Send + Sync>> = OnceLock::new();
+static OPEN_SETTINGS: OnceLock<Arc<dyn Fn(bool) + Send + Sync>> = OnceLock::new();
 static REGISTRATION: OnceLock<Result<(), HRESULT>> = OnceLock::new();
 
-pub(super) fn set_open_settings(callback: impl Fn() + Send + Sync + 'static) {
+pub(super) fn set_open_settings(callback: impl Fn(bool) + Send + Sync + 'static) {
     let _ = OPEN_SETTINGS.set(Arc::new(callback));
 }
 
@@ -42,14 +42,25 @@ struct Activator;
 impl INotificationActivationCallback_Impl for Activator_Impl {
     fn Activate(
         &self,
-        _: &PCWSTR,
+        arguments: &PCWSTR,
         _: &PCWSTR,
         _: *const NOTIFICATION_USER_INPUT_DATA,
         _: u32,
     ) -> windows::core::Result<()> {
-        // Toast arguments are deliberately ignored: activation only opens Settings.
+        let mut is_update = false;
+        if !arguments.0.is_null() {
+            let expected: &[u16] = &[111, 112, 101, 110, 45, 117, 112, 100, 97, 116, 101, 115];
+            // SAFETY: Windows supplies a null-terminated activation string.
+            is_update = unsafe {
+                expected
+                    .iter()
+                    .enumerate()
+                    .all(|(index, unit)| *arguments.0.add(index) == *unit)
+                    && *arguments.0.add(expected.len()) == 0
+            };
+        }
         if let Some(open) = OPEN_SETTINGS.get() {
-            open();
+            open(is_update);
         }
         Ok(())
     }
@@ -129,17 +140,24 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
-    fn registered_factory_opens_settings_on_native_activation() {
+    fn registered_factory_routes_schedule_and_update_activation_separately() {
         use windows::Win32::System::Com::CoCreateInstance;
-        let opened = Arc::new(AtomicUsize::new(0));
-        let observed = opened.clone();
-        set_open_settings(move || {
-            observed.fetch_add(1, Ordering::SeqCst);
+        let settings = Arc::new(AtomicUsize::new(0));
+        let updates = Arc::new(AtomicUsize::new(0));
+        let observed_settings = settings.clone();
+        let observed_updates = updates.clone();
+        set_open_settings(move |open_updates| {
+            if open_updates {
+                observed_updates.fetch_add(1, Ordering::SeqCst);
+            } else {
+                observed_settings.fetch_add(1, Ordering::SeqCst);
+            }
         });
         register("normal.app.activation-test").unwrap();
         register("normal.app.activation-test").unwrap();
         // SAFETY: initialize this test thread, obtain the actual registered COM
-        // class, and pass empty activation arguments that production ignores.
+        // class, then pass the same launch argument emitted by update toasts.
+        let launch: Vec<u16> = "open-updates".encode_utf16().chain(Some(0)).collect();
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap();
             {
@@ -152,9 +170,13 @@ mod tests {
                 callback
                     .Activate(PCWSTR::null(), PCWSTR::null(), &[])
                     .unwrap();
+                callback
+                    .Activate(PCWSTR(launch.as_ptr()), PCWSTR::null(), &[])
+                    .unwrap();
             }
             CoUninitialize();
         }
-        assert_eq!(opened.load(Ordering::SeqCst), 1);
+        assert_eq!(settings.load(Ordering::SeqCst), 1);
+        assert_eq!(updates.load(Ordering::SeqCst), 1);
     }
 }

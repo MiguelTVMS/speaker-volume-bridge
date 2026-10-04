@@ -153,6 +153,13 @@ The shell preloads optional tray speaker controls asynchronously at startup and
 refreshes them when connection state changes or the tray is clicked. Network
 reads never block the menu event handler; menu updates run on the main thread.
 
+Update checks share one shell orchestration path for startup, scheduled, wake and
+manual triggers. The shell persists the last successful check and validated offer
+across restarts, replaces cached offers only after a successful catalog read, and
+deduplicates update notifications before delivery. Native update notifications
+carry activation intent; only activating one or choosing the tray Updates action
+navigates to the Updates page.
+
 At shell startup, a single installed-distribution resolver combines package-level
 provenance with conservative platform evidence. It reports the workspace
 application version and compiled application architecture. Debug/demo, missing,

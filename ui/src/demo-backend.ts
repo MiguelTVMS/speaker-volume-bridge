@@ -50,6 +50,7 @@ export function createDemoBackend(options: { hour12?: boolean | null; now?: () =
     automaticChecks: true,
     updateNotifications: true,
     promptDismissed: false,
+    offerStale: false,
   };
   const dispatch = (command: string, payload?: Record<string, unknown>): unknown => {
     switch (command) {

@@ -36,6 +36,7 @@ pub enum UpdatePhase {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)] // Status transports independent persisted preferences and offer freshness.
 pub struct UpdateStatus {
     pub phase: UpdatePhase,
     pub installed_version: String,
@@ -47,6 +48,8 @@ pub struct UpdateStatus {
     pub automatic_checks: bool,
     pub update_notifications: bool,
     pub prompt_dismissed: bool,
+    pub offer_stale: bool,
+    pub check_failed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -76,13 +79,21 @@ impl OpenUrlAction {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+#[serde(default, rename_all = "camelCase")]
 pub struct UpdatePreferences {
     pub automatic_checks: bool,
     pub update_notifications: bool,
     pub last_successful_check: Option<u64>,
     pub last_attempted_check: Option<u64>,
     pub last_notified_target: Option<String>,
+    pub cached_offer: Option<CachedOffer>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedOffer {
+    pub version: String,
+    pub action: OpenUrlAction,
 }
 
 impl Default for UpdatePreferences {
@@ -93,6 +104,7 @@ impl Default for UpdatePreferences {
             last_successful_check: None,
             last_attempted_check: None,
             last_notified_target: None,
+            cached_offer: None,
         }
     }
 }
@@ -189,14 +201,14 @@ pub enum UpdateError {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct Catalog {
     schema_version: u32,
     generated_at: String,
     entries: Vec<CatalogEntry>,
 }
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct CatalogEntry {
     edition: String,
     channel: String,
@@ -228,16 +240,27 @@ impl UpdateService {
         persistence: Arc<dyn UpdatePersistence>,
     ) -> Result<Self, UpdateError> {
         let preferences = persistence.load(distribution.check_supported)?;
-        let phase = if distribution.check_supported {
-            UpdatePhase::Idle
-        } else {
+        let phase = if !distribution.check_supported {
             UpdatePhase::Unsupported
+        } else if preferences.cached_offer.is_some() {
+            UpdatePhase::UpdateAvailable
+        } else {
+            UpdatePhase::Idle
         };
         Ok(Self {
             status: Mutex::new(UpdateStatus {
                 phase,
                 installed_version: distribution.version.clone(),
                 edition: edition_name(distribution.edition).into(),
+                available_version: preferences
+                    .cached_offer
+                    .as_ref()
+                    .map(|offer| offer.version.clone()),
+                action: preferences
+                    .cached_offer
+                    .as_ref()
+                    .map(|offer| offer.action.clone()),
+                last_successful_check: preferences.last_successful_check,
                 automatic_checks: preferences.automatic_checks,
                 update_notifications: preferences.update_notifications,
                 ..UpdateStatus::default()
@@ -261,6 +284,10 @@ impl UpdateService {
                 .lock()
                 .is_ok_and(|value| value.as_ref() == Some(version))
         });
+        status.offer_stale = status.available_version.is_some()
+            && status.last_successful_check.is_none_or(|last| {
+                self.clock.now().saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()
+            });
         Ok(status)
     }
     pub fn preferences(&self) -> Result<UpdatePreferences, UpdateError> {
@@ -289,6 +316,7 @@ impl UpdateService {
             .map_err(|_| UpdateError::State)? = Some(version.into());
         Ok(())
     }
+    #[cfg(test)]
     pub fn notification_needed(&self, status: &UpdateStatus) -> bool {
         let Some(version) = status.available_version.as_deref() else {
             return false;
@@ -299,6 +327,7 @@ impl UpdateService {
                 && preferences.last_notified_target.as_deref() != Some(&target)
         })
     }
+    #[cfg(test)]
     pub fn mark_notified(&self, status: &UpdateStatus) -> Result<(), UpdateError> {
         let version = status
             .available_version
@@ -309,10 +338,28 @@ impl UpdateService {
             Some(format!("{}:{version}", self.distribution.edition_key()));
         self.persistence.save(&preferences)
     }
+    #[allow(dead_code)] // Used in release builds; test delivery deliberately suppresses native notifications.
+    pub fn claim_notification(&self, status: &UpdateStatus) -> Result<bool, UpdateError> {
+        let version = status
+            .available_version
+            .as_deref()
+            .ok_or(UpdateError::State)?;
+        let target = format!("{}:{version}", self.distribution.edition_key());
+        let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
+        if !preferences.update_notifications
+            || preferences.last_notified_target.as_deref() == Some(&target)
+        {
+            return Ok(false);
+        }
+        preferences.last_notified_target = Some(target);
+        self.persistence.save(&preferences)?;
+        Ok(true)
+    }
     pub fn claim_offer(&self, version: &str, url: &str) -> Result<OpenUrlAction, UpdateError> {
         let status = self.status()?;
         let action = status.action.ok_or(UpdateError::State)?;
         if status.phase != UpdatePhase::UpdateAvailable
+            || status.offer_stale
             || status.available_version.as_deref() != Some(version)
             || action.url != url
         {
@@ -365,16 +412,14 @@ impl UpdateService {
             preferences.last_attempted_check = Some(now);
             let _ = self.persistence.save(&preferences);
         }
-        self.replace_status(UpdateStatus {
-            phase: UpdatePhase::Checking,
-            installed_version: self.distribution.version.clone(),
-            edition: edition_name(self.distribution.edition).into(),
-            last_successful_check: self
-                .preferences()
-                .ok()
-                .and_then(|value| value.last_successful_check),
-            ..UpdateStatus::default()
-        });
+        let mut checking = self.status().unwrap_or_default();
+        checking.phase = if checking.available_version.is_some() {
+            UpdatePhase::UpdateAvailable
+        } else {
+            UpdatePhase::Checking
+        };
+        checking.message = None;
+        self.replace_status(checking);
         let result = self
             .transport
             .fetch()
@@ -384,22 +429,28 @@ impl UpdateService {
             Ok(mut status) => {
                 if let Ok(mut preferences) = self.preferences.lock() {
                     preferences.last_successful_check = Some(now);
+                    preferences.cached_offer = status
+                        .available_version
+                        .as_ref()
+                        .zip(status.action.as_ref())
+                        .map(|(version, action)| CachedOffer {
+                            version: version.clone(),
+                            action: action.clone(),
+                        });
                     let _ = self.persistence.save(&preferences);
                     status.last_successful_check = Some(now);
                 }
                 status
             }
-            Err(error) => UpdateStatus {
-                phase: UpdatePhase::Unavailable,
-                installed_version: self.distribution.version.clone(),
-                edition: edition_name(self.distribution.edition).into(),
-                last_successful_check: self
-                    .preferences()
-                    .ok()
-                    .and_then(|value| value.last_successful_check),
-                message: manual.then(|| error.to_string()),
-                ..UpdateStatus::default()
-            },
+            Err(error) => {
+                let mut cached = self.status().unwrap_or_default();
+                if cached.phase != UpdatePhase::UpdateAvailable {
+                    cached.phase = UpdatePhase::Unavailable;
+                }
+                cached.check_failed = true;
+                cached.message = manual.then(|| error.to_string());
+                cached
+            }
         };
         self.replace_status(status.clone());
         self.status().unwrap_or(status)
@@ -419,6 +470,18 @@ impl UpdateService {
         }
         let mut targets = std::collections::HashSet::new();
         for entry in &catalog.entries {
+            let expected_os = match entry.edition.as_str() {
+                "direct_macos" | "mac_app_store" => "macos",
+                "direct_windows" | "microsoft_store" => "windows",
+                "debian" => "linux",
+                _ => return Err(UpdateError::InvalidCatalog("unsupported edition")),
+            };
+            if entry.os != expected_os {
+                return Err(UpdateError::InvalidCatalog("unsupported platform"));
+            }
+            if !matches!(entry.architecture.as_str(), "aarch64" | "x86_64") {
+                return Err(UpdateError::InvalidCatalog("unsupported architecture"));
+            }
             if !targets.insert((
                 &entry.edition,
                 &entry.channel,
@@ -534,6 +597,17 @@ impl UpdateManager {
     pub fn service(&self) -> &Arc<UpdateService> {
         &self.service
     }
+    pub async fn check_and_deliver(&self, app: &tauri::AppHandle, manual: bool) -> UpdateStatus {
+        run_check_and_deliver(app, &self.service, manual).await
+    }
+    pub async fn wake_service<R: tauri::Runtime>(
+        app: &tauri::AppHandle<R>,
+        service: Arc<UpdateService>,
+    ) {
+        if service.automatic_due() {
+            run_check_and_deliver(app, &service, false).await;
+        }
+    }
     pub fn start(&self, app: &tauri::AppHandle) {
         let Ok(mut task) = self.task.lock() else {
             return;
@@ -553,43 +627,59 @@ impl UpdateManager {
             ];
             loop {
                 if service.automatic_due() {
-                    let status = service.check(false).await;
-                    notify_available(&app_handle, &service, &status).await;
-                    if status.phase == UpdatePhase::Unavailable {
+                    let status = run_check_and_deliver(&app_handle, &service, false).await;
+                    if status.check_failed {
                         for delay in backoff {
                             tokio::time::sleep(delay).await;
-                            let status = service.check(false).await;
-                            notify_available(&app_handle, &service, &status).await;
-                            if status.phase != UpdatePhase::Unavailable {
+                            let status = run_check_and_deliver(&app_handle, &service, false).await;
+                            if !status.check_failed {
                                 break;
                             }
                         }
                     }
                 }
                 #[allow(clippy::duration_suboptimal_units)]
-                tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
             }
         }));
     }
 }
 
-async fn notify_available(app: &tauri::AppHandle, service: &UpdateService, status: &UpdateStatus) {
-    let _ = app.emit("update-status-changed", status);
-    if status.phase != UpdatePhase::UpdateAvailable
-        || !service.notification_needed(status)
-        || !crate::schedule_notifications::permitted(app, false).await
+#[allow(clippy::unused_async)] // Notification delivery is asynchronous in production builds.
+async fn notify_available<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    service: &UpdateService,
+    status: &UpdateStatus,
+) {
+    #[cfg(test)]
+    let _ = (app, service, status);
+    #[cfg(not(test))]
     {
-        return;
+        if status.phase != UpdatePhase::UpdateAvailable
+            || !crate::schedule_notifications::permitted(app, false).await
+            || !service.claim_notification(status).unwrap_or(false)
+        {
+            return;
+        }
+        let version = status.available_version.as_deref().unwrap_or("new");
+        crate::schedule_notifications::send_update(
+            app,
+            "Speaker Volume Bridge update available",
+            &format!("Version {version} is available. Open Settings to view the update page."),
+        )
+        .await;
     }
-    let version = status.available_version.as_deref().unwrap_or("new");
-    crate::schedule_notifications::send(
-        app,
-        "Speaker Volume Bridge update available",
-        &format!("Version {version} is available. Open Settings to view the update page."),
-    )
-    .await;
-    let _ = service.mark_notified(status);
-    let _ = app.emit("open-updates", ());
+}
+
+async fn run_check_and_deliver<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    service: &UpdateService,
+    manual: bool,
+) -> UpdateStatus {
+    let status = service.check(manual).await;
+    let _ = app.emit("update-status-changed", &status);
+    notify_available(app, service, &status).await;
+    status
 }
 impl Drop for UpdateManager {
     fn drop(&mut self) {
@@ -609,6 +699,7 @@ pub fn state_path(config_path: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use tauri::Manager;
 
     struct FakeClock(AtomicU64);
     impl UpdateClock for FakeClock {
@@ -711,6 +802,182 @@ mod tests {
             .store(100 + SUCCESS_INTERVAL.as_secs(), Ordering::Relaxed);
         assert!(restarted.automatic_due());
     }
+
+    #[tokio::test]
+    async fn cached_offer_and_success_timestamp_are_discoverable_after_restart() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (initial, _) = service(catalog("2.0.0"), clock.clone(), persistence.clone());
+        let first = initial.check(true).await;
+        assert_eq!(first.phase, UpdatePhase::UpdateAvailable);
+        let restarted = UpdateService::new(
+            distribution(),
+            Arc::new(FakeTransport {
+                result: Mutex::new(Err("offline")),
+                calls: AtomicUsize::new(0),
+            }),
+            clock,
+            persistence,
+        )
+        .unwrap();
+        let restored = restarted.status().unwrap();
+        assert_eq!(restored.phase, UpdatePhase::UpdateAvailable);
+        assert_eq!(restored.available_version.as_deref(), Some("2.0.0"));
+        assert_eq!(restored.action, first.action);
+        assert_eq!(restored.last_successful_check, Some(100));
+    }
+
+    #[tokio::test]
+    async fn successful_refresh_withdraws_cached_offer_and_invalidates_open_action() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (active, transport) = service(catalog("2.0.0"), clock.clone(), persistence.clone());
+        let offer = active.check(true).await;
+        let withdrawn =
+            br#"{"schemaVersion":1,"generatedAt":"2026-10-04T00:00:00Z","entries":[]}"#.to_vec();
+        *transport.result.lock().unwrap() = Ok(withdrawn);
+        clock.0.store(101, Ordering::Relaxed);
+        let result = active.check(true).await;
+        assert_eq!(result.phase, UpdatePhase::Unavailable);
+        assert!(result.available_version.is_none());
+        assert!(
+            active
+                .claim_offer("2.0.0", offer.action.unwrap().url.as_str())
+                .is_err()
+        );
+        let restarted = UpdateService::new(
+            distribution(),
+            Arc::new(FakeTransport {
+                result: Mutex::new(Err("offline")),
+                calls: AtomicUsize::new(0),
+            }),
+            clock,
+            persistence,
+        )
+        .unwrap();
+        assert_eq!(restarted.status().unwrap().phase, UpdatePhase::Idle);
+    }
+
+    #[tokio::test]
+    async fn cached_offer_becomes_stale_after_success_interval_and_cannot_be_opened() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (active, _) = service(catalog("2.0.0"), clock.clone(), persistence);
+        let offer = active.check(true).await;
+        clock
+            .0
+            .store(100 + SUCCESS_INTERVAL.as_secs(), Ordering::Relaxed);
+        let stale = active.status().unwrap();
+        assert_eq!(stale.phase, UpdatePhase::UpdateAvailable);
+        assert_eq!(stale.available_version.as_deref(), Some("2.0.0"));
+        assert!(stale.offer_stale);
+        assert!(
+            active
+                .claim_offer("2.0.0", &offer.action.unwrap().url)
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn wake_orchestration_updates_ui_and_never_navigates_without_activation() {
+        use tauri::Listener;
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let (service, transport) = service(
+            catalog("2.0.0"),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        service
+            .set_automatic_checks(true)
+            .expect("automatic checks can be enabled");
+        assert!(app.manage(UpdateManager::new(service)));
+        let state_events = Arc::new(AtomicUsize::new(0));
+        let opened_pages = Arc::new(AtomicUsize::new(0));
+        let observed_state = state_events.clone();
+        let observed_navigation = opened_pages.clone();
+        let _state_listener = app.listen("update-status-changed", move |_| {
+            observed_state.fetch_add(1, Ordering::SeqCst);
+        });
+        let _navigation_listener = app.listen("open-updates", move |_| {
+            observed_navigation.fetch_add(1, Ordering::SeqCst);
+        });
+        crate::schedule_wake::wake(app.handle());
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while state_events.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("wake check delivers status to the UI");
+        assert_eq!(transport.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(state_events.load(Ordering::SeqCst), 1);
+        assert_eq!(opened_pages.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn additive_metadata_is_accepted_but_required_fields_and_action_types_stay_validated() {
+        let mut value: serde_json::Value = serde_json::from_slice(&catalog("2.0.0")).unwrap();
+        value["futureCatalogMetadata"] = serde_json::json!({"version": 2});
+        value["entries"][0]["autoUpdate"] = serde_json::json!({"package": "app.pkg"});
+        value["entries"][0]["action"]["autoUpdate"] = serde_json::json!({"package": "app.pkg"});
+        let (accepted, _) = service(
+            serde_json::to_vec(&value).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::default(),
+        );
+        assert_eq!(
+            accepted.check(true).await.phase,
+            UpdatePhase::UpdateAvailable
+        );
+        value["entries"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("releaseNotes");
+        let (missing, _) = service(
+            serde_json::to_vec(&value).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::default(),
+        );
+        assert_eq!(missing.check(true).await.phase, UpdatePhase::Unavailable);
+        value["entries"][0]["releaseNotes"] = serde_json::json!("Notes");
+        value["entries"][0]["action"]["type"] = serde_json::json!("install_package");
+        let (unsupported, _) = service(
+            serde_json::to_vec(&value).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::default(),
+        );
+        assert_eq!(
+            unsupported.check(true).await.phase,
+            UpdatePhase::Unavailable
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_rejects_unknown_edition_platform_architecture_and_channel_values() {
+        let cases = [
+            ("\"edition\":\"direct_macos\"", "\"edition\":\"custom\""),
+            ("\"os\":\"macos\"", "\"os\":\"freebsd\""),
+            (
+                "\"architecture\":\"aarch64\"",
+                "\"architecture\":\"universal\"",
+            ),
+            ("\"channel\":\"stable\"", "\"channel\":\"beta\""),
+        ];
+        for (from, to) in cases {
+            let bytes = String::from_utf8(catalog("2.0.0"))
+                .unwrap()
+                .replacen(from, to, 1)
+                .into_bytes();
+            let (service, _) = service(
+                bytes,
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                Arc::default(),
+            );
+            assert_eq!(service.check(true).await.phase, UpdatePhase::Unavailable);
+        }
+    }
     #[tokio::test]
     async fn concurrent_manual_and_background_checks_share_one_request() {
         let (service, transport) = service(
@@ -766,6 +1033,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_refresh_preserves_offer_but_marks_failure_for_bounded_retry() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (active, transport) = service(catalog("2.0.0"), clock.clone(), persistence);
+        assert_eq!(active.check(true).await.phase, UpdatePhase::UpdateAvailable);
+        *transport.result.lock().unwrap() = Err("offline");
+        clock.0.store(101, Ordering::Relaxed);
+        let failed = active.check(true).await;
+        assert_eq!(failed.phase, UpdatePhase::UpdateAvailable);
+        assert_eq!(failed.available_version.as_deref(), Some("2.0.0"));
+        assert!(failed.check_failed);
+        assert_eq!(failed.last_successful_check, Some(100));
+    }
+
+    #[tokio::test]
     async fn notification_later_and_open_actions_are_bound_to_the_current_offer() {
         let persistence = Arc::new(MemoryPersistence::default());
         let (active, _) = service(
@@ -778,6 +1060,8 @@ mod tests {
         assert!(!active.notification_needed(&status));
         active.set_update_notifications(true).unwrap();
         assert!(active.notification_needed(&status));
+        assert!(active.claim_notification(&status).unwrap());
+        assert!(!active.claim_notification(&status).unwrap());
         active.mark_notified(&status).unwrap();
         assert!(!active.notification_needed(&status));
         let (restarted, _) = service(

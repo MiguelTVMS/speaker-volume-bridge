@@ -222,6 +222,48 @@ Windows local runs register the app as a notification sender, so notifications
 use Speaker Volume Bridge rather than relying on PowerShell. Existing Windows
 notification preferences and Do not disturb still apply.
 
+## Update checks and notifications
+
+Startup, periodic, wake and manual update checks use the same orchestration. It
+publishes each resulting status to the UI and reserves each update notice before
+sending, so overlapping triggers do not deliver duplicate notifications. Automatic
+checks re-evaluate every minute and run only when no successful check has occurred
+in the previous 24 hours. The last success and the validated offer survive restart.
+Successful catalog reads replace the cached offer, including withdrawing it when
+the installed edition has no current catalog entry. A network or invalid-catalog
+failure leaves the last validated offer and success timestamp available.
+
+Sending an update notification leaves the current Settings page unchanged.
+Activating the native notification opens Settings and selects Updates; choosing
+the tray's **Check for updates** action also selects Updates. Other notifications
+retain their existing Settings activation behavior.
+
+Phase-one clients ignore additive catalog metadata while validating required
+fields and rejecting unsupported actions. An `open_url` action remains sufficient
+for clients that do not understand later update metadata; no package installation
+is performed.
+
+## Update checks and notifications
+
+Startup, periodic, wake and manual update checks use the same orchestration. It
+publishes each resulting status to the UI and reserves each update notice before
+sending, so overlapping triggers do not deliver duplicate notifications. Automatic
+checks re-evaluate every minute and run only when no successful check has occurred
+in the previous 24 hours. The last success and the validated offer survive restart.
+Successful catalog reads replace the cached offer, including withdrawing it when
+the installed edition has no current catalog entry. A network or invalid-catalog
+failure leaves the last validated offer and success timestamp available.
+
+Sending an update notification leaves the current Settings page unchanged.
+Activating the native notification opens Settings and selects Updates; choosing
+the tray's **Check for updates** action also selects Updates. Other notifications
+retain their existing Settings activation behavior.
+
+Phase-one clients ignore additive catalog metadata while validating required
+fields and rejecting unsupported actions. An `open_url` action remains sufficient
+for clients that do not understand later update metadata; no package installation
+is performed.
+
 ## UI demo builds
 
 Explicit `ui-demo` debug builds open Settings with a simulated Sonos speaker and

@@ -26,8 +26,9 @@ Schema v1 contains `schemaVersion`, `generatedAt` and `entries`. Each entry has:
 - `action`: `{ "type": "open_url", "url": "https://..." }`.
 
 The complete UTF-8 JSON document is limited to 256 KiB. Object members and entry
-targets must be unique. Unknown fields, editions, channels, platforms,
-architectures, actions and schema versions invalidate the document. Stable
+targets must be unique. Additive metadata fields are ignored by phase-one clients;
+required fields, editions, channels, platforms, architectures, actions and schema
+versions remain validated. Unknown actions invalidate the document. Stable
 entries cannot contain prerelease versions. URLs must be absolute HTTPS URLs
 without embedded credentials. Missing targets mean that edition is not currently
 offered; they do not mean the running version is current.
@@ -63,14 +64,22 @@ opens a focused PR to `develop`; it does not deploy or publish. Catalog changes
 reach the site only through the normal release flow into `main`, where the Pages
 job verifies the served document and cache header after its atomic deployment.
 
-One application-level service owns update state. Its HTTPS transport is bounded
+One application-level service owns update state. Startup, periodic, wake and
+manual checks use one orchestration path that emits status and claims any
+notification at most once. Sending a notification never changes the selected
+Settings page. The Updates page opens only after notification activation or an
+explicit tray action. Update notices carry platform-specific activation intent;
+schedule notices continue to open Settings. Its HTTPS transport is bounded
 to 10 seconds, 256 KiB and three redirects, and accepted actions are `open_url`
 targets on approved project/Store origins. The service persists automatic-check
 preference, last attempt, last success and last-notified target separately from
-speaker configuration. Recognized release packages default on; development and
-unknown packages are unsupported. Startup waits 30 seconds, successful checks are
-fresh for 24 hours, transient failures use bounded backoff, and all callers share
-one in-flight request. Background failures are quiet; manual failures are visible.
+speaker configuration, including validated offers for restart recovery. Recognized
+release packages default on; development and unknown packages are unsupported.
+Startup waits 30 seconds. Successful refreshes replace or withdraw the cached
+offer; failed refreshes retain the last known offer without advancing success time.
+Checks are fresh for 24 hours, transient failures use bounded backoff, and all
+callers share one in-flight request. Background failures are quiet; manual failures
+are visible.
 No package download or installer path exists in phase 1.
 
 ## Consequences

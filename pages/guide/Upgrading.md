@@ -30,6 +30,8 @@ Open `speaker-volume-bridge-macos.dmg` and drag **Speaker Volume Bridge.app** in
 
 Eject the disk image and open the renamed app from Applications. Check **Start at login** after replacing the bundle. Avoid running the direct-download and Mac App Store editions together. When changing to the Store edition, remove the direct-download edition and configure the speaker and audio preferences again.
 
+<div class="download-actions upgrade-downloads"><a class="button" href="https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-macos.dmg">Download macOS DMG ↓</a></div>
+
 ## Windows direct download
 
 Run the v{{ site.data.release.version }} installer for your architecture over the existing installation. It preserves settings and updates the app's shortcuts and startup targets.
@@ -38,11 +40,15 @@ If the previous installation used the old default **Sonos Volume Bridge** folder
 
 If the installer says the folder could not be moved, quit the installed app from its system tray, close files open in its installation folder, and retry. If the destination already exists, use an empty destination or remove a confirmed unused duplicate installation before retrying. The installer stops rather than merging or overwriting an existing destination, and a failed folder move leaves the old folder in place.
 
+<div class="download-actions upgrade-downloads"><a class="button" href="https://apps.microsoft.com/detail/9N7JKGXCMST0?cid=website&amp;referrer=download&amp;source=svb.miguel.ms" target="_blank" rel="noopener noreferrer">Microsoft Store ↗</a><a class="button button-secondary" href="https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-windows-x64-unsigned.exe">Windows x64 installer ↓</a><a class="button button-secondary" href="https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-windows-arm64-unsigned.exe">Windows ARM64 installer ↓</a></div>
+
 ## Ubuntu
 
 Install the new `speaker-volume-bridge` Debian package using the x64 or ARM64 download described in [Installation](/guide/Installation.html). It replaces the old `sonos-volume-bridge` package and retains saved configuration.
 
 Start **Speaker Volume Bridge** from the application menu. The old `sonos-volume-bridge` shell command remains a compatibility link to the renamed executable. Check your desktop startup list and remove any manually created duplicate entry for the old app.
+
+<div class="download-actions upgrade-downloads"><a class="button" href="https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-linux-x64.deb">Ubuntu x64 DEB ↓</a><a class="button" href="https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-linux-arm64.deb">Ubuntu ARM64 DEB ↓</a></div>
 
 ## Store installations
 

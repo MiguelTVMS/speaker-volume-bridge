@@ -31,7 +31,7 @@ versions literal.
 Use a local Jekyll environment to run `bundle exec jekyll serve --source pages`
 from the repository root, then open `http://localhost:4000`. A plain Python file
 server does not expand the shared includes or render the guide Markdown. Check
-the landing, guide, privacy, and upgrade pages at mobile and desktop widths.
+the landing, guide, privacy, and guide upgrade pages at mobile and desktop widths.
 
 ## Publish
 
@@ -116,7 +116,7 @@ Example direct-release evidence:
     "version": "1.8.0",
     "publishedAt": "2026-10-04T12:00:00Z",
     "releaseNotes": "Stable release notes.",
-    "action": {"type": "open_url", "url": "https://svb.miguel.ms/upgrade.html"}
+    "action": {"type": "open_url", "url": "https://svb.miguel.ms/guide/Upgrading.html"}
   }
 }
 ```
@@ -171,8 +171,9 @@ does not itself submit the site or guarantee indexing or rich results.
 
 ## Markdown versions
 
-Every hand-authored HTML page has a generated Markdown counterpart (`index.md`,
-`privacy.md`, `upgrade.md`).
+Every hand-authored HTML page has a generated Markdown counterpart (`index.md`
+and `privacy.md`). Upgrade documentation is Markdown-first at
+`pages/guide/Upgrading.md` rather than duplicated as a top-level page.
 The HTML alternate link and llms.txt point to these files. Run
 `python3 scripts/generate-page-markdown.py` after editing page content, and
 `python3 scripts/generate-page-markdown.py --check` to detect stale copies.
@@ -188,10 +189,10 @@ Each rendered page advertises that source with `rel="alternate"`, and `llms.txt`
 links directly to the most useful Markdown entry points. The sitemap lists the
 canonical rendered HTML pages rather than the alternate Markdown copies.
 
-The three generated top-level Markdown alternates are excluded from Jekyll and
+The two generated top-level Markdown alternates are excluded from Jekyll and
 copied into the finished artifact after the build. This prevents GitHub Pages'
 optional-front-matter plugin from rendering them with a default theme and
-overwriting `index.html`, `privacy.html`, or `upgrade.html`.
+overwriting `index.html` or `privacy.html`.
 
 Do not enable Jekyll's `permalink: pretty` setting. Public guide and policy
 links intentionally use stable `.html` routes; validation checks representative

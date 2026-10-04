@@ -20,7 +20,7 @@ def release_version():
 
 
 def markdown_sources():
-    yield from (PAGES / name for name in ("index.md", "privacy.md", "upgrade.md"))
+    yield from (PAGES / name for name in ("index.md", "privacy.md"))
     yield from sorted((PAGES / "guide").glob("*.md"))
 
 

@@ -25,7 +25,7 @@ def entry(version="1.8.0", edition="direct_windows", architecture="x86_64"):
         "version": version,
         "publishedAt": STAMP,
         "releaseNotes": "Verified stable release.",
-        "action": {"type": "open_url", "url": "https://svb.miguel.ms/upgrade.html"},
+        "action": {"type": "open_url", "url": "https://svb.miguel.ms/guide/Upgrading.html"},
     }
 
 

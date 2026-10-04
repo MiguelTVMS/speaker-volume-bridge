@@ -2,6 +2,7 @@
 import subprocess
 import tempfile
 import unittest
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -24,18 +25,17 @@ class ReleaseDownloadsTests(unittest.TestCase):
                 super().__init__()
                 self.links = []
 
-        for page in ("index.html", "upgrade.html"):
+        pages = (("index.html", "index.md"), ("guide/Upgrading.md", "guide/Upgrading.md"))
+        for page, markdown in pages:
             parser = Links()
             parser.feed((SCRIPT.parent.parent / "pages" / page).read_text())
             links_by_page[page] = parser.links
-        for page, page_links in links_by_page.items():
-            store = [link for link in page_links if urlparse(link).hostname == 'apps.microsoft.com']
+            store = [link for link in parser.links if urlparse(link).hostname == 'apps.microsoft.com']
             self.assertEqual(len(store), 1, page)
             self.assertEqual(parse_qs(urlparse(store[0]).query), {
                 'cid': ['website'], 'referrer': ['download'], 'source': ['svb.miguel.ms'],
             })
-            markdown = page.replace('.html', '.md')
-            self.assertIn(store[0], (SCRIPT.parent.parent / 'pages' / markdown).read_text())
+            self.assertIn(store[0], unescape((SCRIPT.parent.parent / 'pages' / markdown).read_text()))
         for suffix in ("macos.dmg", "windows-x64-unsigned.exe", "windows-arm64-unsigned.exe", "linux-x64.deb", "linux-arm64.deb"):
             self.assertIn(suffix, DESTINATIONS)
             for page, page_links in links_by_page.items():

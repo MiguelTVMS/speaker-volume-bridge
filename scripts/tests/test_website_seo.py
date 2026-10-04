@@ -69,16 +69,20 @@ class WebsiteSeoTests(unittest.TestCase):
                 for prefix in ('og', 'twitter'):
                     self.assertEqual(page.meta[f'{prefix}:title'], page.title)
                     self.assertEqual(page.meta[f'{prefix}:description'], page.meta['description'])
-                    self.assertEqual(page.meta[f'{prefix}:image'], ORIGIN + 'social-icon.png')
-                    self.assertEqual(page.meta[f'{prefix}:image:alt'], 'Speaker Volume Bridge app icon')
+                    self.assertEqual(page.meta[f'{prefix}:image'], ORIGIN + 'social-preview.png')
+                    self.assertEqual(
+                        page.meta[f'{prefix}:image:alt'],
+                        'Speaker Volume Bridge connecting a computer and speaker',
+                    )
                 self.assertEqual(page.meta['og:url'], canonical)
                 self.assertEqual(page.meta['og:site_name'], 'Speaker Volume Bridge')
+                self.assertEqual(page.meta['twitter:card'], 'summary_large_image')
                 self.assertEqual(len(page.structured), 1)
                 schema = page.structured[0]
                 self.assertEqual(schema['url'], canonical)
                 self.assertEqual(schema['description'], page.meta['description'])
                 self.assertIn('Speaker Volume Bridge', schema['name'])
-                width, height = struct.unpack('>II', (PAGES / 'social-icon.png').read_bytes()[16:24])
+                width, height = struct.unpack('>II', (PAGES / 'social-preview.png').read_bytes()[16:24])
                 self.assertEqual(int(page.meta['og:image:width']), width)
                 self.assertEqual(int(page.meta['og:image:height']), height)
 
@@ -115,7 +119,7 @@ class WebsiteSeoTests(unittest.TestCase):
                         self.assertIn(target.fragment, self.pages[path].ids)
 
     def test_static_pages_use_shared_header_and_footer(self):
-        for name in ('index.html', 'privacy.html', 'upgrade.html'):
+        for name in ('index.html', 'privacy.html'):
             source = (PAGES / name).read_text()
             with self.subTest(page=name):
                 self.assertIn('{% include site-header.html %}', source)

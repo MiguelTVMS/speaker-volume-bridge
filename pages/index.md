@@ -48,7 +48,7 @@ Set weekly half-hour blocks for Night Mode on your selected compatible speaker. 
 
 DOWNLOAD SPEAKER VOLUME BRIDGE
 
-Formerly Sonos Volume Bridge. [Upgrade instructions](https://svb.miguel.ms/upgrade.html) .
+Formerly Sonos Volume Bridge. [Upgrade instructions](https://svb.miguel.ms/guide/Upgrading.html) .
 
 ## At home on your computer.
 

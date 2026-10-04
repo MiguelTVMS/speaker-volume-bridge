@@ -45,7 +45,7 @@ export function createDemoBackend(options: { hour12?: boolean | null; now?: () =
     availableVersion: '1.8.0',
     edition: 'direct_macos',
     lastSuccessfulCheck: 1791108000,
-    action: { type: 'open_url', url: 'https://svb.miguel.ms/upgrade.html' },
+    action: { type: 'open_url', url: 'https://svb.miguel.ms/guide/Upgrading.html' },
     message: null,
     automaticChecks: true,
     updateNotifications: true,

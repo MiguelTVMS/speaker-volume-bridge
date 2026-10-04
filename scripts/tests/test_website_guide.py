@@ -48,11 +48,13 @@ class WebsiteGuideTests(unittest.TestCase):
         self.assertIn('"@type": "WebPage"', layout)
         self.assertIn('"@type": "BreadcrumbList"', layout)
         self.assertIn('property="og:image:width"', layout)
+        self.assertIn('/social-preview.png', layout)
+        self.assertIn('content="summary_large_image"', layout)
 
     def test_markdown_alternates_cannot_overwrite_html_pages(self):
         config = (ROOT / "pages" / "_config.yml").read_text()
         self.assertNotIn("permalink: pretty", config)
-        for name in ("index.md", "privacy.md", "upgrade.md"):
+        for name in ("index.md", "privacy.md"):
             with self.subTest(page=name):
                 self.assertIn(f"  - {name}\n", config)
 

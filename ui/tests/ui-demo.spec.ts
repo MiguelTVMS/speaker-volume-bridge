@@ -56,6 +56,54 @@ test('reset cancels a pending settings autosave', async ({ page }) => {
   await expect(page.locator('[name="startAtLogin"]')).not.toBeChecked();
 });
 
+test('update controls are grouped and the HTTPS repository link uses the native opener', async ({
+  page,
+}) => {
+  await page.goto('/preview.html?platform=macos');
+  await page.getByRole('button', { name: 'Updates', exact: true }).click();
+  await expect(page.locator('#update-state')).toHaveText('Version 1.8.0 is available.');
+  await expect(page.locator('.update-actions button')).toHaveCount(3);
+  const notifications = page.getByRole('switch', { name: /Update notifications/ });
+  await notifications.uncheck();
+  await expect(notifications).not.toBeChecked();
+
+  await page.evaluate(() => {
+    const host = window as unknown as {
+      __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
+      openedRepository?: string;
+    };
+    const invoke = host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'open_project_repository') host.openedRepository = command;
+      if (
+        command === 'set_update_notifications' &&
+        (args as { enabled?: boolean } | undefined)?.enabled
+      )
+        return false;
+      return invoke(command, args);
+    };
+  });
+  await notifications.click();
+  await expect(notifications).not.toBeChecked();
+  await expect(page.locator('#notice')).toHaveText(
+    'Notifications remain disabled in system settings.',
+  );
+  await page.getByRole('button', { name: 'About', exact: true }).click();
+  const repository = page.getByRole('link', {
+    name: 'https://github.com/MiguelTVMS/speaker-volume-bridge',
+  });
+  await expect(repository).toHaveAttribute(
+    'href',
+    'https://github.com/MiguelTVMS/speaker-volume-bridge',
+  );
+  await repository.click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { openedRepository?: string }).openedRepository),
+    )
+    .toBe('open_project_repository');
+});
+
 test('reset follows an autosave already in flight', async ({ page }) => {
   await page.goto('/preview.html?platform=macos');
   await expect(page.locator('#runtime-status')).toBeVisible();

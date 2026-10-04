@@ -48,6 +48,7 @@ export function createDemoBackend(options: { hour12?: boolean | null; now?: () =
     action: { type: 'open_url', url: 'https://svb.miguel.ms/upgrade.html' },
     message: null,
     automaticChecks: true,
+    updateNotifications: true,
     promptDismissed: false,
   };
   const dispatch = (command: string, payload?: Record<string, unknown>): unknown => {
@@ -104,7 +105,11 @@ export function createDemoBackend(options: { hour12?: boolean | null; now?: () =
         return;
       case 'request_update_notification_permission':
         return true;
+      case 'set_update_notifications':
+        updateStatus.updateNotifications = (payload as { enabled: boolean }).enabled;
+        return updateStatus.updateNotifications;
       case 'open_update_page':
+      case 'open_project_repository':
         return;
       case 'get_snapshot':
         return snapshot;

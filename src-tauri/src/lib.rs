@@ -199,8 +199,9 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             commands::check_for_updates,
             commands::set_automatic_update_checks,
             commands::dismiss_update,
-            commands::request_update_notification_permission,
-            commands::open_update_page
+            commands::set_update_notifications,
+            commands::open_update_page,
+            commands::open_project_repository
         ])
         .run(context)
         .expect("Tauri runtime failed");

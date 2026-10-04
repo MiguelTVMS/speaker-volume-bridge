@@ -10,6 +10,7 @@ export type UpdateStatus = {
   action: { type: 'open_url'; url: string } | null;
   message: string | null;
   automaticChecks: boolean;
+  updateNotifications: boolean;
   promptDismissed: boolean;
 };
 

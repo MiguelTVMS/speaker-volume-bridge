@@ -172,6 +172,7 @@ let updateStatus: UpdateStatus = {
   action: null,
   message: null,
   automaticChecks: false,
+  updateNotifications: false,
   promptDismissed: false,
 };
 
@@ -386,12 +387,12 @@ function render(nextSnapshot: Snapshot): void {
         ${panel(
           'updates',
           `<div class="panel-heading"><h2>Updates</h2><p>Check for a release published for this installed edition.</p></div>
+          <p id="update-state" class="setting-note update-state${updateStatus.phase === 'update_available' ? ' update-state-available' : ''}" aria-live="polite">${escapeHtml(updateStateText(updateStatus))}</p>
           <div class="settings-group" data-update>
             <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${updateStatus.lastSuccessfulCheck ? escapeHtml(new Date(updateStatus.lastSuccessfulCheck * 1000).toLocaleString()) : 'Never'}</dd></div></dl>
             <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks the project catalog without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
-            <p id="update-state" class="setting-note" aria-live="polite">${escapeHtml(updateStateText(updateStatus))}</p>
-            ${updateStatus.phase === 'update_available' && updateStatus.action && updateStatus.availableVersion ? `<div class="update-actions"><button class="primary" type="button" id="open-update-page" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button></div>` : ''}
-            <div class="update-actions"><button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button><button class="secondary" type="button" id="enable-update-notifications">Enable notifications</button></div>
+            <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
+            <div class="update-actions">${updateStatus.phase === 'update_available' && updateStatus.action && updateStatus.availableVersion ? `<button class="primary" type="button" id="open-update-page" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button></div>
           </div>`,
         )}
         ${panel(
@@ -404,7 +405,7 @@ function render(nextSnapshot: Snapshot): void {
         ${panel(
           'about',
           `<div class="panel-heading"><h2>About</h2><p>Version, licensing, and project information.</p></div>
-          <dl class="status-list about-list"><div><dt>Version</dt><dd>${escapeHtml(appVersion)}</dd></div><div><dt>Source code</dt><dd><a href="${repositoryUrl}" target="_blank" rel="noopener noreferrer">github.com/MiguelTVMS/speaker-volume-bridge</a></dd></div><div><dt>License</dt><dd>MIT License © 2026 João Miguel Tabosa Vaz Marques Silva</dd></div></dl>
+          <dl class="status-list about-list"><div><dt>Version</dt><dd>${escapeHtml(appVersion)}</dd></div><div><dt>Source code</dt><dd><a id="project-repository" href="${repositoryUrl}" rel="noopener noreferrer">https://github.com/MiguelTVMS/speaker-volume-bridge</a></dd></div><div><dt>License</dt><dd>MIT License © 2026 João Miguel Tabosa Vaz Marques Silva</dd></div></dl>
           <section class="settings-group about-disclaimer" aria-labelledby="sonos-notice-title"><h3 id="sonos-notice-title">Sonos trademark and independence notice</h3><p>${escapeHtml(sonosDisclaimer)}</p></section><details class="technical-details about-license"><summary>Read the MIT License</summary><pre>${escapeHtml(mitLicense)}</pre></details>`,
         )}
         <output id="notice" aria-live="polite">${escapeHtml(currentNotice)}</output>
@@ -519,8 +520,15 @@ function render(nextSnapshot: Snapshot): void {
       (event) => void dismissUpdate(event.currentTarget as HTMLButtonElement),
     );
   document
-    .querySelector('#enable-update-notifications')
-    ?.addEventListener('click', () => void enableUpdateNotifications());
+    .querySelector('#update-notifications')
+    ?.addEventListener(
+      'change',
+      (event) => void setUpdateNotifications((event.currentTarget as HTMLInputElement).checked),
+    );
+  document.querySelector('#project-repository')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    void openProjectRepository();
+  });
   document
     .querySelector<HTMLSelectElement>('#sonos-device')
     ?.addEventListener('change', syncSelectedSonosAddress);
@@ -829,6 +837,27 @@ async function setAutomaticUpdateChecks(enabled: boolean): Promise<void> {
   }
 }
 
+async function setUpdateNotifications(enabled: boolean): Promise<void> {
+  try {
+    const accepted = await invoke<boolean>('set_update_notifications', { enabled });
+    updateStatus = { ...updateStatus, updateNotifications: accepted };
+    notice(enabled && !accepted ? 'Notifications remain disabled in system settings.' : '');
+    if (snapshot) render(snapshot);
+  } catch (error) {
+    notice(String(error));
+    if (snapshot) render(snapshot);
+  }
+}
+
+async function openProjectRepository(): Promise<void> {
+  try {
+    await invoke('open_project_repository');
+    notice('');
+  } catch (error) {
+    notice(String(error));
+  }
+}
+
 async function openUpdatePage(button: HTMLButtonElement): Promise<void> {
   try {
     await invoke('open_update_page', { version: button.dataset.version, url: button.dataset.url });
@@ -849,12 +878,6 @@ async function dismissUpdate(button: HTMLButtonElement): Promise<void> {
   }
 }
 
-async function enableUpdateNotifications(): Promise<void> {
-  const permitted = await invoke<boolean>('request_update_notification_permission').catch(
-    () => false,
-  );
-  notice(permitted ? '' : 'Notifications are blocked. Update offers remain available here.');
-}
 async function refreshAudioInputFormat(): Promise<void> {
   try {
     const diagnostics = await invoke<Diagnostics>('diagnostics');

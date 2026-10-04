@@ -60,7 +60,9 @@ packages do not check automatically.
 
 The Updates page shows the installed version and distribution, last successful
 check and every checker state. An available offer remains discoverable after
-Later or notification denial. Open update page is enabled only for the exact
+Later or notification denial. The persisted Update notifications switch suppresses
+native update notices independently from automatic checks; enabling it is the
+only update flow that may request OS permission. Open update page is enabled only for the exact
 validated offer; the shell rechecks version and URL immediately before invoking
 the operating system's default HTTPS handler. No browser opens at startup and no
 package is downloaded or installed.

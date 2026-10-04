@@ -42,13 +42,10 @@ def _reject_duplicate_members(pairs: list[tuple[str, object]]) -> dict[str, obje
     return result
 
 
-def _require_exact_keys(value: dict[str, object], required: set[str], optional: set[str], context: str) -> None:
+def _require_keys(value: dict[str, object], required: set[str], context: str) -> None:
     missing = required - value.keys()
-    unknown = value.keys() - required - optional
     if missing:
         raise CatalogError(f"{context} missing fields: {', '.join(sorted(missing))}")
-    if unknown:
-        raise CatalogError(f"{context} has unsupported fields: {', '.join(sorted(unknown))}")
 
 
 def _timestamp(value: object, field: str) -> None:
@@ -79,7 +76,7 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
         raise CatalogError("catalog is not valid UTF-8 JSON") from error
     if not isinstance(catalog, dict):
         raise CatalogError("catalog root must be an object")
-    _require_exact_keys(catalog, {"schemaVersion", "generatedAt", "entries"}, set(), "catalog")
+    _require_keys(catalog, {"schemaVersion", "generatedAt", "entries"}, "catalog")
     if catalog["schemaVersion"] != 1:
         raise CatalogError("unsupported schemaVersion")
     _timestamp(catalog["generatedAt"], "generatedAt")
@@ -92,7 +89,7 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
         context = f"entry {index}"
         if not isinstance(entry, dict):
             raise CatalogError(f"{context} must be an object")
-        _require_exact_keys(
+        _require_keys(
             entry,
             {
                 "edition",
@@ -104,7 +101,6 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
                 "releaseNotes",
                 "action",
             },
-            set(),
             context,
         )
         for field, allowed in (
@@ -115,7 +111,9 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
         ):
             if entry[field] not in allowed:
                 raise CatalogError(f"{context} has unsupported {field}")
-        match = SEMVER.fullmatch(entry["version"]) if isinstance(entry["version"], str) else None
+        if not isinstance(entry["version"], str):
+            raise CatalogError(f"{context} has invalid semantic version")
+        match = SEMVER.fullmatch(entry["version"])
         if match is None:
             raise CatalogError(f"{context} has invalid semantic version")
         if entry["channel"] == "stable" and match.group(4) is not None:
@@ -127,8 +125,8 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
         action = entry["action"]
         if not isinstance(action, dict):
             raise CatalogError(f"{context}.action must be an object")
-        _require_exact_keys(action, {"type", "url"}, set(), f"{context}.action")
-        if action["type"] != "open_url":
+        _require_keys(action, {"type", "url"}, f"{context}.action")
+        if not isinstance(action.get("type"), str) or action["type"] != "open_url":
             raise CatalogError(f"{context} has unsupported action")
         _https_url(action["url"], f"{context}.action.url")
 

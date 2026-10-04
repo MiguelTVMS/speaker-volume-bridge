@@ -1,5 +1,25 @@
 # Hardware verification matrix
 
+## Phase-one update catalog recovery
+
+- Automated production-orchestration coverage: `UpdateService::new` revalidates
+  persisted offers on startup, removing offers equal to/older than the installed
+  version, malformed versions/actions, wrong distribution targets, and legacy
+  cache entries without target identity. It preserves valid newer offers and the
+  last successful check while offline; it makes no request and does not bypass
+  the 24-hour freshness interval.
+- Shared JSON fixtures under `tests/fixtures/update-catalog` are exercised by the
+  Rust consumer, site validator, and publication preparation tests. They cover
+  additive catalog/entry/action metadata, missing required fields, unsupported
+  actions, duplicate object keys, and duplicate targets.
+- Native acceptance (not available in this environment): install an older signed
+  package, obtain a newer offer, install that update manually, disconnect the
+  network, and restart. Confirm the former offer is absent, the last successful
+  check is retained, and no browser opens. Repeat after changing edition/channel/
+  platform/architecture or restoring a legacy cache file; confirm the offer is
+  discarded. Restore connectivity and confirm a valid newer offer remains
+  discoverable. No live catalog entry is published by these checks.
+
 ## Linux ARM64 build
 
 Local validation (2026-09-26): Ubuntu 26.04 ARM64, Rust 1.98.1, Node.js

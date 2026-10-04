@@ -35,6 +35,16 @@ class UpdateCatalogTests(unittest.TestCase):
         parsed = CATALOG.validate_catalog_bytes((ROOT / "pages/updates/v1/catalog.json").read_bytes())
         self.assertEqual(parsed["entries"], [])
 
+    def test_shared_cross_consumer_fixtures(self):
+        fixtures = ROOT / "tests/fixtures/update-catalog"
+        for name in ("additive-metadata.json", "missing-required.json", "unsupported-action.json", "duplicate-key.json", "duplicate-target.json"):
+            with self.subTest(name=name):
+                raw_fixture = (fixtures / name).read_bytes()
+                if name == "additive-metadata.json":
+                    CATALOG.validate_catalog_bytes(raw_fixture)
+                else:
+                    with self.assertRaises(CATALOG.CatalogError):
+                        CATALOG.validate_catalog_bytes(raw_fixture)
     def test_accepts_each_supported_distribution(self):
         entries = [
             entry(),

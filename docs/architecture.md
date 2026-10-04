@@ -155,8 +155,10 @@ reads never block the menu event handler; menu updates run on the main thread.
 
 Update checks share one shell orchestration path for startup, scheduled, wake and
 manual triggers. The shell persists the last successful check and validated offer
-across restarts, replaces cached offers only after a successful catalog read, and
-deduplicates update notifications before delivery. Native update notifications
+across restarts, revalidates the cached offer's version, complete target identity,
+and HTTPS action at startup, replaces cached offers only after a successful
+catalog read, and deduplicates update notifications before delivery. Native update
+notifications
 carry activation intent; only activating one or choosing the tray Updates action
 navigates to the Updates page.
 

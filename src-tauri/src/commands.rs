@@ -7,6 +7,8 @@ use crate::{
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+const PROJECT_REPOSITORY_URL: &str = "https://github.com/MiguelTVMS/speaker-volume-bridge";
+
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
 pub fn get_update_status(app: AppHandle) -> Result<crate::updates::UpdateStatus, String> {
@@ -54,8 +56,22 @@ pub fn dismiss_update(version: String, app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn request_update_notification_permission(app: AppHandle) -> Result<bool, String> {
-    Ok(crate::schedule_notifications::permitted(&app, true).await)
+pub async fn set_update_notifications(enabled: bool, app: AppHandle) -> Result<bool, String> {
+    let service = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?
+        .service()
+        .clone();
+    let permitted = !enabled || crate::schedule_notifications::permitted(&app, true).await;
+    service
+        .set_update_notifications(enabled && permitted)
+        .map_err(|error| error.to_string())?;
+    Ok(enabled && permitted)
+}
+
+#[tauri::command]
+pub fn open_project_repository() -> Result<(), String> {
+    open_url_with_system(PROJECT_REPOSITORY_URL)
 }
 
 #[tauri::command]

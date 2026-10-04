@@ -11,6 +11,7 @@ const status = (phase, values = {}) => ({
   action: null,
   message: null,
   automaticChecks: true,
+  updateNotifications: true,
   promptDismissed: false,
   ...values,
 });

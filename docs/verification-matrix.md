@@ -670,9 +670,10 @@ uses bounded retry, and aborts on drop. Native sleep/wake timing, proxy/redirect
 behavior and shutdown cancellation remain installed-app checks on macOS, Windows
 x64/ARM64 and Linux x64/ARM64; they were not performed during phase 1.3.
 
-Settings and orchestration tests cover all visible update states, persisted
-notification deduplication, Later, manual rediscovery of a prior offer, stale and
-invalid activation, and concurrent open requests. Native tray navigation,
+Settings and orchestration tests cover all visible update states, the persisted
+notification switch and deduplication, denied-permission rollback, Later, manual
+rediscovery of a prior offer, stale and invalid activation, concurrent open
+requests, and native-opener invocation for the explicit HTTPS repository link. Native tray navigation,
 notification permission denial/activation and default-browser failure must still
 be checked in installed macOS, Windows x64/ARM64 and Linux x64/ARM64 packages.
 Those native phase 1.4 checks were not performed on this development host.

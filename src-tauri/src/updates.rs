@@ -45,6 +45,7 @@ pub struct UpdateStatus {
     pub action: Option<OpenUrlAction>,
     pub message: Option<String>,
     pub automatic_checks: bool,
+    pub update_notifications: bool,
     pub prompt_dismissed: bool,
 }
 
@@ -74,13 +75,26 @@ impl OpenUrlAction {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdatePreferences {
     pub automatic_checks: bool,
+    pub update_notifications: bool,
     pub last_successful_check: Option<u64>,
     pub last_attempted_check: Option<u64>,
     pub last_notified_target: Option<String>,
+}
+
+impl Default for UpdatePreferences {
+    fn default() -> Self {
+        Self {
+            automatic_checks: false,
+            update_notifications: true,
+            last_successful_check: None,
+            last_attempted_check: None,
+            last_notified_target: None,
+        }
+    }
 }
 
 pub trait UpdatePersistence: Send + Sync {
@@ -225,6 +239,7 @@ impl UpdateService {
                 installed_version: distribution.version.clone(),
                 edition: edition_name(distribution.edition).into(),
                 automatic_checks: preferences.automatic_checks,
+                update_notifications: preferences.update_notifications,
                 ..UpdateStatus::default()
             }),
             distribution,
@@ -240,6 +255,7 @@ impl UpdateService {
     pub fn status(&self) -> Result<UpdateStatus, UpdateError> {
         let mut status = self.status.lock().map_err(|_| UpdateError::State)?.clone();
         status.automatic_checks = self.preferences()?.automatic_checks;
+        status.update_notifications = self.preferences()?.update_notifications;
         status.prompt_dismissed = status.available_version.as_ref().is_some_and(|version| {
             self.dismissed_target
                 .lock()
@@ -258,6 +274,11 @@ impl UpdateService {
         preferences.automatic_checks = enabled && self.distribution.check_supported;
         self.persistence.save(&preferences)
     }
+    pub fn set_update_notifications(&self, enabled: bool) -> Result<(), UpdateError> {
+        let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
+        preferences.update_notifications = enabled;
+        self.persistence.save(&preferences)
+    }
     pub fn dismiss(&self, version: &str) -> Result<(), UpdateError> {
         if self.status()?.available_version.as_deref() != Some(version) {
             return Err(UpdateError::State);
@@ -273,8 +294,10 @@ impl UpdateService {
             return false;
         };
         let target = format!("{}:{version}", self.distribution.edition_key());
-        self.preferences()
-            .is_ok_and(|preferences| preferences.last_notified_target.as_deref() != Some(&target))
+        self.preferences().is_ok_and(|preferences| {
+            preferences.update_notifications
+                && preferences.last_notified_target.as_deref() != Some(&target)
+        })
     }
     pub fn mark_notified(&self, status: &UpdateStatus) -> Result<(), UpdateError> {
         let version = status
@@ -748,6 +771,9 @@ mod tests {
             persistence.clone(),
         );
         let status = active.check(true).await;
+        active.set_update_notifications(false).unwrap();
+        assert!(!active.notification_needed(&status));
+        active.set_update_notifications(true).unwrap();
         assert!(active.notification_needed(&status));
         active.mark_notified(&status).unwrap();
         assert!(!active.notification_needed(&status));
@@ -782,5 +808,11 @@ mod tests {
                 .claim_offer("2.0.0", "https://svb.miguel.ms/upgrade.html")
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn existing_preferences_default_update_notifications_on() {
+        let preferences: UpdatePreferences = serde_json::from_str("{}").unwrap();
+        assert!(preferences.update_notifications);
     }
 }

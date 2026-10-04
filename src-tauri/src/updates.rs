@@ -340,6 +340,9 @@ impl UpdateService {
     }
     #[allow(dead_code)] // Used in release builds; test delivery deliberately suppresses native notifications.
     pub fn claim_notification(&self, status: &UpdateStatus) -> Result<bool, UpdateError> {
+        if status.phase != UpdatePhase::UpdateAvailable || status.offer_stale {
+            return Ok(false);
+        }
         let version = status
             .available_version
             .as_deref()
@@ -645,40 +648,58 @@ impl UpdateManager {
     }
 }
 
-#[allow(clippy::unused_async)] // Notification delivery is asynchronous in production builds.
-async fn notify_available<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    service: &UpdateService,
-    status: &UpdateStatus,
-) {
-    #[cfg(test)]
-    let _ = (app, service, status);
-    #[cfg(not(test))]
-    {
-        if status.phase != UpdatePhase::UpdateAvailable
-            || !crate::schedule_notifications::permitted(app, false).await
-            || !service.claim_notification(status).unwrap_or(false)
-        {
-            return;
-        }
-        let version = status.available_version.as_deref().unwrap_or("new");
-        crate::schedule_notifications::send_update(
-            app,
-            "Speaker Volume Bridge update available",
-            &format!("Version {version} is available. Open Settings to view the update page."),
-        )
-        .await;
-    }
-}
-
 async fn run_check_and_deliver<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     service: &UpdateService,
     manual: bool,
 ) -> UpdateStatus {
+    #[cfg(test)]
+    let permitted = || async { true };
+    #[cfg(not(test))]
+    let permitted = {
+        let app = app.clone();
+        move || async move { crate::schedule_notifications::permitted(&app, false).await }
+    };
+    #[cfg(test)]
+    let deliver = |_| async {};
+    #[cfg(not(test))]
+    let deliver = {
+        let app = app.clone();
+        move |status: UpdateStatus| async move {
+            let version = status.available_version.as_deref().unwrap_or("new");
+            crate::schedule_notifications::send_update(
+                &app,
+                "Speaker Volume Bridge update available",
+                &format!("Version {version} is available. Open Settings to view the update page."),
+            )
+            .await;
+        }
+    };
+    run_check_and_deliver_with(app, service, manual, permitted, deliver).await
+}
+
+async fn run_check_and_deliver_with<R, P, PFut, F, Fut>(
+    app: &tauri::AppHandle<R>,
+    service: &UpdateService,
+    manual: bool,
+    permitted: P,
+    deliver: F,
+) -> UpdateStatus
+where
+    R: tauri::Runtime,
+    P: FnOnce() -> PFut,
+    PFut: std::future::Future<Output = bool>,
+    F: FnOnce(UpdateStatus) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
     let status = service.check(manual).await;
     let _ = app.emit("update-status-changed", &status);
-    notify_available(app, service, &status).await;
+    if status.phase == UpdatePhase::UpdateAvailable
+        && permitted().await
+        && service.claim_notification(&status).unwrap_or(false)
+    {
+        deliver(status.clone()).await;
+    }
     status
 }
 impl Drop for UpdateManager {
@@ -914,6 +935,63 @@ mod tests {
         assert_eq!(transport.calls.load(Ordering::Relaxed), 1);
         assert_eq!(state_events.load(Ordering::SeqCst), 1);
         assert_eq!(opened_pages.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn shared_orchestration_delivers_at_most_one_update_notice_across_triggers() {
+        use tauri::Listener;
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let (service, transport) = service(
+            catalog("2.0.0"),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        let status_events = Arc::new(AtomicUsize::new(0));
+        let open_events = Arc::new(AtomicUsize::new(0));
+        let notifications = Arc::new(AtomicUsize::new(0));
+        let permission_barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let observed_status = status_events.clone();
+        let observed_open = open_events.clone();
+        let _status_listener = app.listen("update-status-changed", move |_| {
+            observed_status.fetch_add(1, Ordering::SeqCst);
+        });
+        let _open_listener = app.listen("open-updates", move |_| {
+            observed_open.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let mut triggers = Vec::new();
+        for _ in 0..2 {
+            let app = app.handle().clone();
+            let service = service.clone();
+            let permission_barrier = permission_barrier.clone();
+            let delivered = notifications.clone();
+            triggers.push(tokio::spawn(async move {
+                run_check_and_deliver_with(
+                    &app,
+                    &service,
+                    true,
+                    move || async move {
+                        permission_barrier.wait().await;
+                        true
+                    },
+                    move |_| async move {
+                        delivered.fetch_add(1, Ordering::SeqCst);
+                        tokio::task::yield_now().await;
+                    },
+                )
+                .await;
+            }));
+        }
+        for trigger in triggers {
+            trigger.await.unwrap();
+        }
+
+        assert_eq!(transport.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(status_events.load(Ordering::SeqCst), 2);
+        assert_eq!(notifications.load(Ordering::SeqCst), 1);
+        assert_eq!(open_events.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

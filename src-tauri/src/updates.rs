@@ -727,7 +727,10 @@ mod tests {
     async fn invalid_target_never_reaches_persisted_status() {
         let bytes = String::from_utf8(catalog("2.0.0"))
             .unwrap()
-            .replace("https://svb.miguel.ms/guide/Upgrading.html", "file:///tmp/run")
+            .replace(
+                "https://svb.miguel.ms/guide/Upgrading.html",
+                "file:///tmp/run",
+            )
             .into_bytes();
         let (active, _) = service(
             bytes,

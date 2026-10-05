@@ -7,7 +7,6 @@ on:
     paths-ignore:
       - "**/*.md"
       - "README*"
-      - "docs/**"
       - ".vscode/**"
       - "AGENTS.md"
       - "LICENSE"
@@ -51,6 +50,7 @@ jobs:
               - 'scripts/tests/test_release_workflow.py'
               - 'scripts/tests/test_linux_installer.py'
               - 'scripts/tests/test_rebrand_identity.py'
+              - 'docs/legacy-identifiers.json'
               - 'scripts/tests/test_distribution_packaging.py'
               - 'scripts/prepare-update-catalog.py'
               - 'scripts/release-catalog.py'

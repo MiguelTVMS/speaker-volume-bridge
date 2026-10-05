@@ -2,63 +2,208 @@ name: Website
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
-      - "pages/**"
-      - "Cargo.toml"
-      - "package.json"
-      - "scripts/generate-website-build-data.py"
-      - "scripts/publish-website-markdown.py"
-      - ".github/workflows/pages.yml"
+      - 'pages/**'
+      - 'Cargo.toml'
+      - 'package.json'
+      - 'scripts/generate-website-build-data.py'
+      - 'scripts/publish-website-markdown.py'
+      - 'scripts/*catalog-site.py'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: GA rebuild on main, catalogs on develop, or adopt actual served GA artifact
+        type: choice
+        options: [deliver, bootstrap, verify-candidate]
+        default: deliver
+      bootstrap_run:
+        description: Successful main Website run with retained github-pages artifact (bootstrap only)
+        type: string
+  # Reconcile missed/superseded events, rebuilding only approved main GA content.
+  schedule:
+    - cron: '17 */6 * * *'
 
 permissions:
   contents: read
 
+# Every website/catalog writer uses this single deployment path and lock.
 concurrency:
   group: github-pages
   cancel-in-progress: false
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     permissions:
       pages: write
       id-token: write
-      contents: read
+      contents: write
+      actions: read
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: develop
+          fetch-depth: 0
+          path: tools
       - uses: actions/configure-pages@v6
-      - name: Resolve website build metadata
+        id: pages
+      - name: Resolve composition mode
+        id: mode
+        env:
+          REQUESTED: ${{ inputs.mode }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          mode=catalog
+          if [ "$REF" = refs/heads/main ] && [ "$EVENT" != schedule ]; then mode=ga; fi
+          if [ "$REQUESTED" = bootstrap ]; then mode=bootstrap; fi
+          if [ "$REQUESTED" = verify-candidate ]; then mode=verify-candidate; fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+      - name: Load durable hosting snapshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ steps.mode.outputs.mode }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          git -C tools config user.name github-actions[bot]
+          git -C tools config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          if git -C tools ls-remote --exit-code origin refs/heads/catalog-hosting-state; then
+            git -C tools fetch origin catalog-hosting-state
+            git -C tools worktree add ../storage FETCH_HEAD
+          elif [ "$MODE" = bootstrap ] || [ "$MODE" = ga ]; then
+            # No fallback to develop site content. Only a verified bootstrap or
+            # successful main GA build can establish the first snapshot.
+            git -C tools worktree add --detach ../storage
+            git -C storage switch --orphan catalog-hosting-state
+          else
+            echo 'Missing durable GA website: bootstrap the served GA artifact.' >&2
+            exit 1
+          fi
+          git -C storage config user.name github-actions[bot]
+          git -C storage config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Reconcile superseded GA events
+        id: effective
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          mode="$MODE"
+          if [ "$EVENT" = schedule ] && [ -f storage/state.json ]; then
+            git -C tools fetch origin main
+            published=$(python3 -c 'import json; print(json.load(open("storage/state.json")).get("published", {}).get("revision", ""))')
+            if [ "$published" != "$(git -C tools rev-parse origin/main)" ]; then mode=ga; fi
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        if: steps.effective.outputs.mode == 'ga'
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || 'main' }}
+          path: ga
+      - name: Resolve GA website build metadata
+        if: steps.effective.outputs.mode == 'ga'
+        working-directory: ga
         run: python3 scripts/generate-website-build-data.py
-      - name: Build website and guide
+      - name: Build GA website and guide
+        if: steps.effective.outputs.mode == 'ga'
         uses: actions/jekyll-build-pages@v1
         with:
-          source: ./pages
-          destination: ./_site
-      - name: Publish Markdown guide sources
+          source: ./ga/pages
+          destination: ./website
+      - name: Publish GA Markdown guide sources
+        if: steps.effective.outputs.mode == 'ga'
+        working-directory: ga
         run: |
-          sudo chown -R "$(id -u):$(id -g)" _site
-          python3 scripts/publish-website-markdown.py --destination _site
+          sudo chown -R "$(id -u):$(id -g)" ../website
+          python3 scripts/publish-website-markdown.py --destination ../website
+      - name: Bootstrap from successful artifact and actual served bytes
+        if: steps.effective.outputs.mode == 'bootstrap'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOOTSTRAP_RUN: ${{ inputs.bootstrap_run }}
+          PAGE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          test ! -f storage/state.json
+          python3 tools/scripts/bootstrap-catalog-site.py --run "$BOOTSTRAP_RUN" \
+            --url "$PAGE_URL" --download "$RUNNER_TEMP/ga-artifact" --destination website > "$RUNNER_TEMP/bootstrap-result"
+      - name: Restore last verified GA website
+        if: steps.effective.outputs.mode == 'catalog'
+        run: python3 tools/scripts/compose-catalog-site.py restore --storage storage --destination website
+      - name: Restore pending GA candidate for verification only
+        if: steps.effective.outputs.mode == 'verify-candidate'
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('site', 'tools/scripts/compose-catalog-site.py')
+          site = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(site)
+          state = json.loads(Path('storage/state.json').read_text())
+          site.restore(Path('storage'), state['candidate'], Path('website'))
+          PY
+      - name: Retain immutable GA bundle before deployment
+        if: steps.effective.outputs.mode == 'ga' || steps.effective.outputs.mode == 'bootstrap'
+        env:
+          MODE: ${{ steps.effective.outputs.mode }}
+        run: |
+          if [ "$MODE" = ga ]; then revision=$(git -C ga rev-parse HEAD); else revision=$(tail -n 1 "$RUNNER_TEMP/bootstrap-result"); fi
+          if [ "$MODE" = ga ]; then
+            git -C tools fetch origin main develop
+            test "$revision" = "$(git -C tools rev-parse origin/main)"
+            mkdir -p latest/updates/v1 latest/updates/v2
+            for feed in v1 v2; do git -C tools show "origin/develop:pages/updates/$feed/catalog.json" > "latest/updates/$feed/catalog.json"; done
+            python3 tools/scripts/compose-catalog-site.py guard --catalogs tools/pages --destination latest
+          fi
+          python3 tools/scripts/compose-catalog-site.py retain --website website --storage storage --revision "$revision"
+          git -C storage add snapshots state.json
+          if ! git -C storage diff --cached --quiet; then
+            git -C storage commit -m 'Retain immutable GA website candidate'
+            git -C storage push origin HEAD:refs/heads/catalog-hosting-state
+          fi
+      - name: Compose current approved develop catalogs
+        if: steps.effective.outputs.mode != 'bootstrap'
+        run: python3 tools/scripts/compose-catalog-site.py compose --website website --catalogs tools/pages --destination composed
+      - name: Reject stale composition immediately before deployment
+        if: steps.effective.outputs.mode != 'bootstrap'
+        env:
+          MODE: ${{ steps.effective.outputs.mode }}
+        run: |
+          git -C tools fetch origin develop main
+          mkdir -p latest/updates/v1 latest/updates/v2
+          for feed in v1 v2; do
+            git -C tools show "origin/develop:pages/updates/$feed/catalog.json" > "latest/updates/$feed/catalog.json"
+          done
+          python3 tools/scripts/compose-catalog-site.py guard --catalogs tools/pages --destination latest
+          if [ "$MODE" = ga ]; then
+            test "$(git -C ga rev-parse HEAD)" = "$(git -C tools rev-parse origin/main)"
+          fi
       - uses: actions/upload-pages-artifact@v5
+        if: steps.effective.outputs.mode == 'ga' || steps.effective.outputs.mode == 'catalog'
         with:
-          path: _site
+          path: composed
       - name: Deploy website
         id: deployment
+        if: steps.effective.outputs.mode == 'ga' || steps.effective.outputs.mode == 'catalog'
         uses: actions/deploy-pages@v5
-      - name: Verify served update catalog
+      - name: Verify actual served snapshot and cache refresh
         env:
-          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          PAGE_URL: ${{ steps.pages.outputs.base_url }}
+          MODE: ${{ steps.effective.outputs.mode }}
         run: |
-          curl --fail --location --silent --show-error \
-            --dump-header "$RUNNER_TEMP/catalog-headers.txt" \
-            --output "$RUNNER_TEMP/catalog.json" \
-            "${PAGE_URL%/}/updates/v1/catalog.json"
-          python3 scripts/validate-update-catalog.py "$RUNNER_TEMP/catalog.json"
-          curl --fail --silent --show-error "${PAGE_URL%/}/updates/v2/catalog.json" -o "$RUNNER_TEMP/preview-catalog.json"
-          python3 scripts/validate-update-catalog.py "$RUNNER_TEMP/preview-catalog.json"
-          grep --ignore-case --quiet '^cache-control:' "$RUNNER_TEMP/catalog-headers.txt"
+          artifact=composed
+          if [ "$MODE" = bootstrap ]; then artifact=website; fi
+          python3 tools/scripts/compose-catalog-site.py verify --website "$artifact" --url "$PAGE_URL" --all-files --storage storage
+          git -C storage add state.json
+          if ! git -C storage diff --cached --quiet; then
+            git -C storage commit -m 'Record verified served website and catalogs'
+            git -C storage push origin HEAD:refs/heads/catalog-hosting-state
+          fi
+          echo 'catalog-live: served snapshot verified' >> "$GITHUB_STEP_SUMMARY"
+      - name: Explain delivery recovery
+        if: failure()
+        run: echo 'Catalog delivery not verified. Previous snapshots are retained. Retry with current catalogs; a pending GA candidate requires verify-candidate or GA recovery. Never dispatch an application release to retry catalogs.' >> "$GITHUB_STEP_SUMMARY"

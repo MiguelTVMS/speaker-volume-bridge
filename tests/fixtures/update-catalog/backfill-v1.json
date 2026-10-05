@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-04T23:26:33Z",
+  "entries": [
+    {
+      "edition": "debian",
+      "os": "linux",
+      "architecture": "aarch64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://svb.miguel.ms/guide/Upgrading.html"
+      }
+    },
+    {
+      "edition": "debian",
+      "os": "linux",
+      "architecture": "x86_64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://svb.miguel.ms/guide/Upgrading.html"
+      }
+    },
+    {
+      "edition": "direct_macos",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://svb.miguel.ms/guide/Upgrading.html"
+      }
+    },
+    {
+      "edition": "direct_windows",
+      "os": "windows",
+      "architecture": "aarch64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://svb.miguel.ms/guide/Upgrading.html"
+      }
+    },
+    {
+      "edition": "direct_windows",
+      "os": "windows",
+      "architecture": "x86_64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://svb.miguel.ms/guide/Upgrading.html"
+      }
+    }
+  ]
+}

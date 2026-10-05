@@ -1715,6 +1715,119 @@ mod tests {
         let preferences: UpdatePreferences = serde_json::from_str("{}").unwrap();
         assert!(preferences.update_notifications);
     }
+    #[tokio::test]
+    async fn verified_backfill_uses_production_client_for_version_policy_and_target_selection() {
+        let stable = include_bytes!("../../tests/fixtures/update-catalog/backfill-v1.json");
+        let preview = include_bytes!("../../tests/fixtures/update-catalog/backfill-v2.json");
+        for (edition, architecture, version, policy, expected) in [
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::Aarch64,
+                "1.8.0",
+                UpdatePolicy::Stable,
+                UpdatePhase::UpToDate,
+            ),
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::Aarch64,
+                "1.7.1",
+                UpdatePolicy::Stable,
+                UpdatePhase::UpdateAvailable,
+            ),
+            (
+                DistributionEdition::DirectWindows,
+                ApplicationArchitecture::X86_64,
+                "1.7.1",
+                UpdatePolicy::Prereleases,
+                UpdatePhase::UpdateAvailable,
+            ),
+            (
+                DistributionEdition::Debian,
+                ApplicationArchitecture::Aarch64,
+                "1.8.0",
+                UpdatePolicy::Prereleases,
+                UpdatePhase::UpToDate,
+            ),
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::X86_64,
+                "1.7.1",
+                UpdatePolicy::Stable,
+                UpdatePhase::Unavailable,
+            ),
+            (
+                DistributionEdition::MacAppStore,
+                ApplicationArchitecture::Aarch64,
+                "1.7.1",
+                UpdatePolicy::Stable,
+                UpdatePhase::Unavailable,
+            ),
+        ] {
+            let mut package = distribution();
+            package.edition = edition;
+            package.architecture = architecture;
+            package.version = version.into();
+            let transport = Arc::new(FakeTransport {
+                result: Mutex::new(Ok(if policy == UpdatePolicy::Stable {
+                    stable.to_vec()
+                } else {
+                    preview.to_vec()
+                })),
+                calls: AtomicUsize::new(0),
+            });
+            let client = UpdateService::new(
+                package,
+                transport.clone(),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                Arc::new(MemoryPersistence::default()),
+            )
+            .unwrap();
+            if policy == UpdatePolicy::Prereleases {
+                client.set_policy(policy).unwrap();
+            }
+            let status = client.check(true).await;
+            assert_eq!(
+                status.phase, expected,
+                "{edition:?}/{architecture:?}/{version}/{policy:?}"
+            );
+            assert_eq!(transport.calls.load(Ordering::Relaxed), 1);
+            if expected == UpdatePhase::UpdateAvailable {
+                assert_eq!(status.available_version.as_deref(), Some("1.8.0"));
+                let action = status.action.unwrap();
+                assert_eq!(
+                    action.url,
+                    if policy == UpdatePolicy::Stable {
+                        "https://svb.miguel.ms/guide/Upgrading.html".to_owned()
+                    } else {
+                        release_page("1.8.0")
+                    }
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn verified_backfill_retains_preview_only_beta_for_the_production_client() {
+        let preview = include_bytes!("../../tests/fixtures/update-catalog/backfill-v2.json");
+        // The prerelease-inclusive backfill retains the verified Beta even
+        // though the newer GA currently wins semantic precedence.
+        let mut beta: serde_json::Value = serde_json::from_slice(preview).unwrap();
+        beta["entries"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|entry| entry["classification"] == "Beta");
+        let (client, _) = service(
+            serde_json::to_vec(&beta).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        assert_eq!(
+            client.check(true).await.available_version.as_deref(),
+            Some("1.7.4")
+        );
+    }
+
     fn preview_fixture() -> Vec<u8> {
         include_bytes!("../../tests/fixtures/update-catalog/release-policy.json").to_vec()
     }

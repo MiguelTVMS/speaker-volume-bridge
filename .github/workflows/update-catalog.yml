@@ -1,25 +1,27 @@
 name: Propose update catalog
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      feed:
-        description: Versioned catalog to propose
-        type: choice
-        options: [v1, v2]
-        default: v1
-      availability_record:
-        description: Verified availability JSON matching the publication contract
+      release_tag:
         required: true
         type: string
-      expected_catalog_sha256:
-        description: SHA-256 of the reviewed catalog on develop
+    secrets:
+      CATALOG_APP_ID:
+        required: true
+      CATALOG_APP_PRIVATE_KEY:
+        required: true
+  schedule:
+    - cron: '43 3 * * *'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Already public release to independently verify and propose
         required: true
         type: string
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: update-catalog-writer
@@ -27,47 +29,39 @@ concurrency:
 
 jobs:
   propose:
-    if: github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'schedule'
+    runs-on: macos-latest
     steps:
+      # An installation token triggers normal pull_request CI. GITHUB_TOKEN
+      # deliberately cannot be used as a fallback for catalog proposals.
+      - uses: actions/create-github-app-token@v3
+        id: app
+        with:
+          app-id: ${{ secrets.CATALOG_APP_ID }}
+          private-key: ${{ secrets.CATALOG_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - uses: actions/checkout@v7
         with:
           ref: develop
           fetch-depth: 0
-      - name: Prepare availability record
-        env:
-          AVAILABILITY_RECORD: ${{ inputs.availability_record }}
-        run: printf '%s\n' "$AVAILABILITY_RECORD" > "$RUNNER_TEMP/availability.json"
-      - name: Verify public GitHub release metadata and compatible assets
-        run: python3 scripts/verify-catalog-availability.py "$RUNNER_TEMP/availability.json"
-      - name: Validate and prepare catalog
-        env:
-          CATALOG_FEED: ${{ inputs.feed }}
-          EXPECTED_CATALOG_SHA256: ${{ inputs.expected_catalog_sha256 }}
-        run: >-
-          python3 scripts/prepare-update-catalog.py
-          "$RUNNER_TEMP/availability.json"
-          --catalog "pages/updates/$CATALOG_FEED/catalog.json"
-          --expected-sha256 "$EXPECTED_CATALOG_SHA256"
-      - run: |
-          python3 scripts/validate-update-catalog.py
-          python3 scripts/validate-update-catalog.py pages/updates/v2/catalog.json
-      - name: Require a focused catalog change
+          token: ${{ steps.app.outputs.token }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install package inspection tools
         run: |
-          git diff --exit-code -- . ':!pages/updates/v1/catalog.json' ':!pages/updates/v2/catalog.json'
-          test -n "$(git diff -- pages/updates/)"
-      - name: Open catalog review PR
+          brew install sevenzip dpkg
+          python3 -m pip install pefile==2024.8.26
+      - name: Propose independently verified catalogs
         env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: chore/update-catalog-${{ github.run_id }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git switch -c "$BRANCH"
-          git add pages/updates/
-          git commit -m "chore: update verified release catalog"
-          git push origin "$BRANCH"
-          gh pr create --base develop --head "$BRANCH" \
-            --title "chore: update verified release catalog" \
-            --label enhancement --label documentation --label pages \
-            --body "Proposes an independently verified catalog change. Review and merge through the normal Gitflow process. This workflow does not deploy, publish, or modify a release."
+          if [ "${{ github.event_name }}" = schedule ]; then
+            python3 scripts/propose-release-catalog.py --reconcile >> "$GITHUB_STEP_SUMMARY"
+          else
+            python3 scripts/propose-release-catalog.py >> "$GITHUB_STEP_SUMMARY"
+          fi

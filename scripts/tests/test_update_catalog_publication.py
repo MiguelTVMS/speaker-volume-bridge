@@ -79,6 +79,9 @@ class PublicationTests(unittest.TestCase):
         changed_stamp = "2026-10-05T12:00:00Z"
         output = publication.prepare_catalog(raw, record_raw, changed_stamp)
         expected = dict(original, generatedAt=changed_stamp, entries=expected_entries)
+        if record["operation"] == "withdraw":
+            removed = next(e for e in original["entries"] if all(e[f] == record["target"][f] for f in publication.TARGET_FIELDS))
+            expected["withdrawals"] = [{**record["target"], "version": removed["version"]}]
         self.assertEqual(json.loads(output), expected)
         self.assertNotEqual(output, raw)
         self.assertEqual(

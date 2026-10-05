@@ -51,15 +51,10 @@ release branch, or a previously closed PR require manual review.
 
 See the repository Releases page for the current published version.
 
-Release creation does not update the site update catalog. The catalog starts
-empty and gains an edition/architecture entry only through the separately
-reviewed publication flow after that exact distribution is publicly available.
-Store availability is independent of direct downloads. Catalog preparation preserves
-additive top-level metadata and retained entry/action metadata on insertion,
-version update and withdrawal; repeated operations keep the original content.
-Validate any proposed
-catalog with `python3 scripts/validate-update-catalog.py`; see
-[ADR 0019](decisions/0019-distribution-aware-updates.md).
+Successful public release publication prepares verified catalog review changes.
+It does not imply catalog approval or live availability. Catalogs remain on develop
+and approved merges deliver them independently of GA website content or another
+application release. See [catalog operations](catalog-operations.md).
 
 The release workflow compiles one macOS ARM64 executable, Ubuntu AMD64 and
 ARM64 Debian packages, and Windows x64 and ARM64 executables per version. The protected macOS direct-download job downloads the exact
@@ -365,14 +360,13 @@ only. Combined schema v2 contains direct macOS/Windows and official Debian GA pl
 Alpha/Beta candidates; never Store entries. The consumer picks the highest compatible
 semantic version, not the newest publication timestamp.
 
-Use the reviewed catalog proposal workflow's `feed` choice (`v1` or `v2`) and the
-digest of that specific feed. V2 entries require classification and an exact release
-page action. The workflow fetches publisher evidence and validates both feeds,
-then opens a focused PR to develop. Review, merge and normal main/site promotion
-are separate gates. A GA intended for both policies needs independently reviewed
-entries in both feeds. Do not assume code merge or release creation deployed either
-catalog. Validate served bytes and cache headers for both after approved deployment.
-For withdrawal, v2 target records additionally name `classification`; preserve other
-classifications/distributions. Conflicts and stale digests require rereading develop.
-Issue #178 implements notification/page delivery only; phases 2 and 3 remain gated
-on acceptance and must reuse its policy before any future installer operation.
+Successful public Release publication invokes the shared catalog proposer. GA
+prepares both feeds; Alpha/Beta prepare only v2. Recovery uses Propose update
+catalog on develop with `release_tag`, without another application release.
+Verification inspects all required public packages and opens/reuses a focused
+review PR. Approval and required CI remain necessary. An approved develop merge
+then triggers independent composition with the retained GA website; only actual
+served-content verification establishes catalog-live. Store entries remain
+independently maintained. See [catalog operator instructions](catalog-operations.md)
+for App/environment/main-workflow prerequisites, safe bootstrap, unpublished
+backfill, withdrawals, concurrent-event recovery and live acceptance limits.

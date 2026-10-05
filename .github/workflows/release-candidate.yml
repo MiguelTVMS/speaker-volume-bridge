@@ -901,6 +901,15 @@ jobs:
               --generate-notes
           fi
 
+  propose-catalog:
+    name: Release published - prepare catalog review
+    if: ${{ !cancelled() && !inputs.draft_release && needs.publish-release.result == 'success' }}
+    needs: [prepare-version, publish-release]
+    uses: ./.github/workflows/update-catalog.yml
+    with:
+      release_tag: ${{ needs.prepare-version.outputs.tag }}
+    secrets: inherit
+
   propose-main-promotion:
     name: Open stable release PR into main
     if: ${{ !cancelled() && !inputs.draft_release && inputs.channel == 'GA' && needs.prepare-version.result == 'success' && needs.publish-release.result == 'success' }}

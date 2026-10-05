@@ -376,3 +376,18 @@ responses, notification claims and queued page actions revalidate that generatio
 Stable clients retain schema v1; opted-in clients select the newest compatible GA,
 Alpha or Beta from schema v2. Installed publisher classification is separate from
 user preference. Later installers must consume this same contract. See ADR 0019.
+
+## Release catalog delivery
+
+Release completion and recovery share package inspection and atomic pair
+preparation outside the runtime crates. GA advances both develop-owned feeds;
+Alpha/Beta advance only v2. Store entries, additive metadata and persistent
+withdrawal ledgers survive reconciliation. Focused PRs retain required review
+and CI; release-published, catalog-pending and catalog-live are separate states.
+
+One serialized Pages composer restores an immutable last-published GA website
+for catalog delivery or builds approved main GA content, then overlays current
+develop feeds. Non-catalog bytes are preserved and actual served bytes/cache
+refresh are verified. Durable Git snapshots replace reliance on expiring Actions
+artifacts; missing state fails closed. See [ADR 0020](decisions/0020-independent-catalog-delivery.md)
+and [operator instructions](catalog-operations.md) for bootstrap and prerequisites.

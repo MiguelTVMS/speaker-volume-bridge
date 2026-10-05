@@ -285,3 +285,10 @@ Selection requests a check even with automatic checks off, invalidates previous
 links immediately and rejects obsolete responses. Returning to Stable waits for
 its next strictly newer GA release. A missing preview source remains unavailable.
 Both policies preserve speaker settings and notification preferences. See ADR 0019.
+
+Catalog changes are prepared after public package verification, reviewed on
+develop and delivered independently of another application release. Catalog-only
+delivery preserves the last published GA website. A release may be public while
+its catalog PR is pending; only served-content verification establishes live
+availability. Store availability remains independently confirmed. See
+[catalog operations](catalog-operations.md).

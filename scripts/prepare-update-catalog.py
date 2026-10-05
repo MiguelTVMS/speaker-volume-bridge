@@ -129,6 +129,7 @@ def prepare_catalog(
     operation = record.get("operation")
     entries = list(catalog["entries"])
     changed = False
+    withdrawals = list(catalog.get("withdrawals", []))
 
     if operation == "upsert":
         _exact(record, {"operation", "verifiedAvailable", "source", "entry"}, set(), "record")
@@ -143,6 +144,8 @@ def prepare_catalog(
         fields = TARGET_FIELDS + (("classification",) if catalog["schemaVersion"] == 2 else ())
         target = tuple(entry[field] for field in fields)
         matching = [index for index, current in enumerate(entries) if tuple(current[field] for field in fields) == target]
+        if any(all(item.get(field) == entry[field] for field in fields) and _semver(entry["version"]) <= _semver(item["version"]) for item in withdrawals):
+            raise PublicationError("release cannot restore a withdrawn offer")
         if matching:
             index = matching[0]
             current = entries[index]
@@ -151,13 +154,15 @@ def prepare_catalog(
             elif _semver(entry["version"]) <= _semver(current["version"]):
                 raise PublicationError("catalog entries cannot be overwritten by the same or an older release")
             else:
-                entries[index] = entry
+                replacement = dict(current, **entry)
+                replacement["action"] = dict(current["action"], **entry["action"])
+                entries[index] = replacement
                 changed = True
         else:
             entries.append(entry)
             changed = True
     elif operation == "withdraw":
-        _exact(record, {"operation", "target", "reason"}, set(), "record")
+        _exact(record, {"operation", "target", "reason"}, {"version"}, "record")
         if not isinstance(record["reason"], str) or not record["reason"].strip():
             raise PublicationError("withdrawal reason must be non-empty")
         if not isinstance(record["target"], dict):
@@ -165,8 +170,17 @@ def prepare_catalog(
         fields = TARGET_FIELDS + (("classification",) if catalog["schemaVersion"] == 2 else ())
         _exact(record["target"], set(fields), set(), "target")
         target = tuple(record["target"][field] for field in fields)
+        for entry in entries:
+            if tuple(entry[field] for field in fields) == target:
+                withdrawals.append({**record["target"], "version": entry["version"]})
+        if "version" in record:
+            _semver(record["version"])
+            withdrawal = {**record["target"], "version": record["version"]}
+            if withdrawal not in withdrawals:
+                withdrawals.append(withdrawal)
+                changed = True
         retained = [entry for entry in entries if tuple(entry[field] for field in fields) != target]
-        changed = len(retained) != len(entries)
+        changed = changed or len(retained) != len(entries)
         entries = retained
     else:
         raise PublicationError("operation must be upsert or withdraw")
@@ -174,8 +188,11 @@ def prepare_catalog(
     if not changed:
         return catalog_raw
 
-    entries.sort(key=lambda entry: tuple(str(entry[field]) for field in TARGET_FIELDS))
-    output = dict(catalog, generatedAt=generated_at, entries=entries)
+    entries.sort(key=lambda entry: tuple(str(entry[field]) for field in TARGET_FIELDS) + (str(entry.get("classification", "")),))
+    latest_stamp = max((catalog["generatedAt"], generated_at), key=lambda stamp: datetime.fromisoformat(stamp.replace("Z", "+00:00")))
+    output = dict(catalog, generatedAt=latest_stamp, entries=entries)
+    if withdrawals:
+        output["withdrawals"] = withdrawals
     encoded = (json.dumps(output, indent=2, ensure_ascii=False) + "\n").encode()
     VALIDATOR.validate_catalog_bytes(encoded)
     return encoded

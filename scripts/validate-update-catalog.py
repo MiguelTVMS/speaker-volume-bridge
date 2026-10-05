@@ -154,6 +154,19 @@ def validate_catalog_bytes(raw: bytes) -> dict[str, object]:
         if target in targets:
             raise CatalogError(f"duplicate target: {'/'.join(target)}")
         targets.add(target)
+    withdrawals = catalog.get("withdrawals", [])
+    if not isinstance(withdrawals, list):
+        raise CatalogError("withdrawals must be an array")
+    for withdrawal in withdrawals:
+        if not isinstance(withdrawal, dict):
+            raise CatalogError("withdrawal must be an object")
+        fields = {"edition", "channel", "os", "architecture", "version"}
+        if preview:
+            fields.add("classification")
+        _require_keys(withdrawal, fields, "withdrawal")
+        candidate = dict(withdrawal, publishedAt=catalog["generatedAt"], releaseNotes="Withdrawn offer.",
+                         action={"type": "open_url", "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v" + str(withdrawal["version"])})
+        validate_catalog_bytes(json.dumps({"schemaVersion": catalog["schemaVersion"], "generatedAt": catalog["generatedAt"], "entries": [candidate]}).encode())
     return catalog
 
 

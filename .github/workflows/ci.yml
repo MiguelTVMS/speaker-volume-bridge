@@ -7,7 +7,6 @@ on:
     paths-ignore:
       - "**/*.md"
       - "README*"
-      - "docs/**"
       - ".vscode/**"
       - "AGENTS.md"
       - "LICENSE"
@@ -51,8 +50,14 @@ jobs:
               - 'scripts/tests/test_release_workflow.py'
               - 'scripts/tests/test_linux_installer.py'
               - 'scripts/tests/test_rebrand_identity.py'
+              - 'docs/legacy-identifiers.json'
               - 'scripts/tests/test_distribution_packaging.py'
               - 'scripts/prepare-update-catalog.py'
+              - 'scripts/release-catalog.py'
+              - 'scripts/propose-release-catalog.py'
+              - 'scripts/compose-catalog-site.py'
+              - 'scripts/bootstrap-catalog-site.py'
+              - 'scripts/tests/test_catalog_delivery.py'
               - 'scripts/verify-catalog-availability.py'
               - 'scripts/stamp-release-classification.py'
               - 'scripts/tests/test_update_catalog_publication.py'
@@ -69,6 +74,8 @@ jobs:
               - '.github/workflows/release-candidate.yml'
               - '.github/workflows/microsoft-store-package.yml'
               - '.github/workflows/update-catalog.yml'
+              - '.github/workflows/pages.yml'
+              - 'pages/updates/**'
               - 'scripts/build-msix*.ps1'
               - 'scripts/publish-msstore.ps1'
               - 'scripts/resolve-store-upload.py'
@@ -114,6 +121,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -p test_rebrand_identity.py
       - run: python3 -m unittest discover -s scripts/tests -p test_distribution_packaging.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog_publication.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_catalog_delivery.py
       - run: python3 -m unittest discover -s scripts/tests -p test_signing_wait.py
 
   rust:

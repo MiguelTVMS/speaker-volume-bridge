@@ -1,0 +1,55 @@
+# ADR 0020: Approved release catalogs and independent GA website composition
+
+Status: Accepted for implementation; live activation remains operator-gated.
+
+## Context
+
+Public releases can outpace empty or stale served catalogs. GA-only website
+promotion cannot deliver preview availability promptly. Existing clients embed
+versioned catalog URLs, and publishing develop website content would change the
+last GA site's version and guide unexpectedly.
+
+## Decision
+
+Keep v1 and v2 canonical on develop. Successful release completion and explicit
+recovery share independently fetched metadata and package inspection. Prepare all
+supported direct targets atomically: GA advances both feeds, Alpha/Beta only v2.
+Never infer installed architecture from a generic filename, substitute Store
+submission for public availability, or accept a partial package set. Preserve
+additive metadata and persistent withdrawal tombstones. Version precedence and
+latest-base validation prevent replay/ordering regressions.
+
+Use deterministic release branches and focused PRs. An installation token makes
+normal required PR CI run; approval and the normal merge path remain explicit.
+Serialize writers, preserve review history using normal pushes, and periodically
+reconcile public releases to recover superseded pending events. Catalog failure
+has its own pending state and cannot rebuild or republish the application.
+
+Route GA website and catalog-only delivery through one serialized Pages composer.
+Persist immutable content-addressed GA bundles and manifests on a dedicated
+hosting-state branch, outside expiring Actions artifacts. Bootstrap only from a
+successful main artifact matching actual served bytes. Restore the last verified
+GA bundle for catalog-only delivery; overlay current approved develop feeds for
+both modes. Validate latest inputs before deploying the complete composed artifact.
+Missing/corrupt snapshots, stale inputs and pending GA candidates fail closed.
+After delivery, compare actual served bytes for both feeds, ordinary/cache-refresh
+requests, cache policy and all non-catalog files. Mark live only after verification.
+
+Retain previous verified and pending candidate states for recovery. Pages can
+switch artifacts before post-deploy verification completes, so verification failure
+means unverified, not automatic rollback. Periodic reconciliation converges on
+current approved inputs; an old queued event cannot intentionally roll back a
+newer completed generation. Exact historical source, generated inputs and rendered
+bytes are necessary if immutable artifacts must be reconstructed.
+
+## Consequences
+
+No client URL/schema migration, Git branch preference or auto-installation is
+introduced. V1 consumers ignore additive metadata including withdrawal records.
+Catalog PR approval and hosting environment approval can delay live availability.
+A GitHub App, environment eligibility, durable-state write permission and approved
+activation of the composer on main are prerequisites. Git-backed snapshots have a
+bounded size and require backups. Missing original build inputs cannot be guessed.
+Review fixtures provide unpublished backfill; live feeds stay unchanged by this
+implementation PR. See [operator instructions](../catalog-operations.md) and
+[verification matrix](../verification-matrix.md).

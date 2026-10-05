@@ -142,3 +142,10 @@ never current. Unsupported policy or changed cache target is normalized conserva
 on restart without modifying speaker settings or notification/automatic preferences.
 Persisted notice history includes edition/OS/architecture/version but excludes policy
 so a GA reachable in both feeds notifies once, including after intervening previews. All network and platform work stays in the shell.
+
+## Independent publication follow-up (issue #183)
+
+[ADR 0020](0020-independent-catalog-delivery.md) replaces the manual one-target
+proposal/site-promotion flow with verified public package orchestration, approved
+develop PRs and independent catalog composition over retained GA website bytes.
+The consumer URLs, release policy and open-page-only actions remain unchanged.

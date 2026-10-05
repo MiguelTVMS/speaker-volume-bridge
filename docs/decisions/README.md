@@ -25,3 +25,5 @@ This folder stores decision records. Keep one record per important design choice
 
 - [0018-rebrand-and-legacy-protection](0018-rebrand-and-legacy-protection.md)
 - [0019-distribution-aware-updates](0019-distribution-aware-updates.md)
+
+- [0020-independent-catalog-delivery](0020-independent-catalog-delivery.md)

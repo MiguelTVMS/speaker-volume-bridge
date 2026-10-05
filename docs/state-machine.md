@@ -84,3 +84,9 @@ and increments the preference generation. Only a matching generation can commit 
 result or claim a notification/action. Stable uses v1; Prereleases uses the combined
 GA/Alpha/Beta v2 feed. Empty/missing feeds yield `unavailable`. Strict semantic
 precedence prevents downgrade or equal-version promotion offers.
+
+Release publication has separate operator states: release-published ->
+catalog-pending (verification/review/approval) -> catalog-live (both applicable
+served feeds verified). Failed preparation/delivery retains pending status and
+does not dispatch an application release. A pending GA website candidate blocks
+catalog-only restoration until explicitly verified or recovered (ADR 0020).

@@ -763,8 +763,8 @@ Catalog publication tests reject drafts, prereleases, missing assets, unverified
 or mismatched Store availability, invalid documents, stale concurrent inputs,
 same-version changes and downgrades. They also cover partial publication,
 idempotent repeats and target-specific withdrawal. The normal CI path filters run
-these tests, while the Pages job deploys the catalog in the same artifact as the
-site and then validates the public bytes plus the presence of cache-control.
+these tests. ADR 0020 now composes approved develop catalogs with retained GA
+site bytes independently, comparing actual served content and cache refresh.
 
 The controlled application fixture verifies that an older direct macOS build
 selects its exact edition/architecture entry, retains only the validated HTTPS
@@ -809,3 +809,71 @@ foreground and background from the same palette. Browser regression reproduces
 transparent option backgrounds before the fix, then verifies opaque backgrounds
 and at least 4.5:1 text contrast for Devices, Night schedule and Updates. Native
 platform popup rendering still needs installed-package verification.
+
+## Independent release catalogs (issue #183)
+
+`test_catalog_delivery.py` runs in normal release automation and website CI with
+filters covering the production scripts and both workflows. Shared production
+orchestration exercises GA to both feeds, Alpha/Beta only v2, complete public
+assets, payload version/architecture/provenance, draft/publication failures,
+Store preservation, additive metadata, withdrawals, idempotency, out-of-order
+classification events and latest-develop retry/reused normal-push proposals.
+The actual Debian reader runs against a locally constructed package in Linux CI.
+Actual macOS DMG and Windows executable readers require platform tools; both were
+also exercised locally against the public packages used for the review backfill.
+
+A real local-Git regression opens separate GA/Beta proposals, simulates an approved
+concurrent merge, and reruns the original production proposer. It checks retained
+review ancestry, normal pushes and both classifications in the refreshed PR.
+
+The unchanged release-success/develop-delivery/CI-wiring regressions fail three
+checks against the prior develop implementation and pass with the new workflows.
+Snapshot composition, integrity, pending-candidate restore blocking and complete
+artifact preservation run through production Python functions and CLI. Served
+verification tests inject ordinary/refresh HTTPS responses: valid-but-wrong feed
+content, stale cache, absent cache policy and network failure fail verification.
+`verified_backfill_uses_production_client_for_version_policy_and_target_selection`
+uses the real Rust UpdateService to consume the checked-in unpublished backfill:
+equal versions are up to date; older compatible versions get the correct action;
+wrong macOS architecture and absent Store entries remain unavailable; preview-only
+Beta selection and newer GA selection obey semantic precedence. Fixtures are
+review inputs outside the served catalog directories, not live publication.
+
+Required local checks: Rust formatting, workspace clippy with warnings denied,
+workspace tests, all Python release/catalog/website tests, workflow validation,
+website Markdown/sitemap generation checks, consent/external-link tests and a
+local rendered GA website build. Runtime loops, mocked transports and source
+workflow checks do not execute GitHub Actions/App authorization, Pages environment
+approval, actual protected merge, CDN rollout or native installed-client checks.
+
+Live acceptance, after separate authorization and prerequisites:
+
+1. Adopt the actual served GA artifact with Website bootstrap; compare every file,
+   including generated metadata and Markdown guide counterparts. Retain/backup the
+   immutable hosting snapshot. Confirm bootstrap deploys nothing.
+2. Reverify the backfill with Propose update catalog. Confirm only the applicable
+   catalog files change, required PR CI really runs for the App-created PR, and
+   required human approval remains pending. No live entries before that gate.
+3. After approval and merge, verify a develop catalog-only Pages deployment without
+   another app release or main promotion. Compare all non-catalog hashes and the
+   displayed GA version with the retained snapshot. Fetch both existing client
+   URLs normally and with refresh requested; require exact expected bytes.
+4. Exercise GA and Alpha/Beta public completion plus explicit recovery, duplicate
+   retries, older events, independently merged pending targets and a withdrawal.
+   Verify no Store invention, unsupported architecture, version rollback or replay
+   restoration. Keep tombstones through refreshed proposals.
+5. Interleave an approved main GA website deployment with preview catalog merges;
+   rerun a superseded event. Verify newest approved catalog bytes and intended GA
+   page bytes converge. Activate the same composer on main before this check.
+6. Remove access to a retained artifact in a controlled environment, inject stale
+   cache and a failed deploy, and check explicit pending/retry outcomes. For an
+   ambiguous GA deployment, verify-candidate or GA recovery must resolve state
+   before catalog-only delivery. Do not infer automatic rollback after Pages has
+   accepted a new artifact.
+7. On installed macOS ARM64, Windows x64/ARM64 and Debian x64/ARM64, use controlled
+   equal-version and older-version packages: check up-to-date, update offer, exact
+   architecture/edition, policy separation, action page and retry after delivery.
+   Native notifications and installed provenance remain separate acceptance.
+
+Hosting/App/main-workflow activation and live/native acceptance have not been
+performed by this implementation. See [operator prerequisites and recovery](catalog-operations.md).

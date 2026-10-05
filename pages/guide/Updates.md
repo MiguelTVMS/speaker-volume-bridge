@@ -69,3 +69,18 @@ next newer stable release. Equal-version GA promotion does not reinstall a previ
 Offers always match your distribution and application architecture. Preview offers
 open that specific release's page. Empty or missing preview information means
 unavailable, not up to date. A release offered through both policies notifies once.
+
+## When a public release becomes available in Updates
+
+A public release first goes through package verification and a catalog review.
+GA releases update both feeds; Alpha/Beta update the Prereleases feed. Catalog
+approval and delivery can therefore follow application publication. A public
+release page alone does not prove that its offer is live in Updates.
+
+Approved catalogs are delivered independently of another application release.
+The website keeps the last published GA pages and displayed website version
+while the feeds change. Store availability is confirmed separately. Older Stable
+clients keep their existing feed address. Temporary delivery failures leave the
+app's last validated offer available; **Check for updates** can retry after the
+catalog is verified live. The app continues to open an update page and does not
+download or install an update automatically.

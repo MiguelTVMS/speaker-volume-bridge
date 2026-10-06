@@ -193,3 +193,9 @@ scripts or record a transformed HTML response as the original GA build. Resolve
 the transformation through approved hosting configuration, or obtain an explicit
 reviewed change to the verification contract before adopting state. A failed
 comparison leaves bootstrap and catalog delivery outstanding.
+
+Workflow-only main handoffs receive a dedicated promotion validation check. It
+requires the promoted definitions to match approved develop and runs the approved
+production catalog regression suite. The handoff stays draft until its develop
+dependency is merged and this check passes. It never approves or merges the PR.
+Ordinary GA content promotions retain their existing validation route.

@@ -436,6 +436,15 @@ class WorkflowRegressionTests(unittest.TestCase):
         self.assertLess(workflow.index('Reject stale composition'), workflow.index('uses: actions/deploy-pages@'))
         self.assertNotIn('source: ./tools/pages', workflow)
 
+    def test_workflow_promotion_requires_approved_definitions_and_production_tests(self):
+        workflow = (ROOT / '.github/workflows/catalog-promotion-validation.yml').read_text()
+        self.assertIn('branches: [main]', workflow)
+        self.assertIn('git diff --exit-code origin/develop HEAD', workflow)
+        self.assertIn('test_*catalog*.py', workflow)
+        self.assertIn('git worktree add --detach', workflow)
+        self.assertNotIn('gh pr merge', workflow)
+        self.assertNotIn('pull_request_target:', workflow)
+
     def test_normal_ci_runs_shared_orchestration_regressions(self):
         for name in ('ci.yml', 'website-validation.yml'):
             text = (ROOT / '.github/workflows' / name).read_text()

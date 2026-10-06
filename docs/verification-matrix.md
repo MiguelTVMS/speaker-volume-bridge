@@ -906,3 +906,9 @@ cache-refresh comparisons matched 40 files, including both catalogs; 26 HTML
 files differed because the hosting edge injected a script loader and rewrote
 script tags. No snapshot was adopted or deployed. Resolve that approved hosting
 prerequisite and repeat all-file byte verification before bootstrap acceptance.
+
+Main PRs are excluded by the ordinary release-validation workflows. The targeted
+catalog promotion check now verifies workflow-only handoffs against approved
+develop definitions and runs that branch's production catalog regression suite.
+The draft promotion is expected to wait for its develop dependency; local lint
+alone is insufficient to approve the handoff.

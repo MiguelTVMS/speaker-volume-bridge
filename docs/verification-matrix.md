@@ -926,3 +926,10 @@ that classification routes it to the approval guard, which rejects it. The prior
 `.yml`-only classifier fails this test. The trigger watches the whole workflow
 directory, and NUL-delimited Git paths prevent quoted filenames from evading
 classification or the allowlist.
+
+Mixed-content main PRs also validate every changed workflow definition and run
+the approved catalog suite. The production-shell regression combines a workflow
+change with an unrelated documentation change: the prior gate fails the test by
+skipping approval checks; the fix rejects unapproved definitions and permits the
+path only after they match approved develop. Changed workflow paths are compared
+literally, and the focused workflow-only handoff retains its stricter allowlist.

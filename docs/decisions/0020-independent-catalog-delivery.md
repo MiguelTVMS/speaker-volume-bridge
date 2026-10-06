@@ -84,3 +84,9 @@ workflow-shell regression reproduces that sequence and requires GA recovery on
 the following workflow-only push. The promotion gate also rejects workflow files
 outside its reviewed allowlist before comparing approved definitions; its actual
 shell guard is tested with an additional unreviewed workflow.
+
+Workflow approval validation is independent of whether other content accompanies
+the definitions. Any changed workflow in a main PR must match approved develop,
+and the approved production catalog suite runs. The workflow-only classification
+retains its focused allowlist; ordinary GA content keeps its existing content
+validation route without exempting included workflows from review checks.

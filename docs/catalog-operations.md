@@ -202,7 +202,9 @@ rejects additional workflows outside the reviewed handoff, requires every
 promoted definition to match approved develop, and runs the approved
 production catalog regression suite. The handoff stays draft until its develop
 dependency is merged and this check passes. It never approves or merges the PR.
-Ordinary GA content promotions retain their existing validation route.
+Ordinary GA content promotions retain their existing content-validation route,
+but any included workflow definitions are checked against approved develop.
+Adding another source or documentation file cannot skip this approval check.
 
 Promotion validation recognizes both `.yml` and `.yaml` workflows, including a
 handoff that adds only an unreviewed workflow. It watches the workflow directory

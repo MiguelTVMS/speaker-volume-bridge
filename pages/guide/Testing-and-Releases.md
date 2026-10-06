@@ -97,3 +97,7 @@ Initial activation requires an exact verified copy of the served GA website.
 Missing retained artifacts or hosting transformations that change HTML bytes
 leave activation pending until reviewed recovery and full comparison succeed.
 Catalog delivery and installed-app verification are separate acceptance steps.
+
+Hosting workflow definitions require validation against approved develop even
+when a promotion includes other content. Adding documentation or application
+files cannot exempt those definitions from their approval checks.

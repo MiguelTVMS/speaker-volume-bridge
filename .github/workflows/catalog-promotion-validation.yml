@@ -27,31 +27,36 @@ jobs:
           import os
           from pathlib import Path
           paths = Path(os.environ['RUNNER_TEMP'], 'promotion-files').read_bytes().split(b'\0')[:-1]
-          only_workflows = bool(paths) and all(
-              path.startswith(b'.github/workflows/') and path.endswith((b'.yml', b'.yaml'))
-              for path in paths
-          )
+          workflows = [path for path in paths if
+              path.startswith(b'.github/workflows/') and path.endswith((b'.yml', b'.yaml'))]
+          only_workflows = bool(paths) and len(workflows) == len(paths)
+          Path(os.environ['RUNNER_TEMP'], 'changed-workflows').write_bytes(b'\0'.join(workflows) + (b'\0' if workflows else b''))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('workflow_only=' + str(only_workflows).lower() + '\n')
+              output.write('has_workflows=' + str(bool(workflows)).lower() + '\n')
           if not only_workflows:
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
                   summary.write('GA content promotion retains its existing validation route.\n')
           PY_SCOPE
       - name: Require approved develop workflow definitions
-        if: steps.scope.outputs.workflow_only == 'true'
+        if: steps.scope.outputs.has_workflows == 'true'
+        env:
+          WORKFLOW_ONLY: ${{ steps.scope.outputs.workflow_only }}
         run: |
-          while IFS= read -r -d '' path; do
-            case "$path" in
-              .github/workflows/pages.yml|.github/workflows/update-catalog.yml|.github/workflows/catalog-promotion-validation.yml) ;;
-              *) echo 'Unexpected workflow outside the reviewed handoff scope.' >&2; exit 1 ;;
-            esac
-          done < "$RUNNER_TEMP/promotion-files"
+          if [ "$WORKFLOW_ONLY" = true ]; then
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                .github/workflows/pages.yml|.github/workflows/update-catalog.yml|.github/workflows/catalog-promotion-validation.yml) ;;
+                *) echo 'Unexpected workflow outside the reviewed handoff scope.' >&2; exit 1 ;;
+              esac
+            done < "$RUNNER_TEMP/promotion-files"
+          fi
           git fetch origin develop
-          git diff --exit-code origin/develop HEAD -- \
-            .github/workflows/pages.yml .github/workflows/update-catalog.yml \
-            .github/workflows/catalog-promotion-validation.yml
+          while IFS= read -r -d '' path; do
+            git --literal-pathspecs diff --exit-code origin/develop HEAD -- "$path"
+          done < "$RUNNER_TEMP/changed-workflows"
           # These tools are from approved develop, never unreviewed promotion code.
           git worktree add --detach "$RUNNER_TEMP/approved-tools" origin/develop
       - name: Run approved production catalog regression suite
-        if: steps.scope.outputs.workflow_only == 'true'
+        if: steps.scope.outputs.has_workflows == 'true'
         run: python3 -m unittest discover -s "$RUNNER_TEMP/approved-tools/scripts/tests" -p 'test_*catalog*.py'

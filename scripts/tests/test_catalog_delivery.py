@@ -337,7 +337,7 @@ class HostingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             paths = root / 'promotion-files'
-            env = dict(os.environ, RUNNER_TEMP=str(root))
+            env = dict(os.environ, RUNNER_TEMP=str(root), WORKFLOW_ONLY='true')
             paths.write_bytes(b'.github/workflows/pages.yml\0.github/workflows/update-catalog.yml\0')
             good = subprocess.run(['bash', '-e', '-c', allowlist], env=env, capture_output=True)
             self.assertEqual(good.returncode, 0)
@@ -365,7 +365,7 @@ class HostingTests(unittest.TestCase):
             git('commit', '-qm', 'Additional workflow')
             head = git('rev-parse', 'HEAD')
             output = root / 'output'
-            env = dict(os.environ, BASE=base, HEAD=head, RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(output),
+            env = dict(os.environ, BASE=base, HEAD=head, RUNNER_TEMP=str(root), WORKFLOW_ONLY='true', GITHUB_OUTPUT=str(output),
                        GITHUB_STEP_SUMMARY=str(root / 'summary'))
             scope = workflow_script('catalog-promotion-validation.yml', 'Identify workflow-only handoff')
             subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, check=True, capture_output=True)
@@ -375,6 +375,56 @@ class HostingTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
         workflow = (ROOT / '.github/workflows/catalog-promotion-validation.yml').read_text()
         self.assertIn("- '.github/workflows/**'", workflow)
+
+    def test_mixed_content_cannot_skip_workflow_definition_validation(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], text=True).strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            workflows = root / '.github/workflows'
+            workflows.mkdir(parents=True)
+            (workflows / 'pages.yml').write_text('approved')
+            git('add', '.')
+            git('commit', '-qm', 'Approved')
+            base = git('rev-parse', 'HEAD')
+            git('branch', 'develop', base)
+            git('remote', 'add', 'origin', str(root))
+            (workflows / 'pages.yml').write_text('unreviewed')
+            (root / 'README.md').write_text('unrelated content')
+            git('add', '.')
+            git('commit', '-qm', 'Mixed changes')
+            output = root / 'output'
+            env = dict(os.environ, BASE=base, HEAD=git('rev-parse', 'HEAD'), RUNNER_TEMP=str(root),
+                       GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(root / 'summary'))
+            scope = workflow_script('catalog-promotion-validation.yml', 'Identify workflow-only handoff')
+            subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, check=True, capture_output=True)
+            self.assertIn('workflow_only=false', output.read_text())
+            self.assertIn('has_workflows=true', output.read_text())
+            env['WORKFLOW_ONLY'] = 'false'
+            guard = workflow_script('catalog-promotion-validation.yml', 'Require approved develop workflow definitions')
+            result = subprocess.run(['bash', '-e', '-c', guard], cwd=root, env=env, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('approved-tools', result.stdout.decode())
+            # Git must compare filename bytes literally, rather than as a pathspec glob.
+            (workflows / 'pages.yml').write_text('approved')
+            (workflows / 'unreviewed[ab].yaml').write_text('unreviewed')
+            git('add', '.github/workflows')
+            git('commit', '-qm', 'Patterned workflow')
+            env['HEAD'] = git('rev-parse', 'HEAD')
+            subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, check=True, capture_output=True)
+            patterned = subprocess.run(['bash', '-e', '-c', guard], cwd=root, env=env, capture_output=True)
+            self.assertNotEqual(patterned.returncode, 0)
+            # Mixed GA content can proceed once its workflow definitions are approved.
+            git('branch', '-f', 'develop', git('rev-parse', 'HEAD'))
+            approved = subprocess.run(['bash', '-e', '-c', guard], cwd=root, env=env, capture_output=True)
+            self.assertEqual(approved.returncode, 0, approved.stderr.decode())
+            self.assertTrue((root / 'approved-tools').is_dir())
+        workflow = (ROOT / '.github/workflows/catalog-promotion-validation.yml').read_text()
+        self.assertEqual(workflow.count("if: steps.scope.outputs.has_workflows == 'true'"), 2)
 
     def setup_site(self, directory):
         root = Path(directory)
@@ -533,7 +583,7 @@ class WorkflowRegressionTests(unittest.TestCase):
     def test_workflow_promotion_requires_approved_definitions_and_production_tests(self):
         workflow = (ROOT / '.github/workflows/catalog-promotion-validation.yml').read_text()
         self.assertIn('branches: [main]', workflow)
-        self.assertIn('git diff --exit-code origin/develop HEAD', workflow)
+        self.assertIn('git --literal-pathspecs diff --exit-code origin/develop HEAD', workflow)
         self.assertIn('test_*catalog*.py', workflow)
         self.assertIn('git worktree add --detach', workflow)
         self.assertNotIn('gh pr merge', workflow)

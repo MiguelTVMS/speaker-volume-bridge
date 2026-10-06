@@ -338,12 +338,43 @@ class HostingTests(unittest.TestCase):
             root = Path(directory)
             paths = root / 'promotion-files'
             env = dict(os.environ, RUNNER_TEMP=str(root))
-            paths.write_text('.github/workflows/pages.yml\n.github/workflows/update-catalog.yml\n')
+            paths.write_bytes(b'.github/workflows/pages.yml\0.github/workflows/update-catalog.yml\0')
             good = subprocess.run(['bash', '-e', '-c', allowlist], env=env, capture_output=True)
             self.assertEqual(good.returncode, 0)
-            paths.write_text(paths.read_text() + '.github/workflows/unreviewed.yml\n')
+            paths.write_bytes(paths.read_bytes() + b'.github/workflows/unreviewed.yml\0')
             bad = subprocess.run(['bash', '-e', '-c', allowlist], env=env, capture_output=True)
             self.assertNotEqual(bad.returncode, 0)
+
+    def test_yaml_only_handoff_is_classified_and_rejected(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], text=True).strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            workflows = root / '.github/workflows'
+            workflows.mkdir(parents=True)
+            (workflows / 'pages.yml').write_text('approved')
+            git('add', '.')
+            git('commit', '-qm', 'Approved workflow')
+            base = git('rev-parse', 'HEAD')
+            (workflows / 'unreviewed.yaml').write_text('unreviewed')
+            git('add', '.')
+            git('commit', '-qm', 'Additional workflow')
+            head = git('rev-parse', 'HEAD')
+            output = root / 'output'
+            env = dict(os.environ, BASE=base, HEAD=head, RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(output),
+                       GITHUB_STEP_SUMMARY=str(root / 'summary'))
+            scope = workflow_script('catalog-promotion-validation.yml', 'Identify workflow-only handoff')
+            subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, check=True, capture_output=True)
+            self.assertIn('workflow_only=true', output.read_text())
+            guard = workflow_script('catalog-promotion-validation.yml', 'Require approved develop workflow definitions').split('git fetch origin develop', 1)[0]
+            result = subprocess.run(['bash', '-e', '-c', guard], cwd=root, env=env, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+        workflow = (ROOT / '.github/workflows/catalog-promotion-validation.yml').read_text()
+        self.assertIn("- '.github/workflows/**'", workflow)
 
     def setup_site(self, directory):
         root = Path(directory)

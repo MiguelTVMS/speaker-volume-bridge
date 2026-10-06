@@ -4,9 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - '.github/workflows/pages.yml'
-      - '.github/workflows/update-catalog.yml'
-      - '.github/workflows/catalog-promotion-validation.yml'
+      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -24,17 +22,25 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          git diff --name-only "$BASE" "$HEAD" > "$RUNNER_TEMP/promotion-files"
-          if grep -qv '^\.github/workflows/.*\.yml$' "$RUNNER_TEMP/promotion-files"; then
-            echo 'workflow_only=false' >> "$GITHUB_OUTPUT"
-            echo 'GA content promotion retains its existing validation route.' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'workflow_only=true' >> "$GITHUB_OUTPUT"
-          fi
+          git diff --name-only -z "$BASE" "$HEAD" > "$RUNNER_TEMP/promotion-files"
+          python3 - <<'PY_SCOPE'
+          import os
+          from pathlib import Path
+          paths = Path(os.environ['RUNNER_TEMP'], 'promotion-files').read_bytes().split(b'\0')[:-1]
+          only_workflows = bool(paths) and all(
+              path.startswith(b'.github/workflows/') and path.endswith((b'.yml', b'.yaml'))
+              for path in paths
+          )
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('workflow_only=' + str(only_workflows).lower() + '\n')
+          if not only_workflows:
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('GA content promotion retains its existing validation route.\n')
+          PY_SCOPE
       - name: Require approved develop workflow definitions
         if: steps.scope.outputs.workflow_only == 'true'
         run: |
-          while IFS= read -r path; do
+          while IFS= read -r -d '' path; do
             case "$path" in
               .github/workflows/pages.yml|.github/workflows/update-catalog.yml|.github/workflows/catalog-promotion-validation.yml) ;;
               *) echo 'Unexpected workflow outside the reviewed handoff scope.' >&2; exit 1 ;;

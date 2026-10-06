@@ -919,3 +919,10 @@ the reconciliation step must select GA recovery using the published reference.
 The other submits an extra workflow to the promotion allowlist guard and requires
 rejection. Reverting either fix fails its regression. Neither test claims a live
 Pages deployment or supplies administrator authorization.
+
+The promotion classifier also covers both recognized workflow extensions. A
+production-shell regression adds only an unreviewed `.yaml` workflow and verifies
+that classification routes it to the approval guard, which rejects it. The prior
+`.yml`-only classifier fails this test. The trigger watches the whole workflow
+directory, and NUL-delimited Git paths prevent quoted filenames from evading
+classification or the allowlist.

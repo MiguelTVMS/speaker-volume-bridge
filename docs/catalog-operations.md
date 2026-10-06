@@ -203,3 +203,8 @@ promoted definition to match approved develop, and runs the approved
 production catalog regression suite. The handoff stays draft until its develop
 dependency is merged and this check passes. It never approves or merges the PR.
 Ordinary GA content promotions retain their existing validation route.
+
+Promotion validation recognizes both `.yml` and `.yaml` workflows, including a
+handoff that adds only an unreviewed workflow. It watches the workflow directory
+and rejects definitions outside the reviewed scope instead of treating another
+workflow extension as a GA content change.

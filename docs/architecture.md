@@ -396,3 +396,9 @@ Catalog automation first checks App credential availability on a lightweight
 runner. Missing credentials produce an explicit catalog-pending outcome while
 preserving successful application publication; proposal execution requires both
 credentials. Token and PR failures remain actionable automation errors (ADR 0020).
+
+The update manager injects its timer for lifecycle regression coverage while
+production retains the same 30-second delay and retry sequence. Tests enter the
+shared startup ownership path and verify duplicate-start prevention and shutdown
+cancellation, including a pending catalog transport. See the phase-one operational
+readiness audit in the verification matrix.

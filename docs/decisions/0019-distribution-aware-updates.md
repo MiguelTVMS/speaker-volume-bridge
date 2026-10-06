@@ -149,3 +149,11 @@ so a GA reachable in both feeds notifies once, including after intervening previ
 proposal/site-promotion flow with verified public package orchestration, approved
 develop PRs and independent catalog composition over retained GA website bytes.
 The consumer URLs, release policy and open-page-only actions remain unchanged.
+
+### Production scheduler verification
+
+The application manager owns one background task. Only the timer is injected for
+lifecycle tests; request, delivery, task ownership and cancellation use production
+orchestration. Delayed startup, bounded retry waits, repeated start and shutdown
+are checked through this path, including cancellation of an in-flight transport.
+These tests do not establish installed-package or OS notification acceptance.

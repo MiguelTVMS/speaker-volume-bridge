@@ -80,11 +80,71 @@ Operator cases:
   or create Store availability. Keep unavailable or unverified Store targets
   outstanding; a submission or approval cannot substitute for public availability.
 - **Withdrawal:** the manual release-tag dispatch has no withdrawal input. Handle
-  withdrawn packages through a separately reviewed catalog change using the
-  documented withdrawal tooling; never restore an older release as a downgrade.
-- **Failure:** leave the served catalogs unchanged, correct the failed prerequisite
-  or verification, and retry the proposal or delivery workflow as appropriate.
-  A public application release with pending catalog delivery remains supported.
+  withdrawn packages through the [reviewed withdrawal procedure](#reviewed-withdrawal)
+  below; never restore an older release as a downgrade.
+- **Before deployment:** proposal, build or pre-deployment failures leave the
+  previous served site in place. Correct the failed prerequisite and retry.
+- **After deployment starts:** a deployment error or failed served-byte check is
+  an unverified outcome. Pages may already serve the candidate catalogs; do not
+  assume rollback or report catalog delivery as verified. Retain the previous and
+  candidate snapshots and follow [delivery recovery](catalog-operations.md#independent-catalog-delivery).
+  For ambiguous GA delivery, use Website `verify-candidate` without deployment,
+  or the documented main recovery run. Retry catalog-only delivery on develop
+  when appropriate. Never clear pending state to bypass verification. A public
+  application release with pending catalog delivery remains supported.
+
+### Reviewed withdrawal
+
+Use a focused branch from current approved `develop`. Inspect the current catalogs
+and review the exact edition, channel, OS, application architecture and version
+cutoff before preparing a change. The following records illustrate one Windows
+GA target; replace the target and version with the reviewed values, and supply a
+non-empty withdrawal reason. Do not run the example unchanged unless it identifies
+the actual withdrawn offer. Keep the record files outside the committed catalog
+change.
+
+Save the v1 record as `withdrawal-v1.json`:
+
+```json
+{
+  "operation": "withdraw",
+  "target": {
+    "edition": "direct_windows",
+    "channel": "stable",
+    "os": "windows",
+    "architecture": "x86_64"
+  },
+  "version": "1.8.0",
+  "reason": "Public package withdrawn after review"
+}
+```
+
+Save the v2 record as `withdrawal-v2.json` using the same fields plus
+`"classification": "GA"` inside `target`. GA uses `channel: stable` in both feeds.
+For Alpha or Beta, use only the v2 record, set the matching classification and
+`channel: prereleases`, and do not modify v1. Repeat for each affected architecture
+and edition. An explicit reviewed version cutoff records withdrawal intent even
+if that offer is absent; without an existing entry or cutoff the tool cannot
+infer it. The withdrawal ledger prevents equal or older offers from being restored.
+
+Capture both digests when reviewing the catalogs, then retain those values through
+preparation so a changed catalog fails closed:
+
+```sh
+v1_expected=$(python3 -c 'import hashlib; from pathlib import Path; print(hashlib.sha256(Path("pages/updates/v1/catalog.json").read_bytes()).hexdigest())')
+v2_expected=$(python3 -c 'import hashlib; from pathlib import Path; print(hashlib.sha256(Path("pages/updates/v2/catalog.json").read_bytes()).hexdigest())')
+python3 scripts/prepare-update-catalog.py withdrawal-v1.json --catalog pages/updates/v1/catalog.json --expected-sha256 "$v1_expected"
+python3 scripts/prepare-update-catalog.py withdrawal-v2.json --catalog pages/updates/v2/catalog.json --expected-sha256 "$v2_expected"
+python3 scripts/validate-update-catalog.py pages/updates/v1/catalog.json
+python3 scripts/validate-update-catalog.py pages/updates/v2/catalog.json
+git diff -- pages/updates/v1/catalog.json pages/updates/v2/catalog.json
+```
+
+For a preview-only withdrawal, omit the v1 preparation command. Review the removed
+entries and retained tombstones, commit only the intended catalogs, and open a
+normal PR to `develop`. Require CI and human approval. After approved merge and
+delivery, verify both served feeds and unchanged non-catalog website files.
+Neither local preparation nor a passing validator establishes deployed withdrawal.
 
 ## Content maintenance
 

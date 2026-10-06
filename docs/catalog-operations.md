@@ -250,3 +250,7 @@ existing release route before enabling a global rule; do not silently break it.
 If strict checks cannot be applied compatibly, keep workflow activation blocked
 until an approved alternative guarantees fresh validation at merge. Never treat
 a loose prior success as equivalent protection.
+
+Workflow change inventory disables rename detection and retains NUL-delimited
+paths. Moving a workflow outside its discovery directory still records its
+removal and requires comparison against the approved develop definition.

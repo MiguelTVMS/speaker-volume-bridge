@@ -1020,3 +1020,8 @@ strict up-to-date required checks: verify the old success cannot authorize merge
 after main advances, update the handoff, and require fresh passing validation.
 That administrator protection and compatibility with pinned release promotions
 remain outstanding; this PR does not configure branch policy.
+
+Workflow move regression executes the production scope and approval steps after
+moving an unchanged workflow outside its directory. The previous classifier
+misses the removal; the fixed inventory identifies it and rejects the unapproved
+deletion. Rename detection is disabled so both sides participate in validation.

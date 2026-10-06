@@ -564,6 +564,39 @@ class HostingTests(unittest.TestCase):
             self.assertIn('has_workflows=false', (root / 'output').read_text())
             self.assertEqual(git('rev-parse', 'release'), head)
 
+    def test_workflow_rename_outside_directory_still_requires_approval(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], text=True).strip()
+            git('init', '-q', '-b', 'fixture')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            workflows = root / '.github/workflows'
+            workflows.mkdir(parents=True)
+            (workflows / 'pages.yml').write_text('approved workflow contents')
+            git('add', '.')
+            git('commit', '-qm', 'Approved workflow')
+            base = git('rev-parse', 'HEAD')
+            git('branch', 'main', base)
+            git('branch', 'develop', base)
+            git('remote', 'add', 'origin', str(root))
+            git('mv', '.github/workflows/pages.yml', 'disabled-workflow.yml')
+            git('commit', '-qm', 'Move workflow outside discovery')
+            head = git('rev-parse', 'HEAD')
+            git('update-ref', 'refs/pull/7/head', head)
+            env = dict(os.environ, BASE=base, HEAD=head, PR_NUMBER='7', RUNNER_TEMP=str(root),
+                       GITHUB_OUTPUT=str(root / 'output'), GITHUB_STEP_SUMMARY=str(root / 'summary'), WORKFLOW_ONLY='false')
+            scope = workflow_script('catalog-promotion-validation.yml', 'Identify workflow-only handoff')
+            subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, check=True, capture_output=True)
+            self.assertIn('has_workflows=true', (root / 'output').read_text())
+            self.assertIn(b'.github/workflows/pages.yml\0', (root / 'changed-workflows').read_bytes())
+            guard = workflow_script('catalog-promotion-validation.yml', 'Require approved develop workflow definitions')
+            rejected = subprocess.run(['bash', '-e', '-c', guard], cwd=root, env=env, capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse((root / 'approved-tools').exists())
+
     def setup_site(self, directory):
         root = Path(directory)
         website, catalogs = root / 'website', root / 'catalogs'

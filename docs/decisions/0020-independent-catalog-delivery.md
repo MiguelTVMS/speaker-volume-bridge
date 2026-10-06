@@ -53,3 +53,12 @@ bounded size and require backups. Missing original build inputs cannot be guesse
 Review fixtures provide unpublished backfill; live feeds stay unchanged by this
 implementation PR. See [operator instructions](../catalog-operations.md) and
 [verification matrix](../verification-matrix.md).
+
+## Credential preflight recovery
+
+Reusable-workflow secrets are optional at GitHub evaluation time so missing
+setup cannot invalidate an already published release. An explicit preflight
+checks both credentials before scheduling the proposal runner; missing values
+produce catalog-pending warnings and retry instructions, never a success claim
+for catalog creation or delivery. No GITHUB_TOKEN fallback is introduced.
+Present but invalid credentials still fail token creation.

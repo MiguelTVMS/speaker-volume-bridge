@@ -344,6 +344,32 @@ class HostingTests(unittest.TestCase):
 
 
 class WorkflowRegressionTests(unittest.TestCase):
+    def test_missing_catalog_credentials_are_reported_before_scheduling_proposal(self):
+        import os
+        text = (ROOT / '.github/workflows/update-catalog.yml').read_text()
+        self.assertIn('  credentials:', text)
+        contract = text.split('    secrets:', 1)[1].split('  schedule:', 1)[0]
+        self.assertNotIn('required: true', contract)
+        job = text.split('  credentials:', 1)[1].split('  propose:', 1)[0]
+        script = job.split('        run: |\n', 1)[1]
+        script = '\n'.join(line[10:] for line in script.splitlines())
+        for app_id, private_key in [('', ''), ('test-app', ''), ('', 'test-private-key'), ('test-app', 'test-private-key')]:
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / 'output'
+                summary = Path(directory) / 'summary'
+                result = subprocess.run(['bash', '-eu', '-c', script], capture_output=True, text=True,
+                    env=dict(os.environ, CATALOG_APP_ID=app_id, CATALOG_APP_PRIVATE_KEY=private_key,
+                             GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary)))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                configured = bool(app_id and private_key)
+                self.assertIn('configured=' + str(configured).lower(), output.read_text())
+                if not configured:
+                    self.assertIn('catalog-pending', summary.read_text())
+                self.assertNotIn('test-private-key', result.stdout + result.stderr)
+        proposal = text.split('  propose:', 1)[1]
+        self.assertIn('needs: credentials', proposal)
+        self.assertIn("needs.credentials.outputs.configured == 'true'", proposal)
+
     def test_release_success_invokes_shared_proposer_independent_of_ga_and_store(self):
         workflow = (ROOT / '.github/workflows/release-candidate.yml').read_text()
         self.assertIn('  propose-catalog:', workflow)

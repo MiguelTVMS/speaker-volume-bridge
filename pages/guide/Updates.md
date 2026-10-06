@@ -84,3 +84,7 @@ clients keep their existing feed address. Temporary delivery failures leave the
 app's last validated offer available; **Check for updates** can retry after the
 catalog is verified live. The app continues to open an update page and does not
 download or install an update automatically.
+
+If catalog automation is awaiting configuration, the release remains public while
+its catalog update stays pending. This does not make an unverified offer available
+in the app; the operator can retry catalog preparation for the existing release.

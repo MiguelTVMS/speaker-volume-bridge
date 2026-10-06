@@ -46,7 +46,13 @@ reports catalog-pending and can be retried. Scheduled workflows require the new
 workflow definitions on the default branch; until then use explicit recovery.
 An installation token is required for proposal pushes/PR creation so GitHub
 actually triggers ordinary pull-request validation. No GITHUB_TOKEN fallback is
-permitted. A failed App configuration therefore blocks proposals safely.
+permitted. Missing credentials are accepted at the reusable-workflow boundary and checked
+by an Ubuntu preflight. It emits an explicit catalog-pending warning and recovery
+instructions, then skips the proposal runner. Application publication therefore
+remains successful, without claiming that a catalog PR exists or catalogs are live.
+This does not supply credentials or bypass review; configure the dedicated App
+and retry Propose update catalog for the public tag. Present but invalid
+credentials still fail token creation and require correction.
 
 ## Hosting prerequisites
 

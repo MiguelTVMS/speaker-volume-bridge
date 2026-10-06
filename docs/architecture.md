@@ -391,3 +391,8 @@ develop feeds. Non-catalog bytes are preserved and actual served bytes/cache
 refresh are verified. Durable Git snapshots replace reliance on expiring Actions
 artifacts; missing state fails closed. See [ADR 0020](decisions/0020-independent-catalog-delivery.md)
 and [operator instructions](catalog-operations.md) for bootstrap and prerequisites.
+
+Catalog automation first checks App credential availability on a lightweight
+runner. Missing credentials produce an explicit catalog-pending outcome while
+preserving successful application publication; proposal execution requires both
+credentials. Token and PR failures remain actionable automation errors (ADR 0020).

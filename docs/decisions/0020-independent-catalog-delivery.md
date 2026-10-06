@@ -62,3 +62,47 @@ checks both credentials before scheduling the proposal runner; missing values
 produce catalog-pending warnings and retry instructions, never a success claim
 for catalog creation or delivery. No GITHUB_TOKEN fallback is introduced.
 Present but invalid credentials still fail token creation.
+
+### Workflow-only activation preserves GA source
+
+Main activation promotes workflow definitions through review without a GA source
+change. Production composition compares the approved source trees while excluding
+workflow files for both the promotion push and later scheduled reconciliation.
+Such a promotion uses the retained bundle, preserving its generated metadata and
+all non-catalog bytes. Actual source changes and explicit GA recovery still use
+the GA build path. A missing source or snapshot fails closed. Real-Git and CLI
+regressions distinguish workflow-only changes from changed GA content.
+
+Exact served-byte bootstrap must account for edge transformations operationally.
+Do not normalize differences or adopt transformed content without a separately
+reviewed verification design. Reconstruction does not authorize publishing.
+
+Push reconciliation uses the last verified published GA revision, as scheduled
+reconciliation does. Comparing only adjacent commits would miss an approved GA
+source change whose earlier deployment failed or was superseded. A production
+workflow-shell regression reproduces that sequence and requires GA recovery on
+the following workflow-only push. The promotion gate also rejects workflow files
+outside its reviewed allowlist before comparing approved definitions; its actual
+shell guard is tested with an additional unreviewed workflow.
+
+Workflow approval validation is independent of whether other content accompanies
+the definitions. Any changed workflow in a main PR must match approved develop,
+and the approved production catalog suite runs. The workflow-only classification
+retains its focused allowlist; ordinary GA content keeps its existing content
+validation route without exempting included workflows from review checks.
+
+Promotion authorization uses a trusted base-side validator. Install that gate
+through a separate approved bootstrap before workflow activation. It reads PR
+Git objects but executes only trusted base code and approved develop tests.
+
+The required promotion gate has no event path filter. It rejects stale base
+events and workflow-changing heads that do not contain current main, ensuring
+compared workflow definitions represent the merge result. Content-only published
+release promotions retain their existing exact prospective merge-tree proof and
+pinned release commit; workflow ancestry does not block that supported route.
+
+A prior successful gate must not authorize merging after the base advances.
+Activation requires the gate as a strict up-to-date required check, with existing
+approvals preserved and pinned-release compatibility coordinated. If that cannot
+be configured compatibly, an approved equivalent freshness guarantee is required
+before activation. PR-event validation alone is not that guarantee.

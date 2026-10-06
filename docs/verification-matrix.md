@@ -891,6 +891,55 @@ warning identifies pending catalog preparation, and no proposal runner starts.
 Then configure the App and verify normal proposal CI and approval. This live
 acceptance and credential provisioning have not been performed locally.
 
+### Workflow-only main activation regression
+
+`test_workflow_only_promotion_preserves_ga_source_for_push_and_schedule` invokes
+the production composition CLI on a real repository. A workflow-only commit
+selects retained catalog composition; a subsequent GA content commit selects a
+GA rebuild. Both push and schedule call that source comparison in the workflow.
+The previous SHA-only comparison fails the regression; the corrected source
+comparison passes. Missing published-source evidence fails closed.
+
+An exact reconstruction from the successful GA source, original generated
+metadata and pinned image produced a complete 66-file inventory. Normal and
+cache-refresh comparisons matched 40 files, including both catalogs; 26 HTML
+files differed because the hosting edge injected a script loader and rewrote
+script tags. No snapshot was adopted or deployed. Resolve that approved hosting
+prerequisite and repeat all-file byte verification before bootstrap acceptance.
+
+Main PRs are excluded by the ordinary release-validation workflows. The targeted
+catalog promotion check now verifies workflow-only handoffs against approved
+develop definitions and runs that branch's production catalog regression suite.
+The draft promotion is expected to wait for its develop dependency; local lint
+alone is insufficient to approve the handoff.
+
+Workflow review regressions execute the actual shell steps. One creates a real
+published GA source, an approved but unserved GA change, and a workflow-only push:
+the reconciliation step must select GA recovery using the published reference.
+The other submits an extra workflow to the promotion allowlist guard and requires
+rejection. Reverting either fix fails its regression. Neither test claims a live
+Pages deployment or supplies administrator authorization.
+
+The promotion classifier also covers both recognized workflow extensions. A
+production-shell regression adds only an unreviewed `.yaml` workflow and verifies
+that classification routes it to the approval guard, which rejects it. The prior
+`.yml`-only classifier fails this test. The trigger watches the whole workflow
+directory, and NUL-delimited Git paths prevent quoted filenames from evading
+classification or the allowlist.
+
+Mixed-content main PRs also validate every changed workflow definition and run
+the approved catalog suite. The production-shell regression combines a workflow
+change with an unrelated documentation change: the prior gate fails the test by
+skipping approval checks; the fix rejects unapproved definitions and permits the
+path only after they match approved develop. Changed workflow paths are compared
+literally, and the focused workflow-only handoff retains its stricter allowlist.
+
+Trusted promotion regression: a PR replaces the validator and deployment workflow
+while adding unrelated content. The previous validator accepts it; the base-side
+validator rejects it without checking out or executing PR code. Both outcomes
+were reproduced locally. Gate installation and live base-side CI remain pending
+human approval; this does not establish deployment or native acceptance.
+
 ## Phase-one operational readiness audit
 
 The operational acceptance issues remain open until their applicable criteria
@@ -902,7 +951,7 @@ release is part of this audit.
 | --- | --- | --- |
 | #160 catalog contract | Typed contract, validator, fixtures, additive compatibility, site artifact inclusion verified | Satisfied; live publication is tracked separately |
 | #161 distribution resolver | Startup resolver and package provenance tests | Installed direct/Store packages and unavailable architectures |
-| #162 background checks | Service tests and production manager scheduler regression | Normal PR CI and native startup/restart checks |
+| #162 background checks | Service tests and production manager scheduler regression; normal PR CI passed and scheduler fix merged | Native startup/restart checks |
 | #163 notifications and controls | UI and shared orchestration tests | Native tray, notification activation, persistence and exact page opening |
 | #164 publication integration | Verified-package proposal tooling and controlled consumers | Approved deployment, cache/content checks and installed-package acceptance |
 | #178 channel selection | Backend policy, persistence and controlled catalog tests | Installed channel selection, restart and newer-GA/preview behavior |
@@ -949,3 +998,30 @@ publishes a shutdown flag before abort and checks it at scheduling boundaries,
 so no request begins. The test then waits for worker destruction before asserting
 the transport count. Repeat native quit at startup/retry boundaries when native
 inspection is available; CI does not establish OS shutdown presentation.
+
+Main gate regression: branch from main, approve a workflow change on develop,
+then advance main with a nonconflicting workflow edit. The prior scope step
+accepts the stale head; the fixed production step rejects it and stale event
+bases. A fresh content-only PR passes classification with no workflow checks.
+The trigger has no path filter so ordinary GA proposals complete the required
+check. These local results do not establish live main gate installation.
+
+Pinned divergent release regression: the release head and current main share
+source but diverge because of prior promotion history. The prospective merge
+tree equals the published release tree. The prior unconditional ancestry gate
+rejects that supported production route; the fixed production scope step accepts
+it without changing the pinned head. Workflow-changing divergent heads and stale
+event bases remain rejected by the existing regression.
+
+The base-advance regression now first obtains successful validation, advances
+main without changing the proposed head, and proves that fresh validation rejects
+the previously accepted workflow tree. The live acceptance additionally requires
+strict up-to-date required checks: verify the old success cannot authorize merge
+after main advances, update the handoff, and require fresh passing validation.
+That administrator protection and compatibility with pinned release promotions
+remain outstanding; this PR does not configure branch policy.
+
+Workflow move regression executes the production scope and approval steps after
+moving an unchanged workflow outside its directory. The previous classifier
+misses the removal; the fixed inventory identifies it and rejects the unapproved
+deletion. Rename detection is disabled so both sides participate in validation.

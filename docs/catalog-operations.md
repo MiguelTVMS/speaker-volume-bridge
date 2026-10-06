@@ -71,6 +71,13 @@ with the existing administrator and approval process:
   workflow-only promotion before any subsequent GA website deployment. An old main
   workflow can still deploy stale main catalogs until this handoff is complete.
   Both branches must use the same concurrency group and composition entry point.
+  A push containing only workflow changes restores the retained GA bundle when
+  its source matches the last verified publication. Both pushes and scheduled
+  reconciliation compare against that published reference, not the previous
+  commit. Approved GA content left unserved by a failed or superseded run is
+  rebuilt instead of silently retaining the older site. Scheduled reconciliation compares source content excluding
+  workflow files, so a workflow-only promotion does not later rewrite GA metadata.
+  Actual GA content changes and explicit main recovery still rebuild normally.
   This handoff does not authorize publishing new website content.
 
 Snapshots use immutable content-addressed ZIP files in the hosting-state branch.
@@ -173,3 +180,77 @@ versions receive the exact action, wrong edition/architecture remains unavailabl
 and Stable/Prereleases remain separate. These controlled clients do not prove
 native installed-package recognition or actual Pages deployment. See the
 [verification matrix](verification-matrix.md) for the live procedure.
+
+## Exact bootstrap and edge transformations
+
+An expired Pages artifact can be reconstructed only from the original approved
+GA source, generated build metadata and the original build image digest. Generate
+the complete inventory locally and compare every file using ordinary and
+cache-refresh reads before requesting adoption of the immutable snapshot.
+Retaining a review archive locally changes no served content. Adoption still
+requires the administrator-reviewed recovery described above.
+
+A hosting-edge HTML transformation breaks exact artifact-to-served-byte equality,
+even when displayed content looks equivalent. Do not silently strip injected
+scripts or record a transformed HTML response as the original GA build. Resolve
+the transformation through approved hosting configuration, or obtain an explicit
+reviewed change to the verification contract before adopting state. A failed
+comparison leaves bootstrap and catalog delivery outstanding.
+
+Workflow-only main handoffs receive a dedicated promotion validation check. It
+rejects additional workflows outside the reviewed handoff, requires every
+promoted definition to match approved develop, and runs the approved
+production catalog regression suite. The handoff stays draft until its develop
+dependency is merged and this check passes. It never approves or merges the PR.
+Ordinary GA content promotions retain their existing content-validation route,
+but any included workflow definitions are checked against approved develop.
+Adding another source or documentation file cannot skip this approval check.
+
+Promotion validation recognizes both `.yml` and `.yaml` workflows, including a
+handoff that adds only an unreviewed workflow. It watches the workflow directory
+and rejects definitions outside the reviewed scope instead of treating another
+workflow extension as a GA content change.
+
+The promotion validator runs from trusted main using `pull_request_target`, with
+read-only permissions and an explicit base checkout without persisted credentials.
+It fetches PR objects for comparison only and executes regression tools from
+approved develop. PR content cannot replace its validator or execute on this
+runner. A separate, human-reviewed gate-only bootstrap must install the validator
+on main before activating the composition handoff. The first gate installation
+cannot validate itself; review it against the merged develop definition and its
+normal CI evidence. Adding only this gate does not trigger the existing Website
+workflow or deploy content. Keep the activation handoff draft until the trusted
+check runs successfully. If Actions event policy blocks this event, an
+administrator must authorize this specific trusted workflow through the normal
+approval process; do not substitute a PR-controlled check.
+
+The trusted gate runs for every main PR without event path filtering, so a
+required check can complete on ordinary GA content proposals. Workflow-specific
+checks remain conditional. Before classifying changes, it verifies the live main
+revision matches the event base. PRs changing workflow definitions also require
+that base to be an ancestor of the proposed head. Update stale workflow handoffs
+with current main and rerun validation before approval or merge. Published
+release heads without workflow changes retain the existing exact prospective
+merge-tree validation and remain pinned to the published release commit.
+
+### Prevent stale success at merge
+
+Before activating workflow handoffs, an administrator must require the trusted
+`Catalog workflow promotion validation / validate` check on main and require
+branches to be up to date before merging (strict required checks). Preserve
+existing approvals and required checks. A successful run alone is insufficient:
+a main push does not trigger this PR event, and loose checks can retain success
+from an older base. After a base advance, update the workflow PR and wait for a
+fresh successful run on the current base before its approved merge.
+
+This protection is an outstanding administrator prerequisite, not a setting
+applied by this PR. Global strict checks also affect pinned divergent release
+promotions: their published head cannot be rebased or replaced. Coordinate that
+existing release route before enabling a global rule; do not silently break it.
+If strict checks cannot be applied compatibly, keep workflow activation blocked
+until an approved alternative guarantees fresh validation at merge. Never treat
+a loose prior success as equivalent protection.
+
+Workflow change inventory disables rename detection and retains NUL-delimited
+paths. Moving a workflow outside its discovery directory still records its
+removal and requires comparison against the approved develop definition.

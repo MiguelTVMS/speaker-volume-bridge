@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import shutil
+import subprocess
 import time
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -16,6 +17,20 @@ validator = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(validator)
 CATALOGS = ('updates/v1/catalog.json', 'updates/v2/catalog.json')
 MAX_BUNDLE = 90 * 1024 * 1024
+
+
+def ga_source_changed(repository, revision, current):
+    """Workflow-only promotion must retain the actual served GA page bytes."""
+    if not revision:
+        raise ValueError('missing published GA revision; exact bootstrap required')
+    for ref in (revision, current):
+        subprocess.run(['git', '-C', str(repository), 'rev-parse', '--verify', ref + '^{commit}'],
+                       check=True, stdout=subprocess.DEVNULL)
+    result = subprocess.run(['git', '-C', str(repository), 'diff', '--quiet', revision, current,
+                             '--', '.', ':(exclude).github/workflows/**'])
+    if result.returncode not in (0, 1):
+        raise ValueError('cannot compare approved GA source')
+    return result.returncode == 1
 
 
 def files(root):
@@ -135,17 +150,21 @@ def verify_served(root, base_url, read=http_read, attempts=6, pause=time.sleep, 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', choices=['retain', 'restore', 'compose', 'guard', 'verify'])
+    parser.add_argument('operation', choices=['retain', 'restore', 'compose', 'guard', 'verify', 'source-mode'])
     parser.add_argument('--website', type=Path)
     parser.add_argument('--catalogs', type=Path)
     parser.add_argument('--destination', type=Path)
     parser.add_argument('--storage', type=Path)
     parser.add_argument('--revision')
+    parser.add_argument('--repository', type=Path)
+    parser.add_argument('--current')
     parser.add_argument('--url')
     parser.add_argument('--all-files', action='store_true')
     args = parser.parse_args()
     state_path = args.storage / 'state.json' if args.storage else None
-    if args.operation == 'retain':
+    if args.operation == 'source-mode':
+        print('ga' if ga_source_changed(args.repository, args.revision, args.current) else 'catalog')
+    elif args.operation == 'retain':
         reference = retain(args.website, args.storage, args.revision)
         state = json.loads(state_path.read_text()) if state_path.exists() else {}
         state['candidate'] = reference

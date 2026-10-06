@@ -1,0 +1,45 @@
+name: Catalog workflow promotion validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/pages.yml'
+      - '.github/workflows/update-catalog.yml'
+      - '.github/workflows/catalog-promotion-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Identify workflow-only handoff
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only "$BASE" "$HEAD" > "$RUNNER_TEMP/promotion-files"
+          if grep -qv '^\.github/workflows/.*\.yml$' "$RUNNER_TEMP/promotion-files"; then
+            echo 'workflow_only=false' >> "$GITHUB_OUTPUT"
+            echo 'GA content promotion retains its existing validation route.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'workflow_only=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Require approved develop workflow definitions
+        if: steps.scope.outputs.workflow_only == 'true'
+        run: |
+          git fetch origin develop
+          git diff --exit-code origin/develop HEAD -- \
+            .github/workflows/pages.yml .github/workflows/update-catalog.yml \
+            .github/workflows/catalog-promotion-validation.yml
+          # These tools are from approved develop, never unreviewed promotion code.
+          git worktree add --detach "$RUNNER_TEMP/approved-tools" origin/develop
+      - name: Run approved production catalog regression suite
+        if: steps.scope.outputs.workflow_only == 'true'
+        run: python3 -m unittest discover -s "$RUNNER_TEMP/approved-tools/scripts/tests" -p 'test_*catalog*.py'

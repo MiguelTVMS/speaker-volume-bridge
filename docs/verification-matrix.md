@@ -939,3 +939,62 @@ while adding unrelated content. The previous validator accepts it; the base-side
 validator rejects it without checking out or executing PR code. Both outcomes
 were reproduced locally. Gate installation and live base-side CI remain pending
 human approval; this does not establish deployment or native acceptance.
+
+## Phase-one operational readiness audit
+
+The operational acceptance issues remain open until their applicable criteria
+are verified. Implemented behavior and passing CI do not establish public catalog
+availability or native acceptance. No self-update implementation or new application
+release is part of this audit.
+
+| Work package | Implemented / automated evidence | Outstanding acceptance |
+| --- | --- | --- |
+| #160 catalog contract | Typed contract, validator, fixtures, additive compatibility, site artifact inclusion verified | Satisfied; live publication is tracked separately |
+| #161 distribution resolver | Startup resolver and package provenance tests | Installed direct/Store packages and unavailable architectures |
+| #162 background checks | Service tests and production manager scheduler regression; normal PR CI passed and scheduler fix merged | Native startup/restart checks |
+| #163 notifications and controls | UI and shared orchestration tests | Native tray, notification activation, persistence and exact page opening |
+| #164 publication integration | Verified-package proposal tooling and controlled consumers | Approved deployment, cache/content checks and installed-package acceptance |
+| #178 channel selection | Backend policy, persistence and controlled catalog tests | Installed channel selection, restart and newer-GA/preview behavior |
+| #183 independent delivery | Production proposal/composition and workflow coverage | App authorization, Pages permission, approved main workflow handoff, exact GA snapshot adoption, backfill approval and served verification |
+
+`production_scheduler_delays_retries_once_and_cancels_on_shutdown` enters the
+production UpdateManager startup method with only its timer injected. It uses the
+real service, fake transport and clock, and native mock application. It checks no
+request before the 30-second boundary, one worker after repeated start, waits of
+60/300/1800 seconds after transient failures, return to the ordinary poll after
+the bounded retry sequence, and no request after dropping the manager during a
+wait. Four separate deliberately faulty variants (zero startup delay, shortened
+retry, removed duplicate-start guard, removed shutdown abort) each fail this
+regression; the restored implementation passes.
+
+`production_scheduler_shutdown_cancels_in_flight_transport` blocks the actual
+transport request and verifies that dropping the manager cancels that future
+without committing a successful check. Both tests run in the normal workspace
+suite. Timer injection changes no user timing or network policy.
+
+Native follow-up: fully quit and restart an installed recognized package; observe
+no automatic request before 30 seconds, switch Stable/Prereleases, restart and
+confirm persistence, then use a reviewed controlled offer to test notification
+deduplication and explicit exact-page opening. Repeat on every supported platform
+and package edition. Mock application tests cannot prove OS presentation or
+installed provenance. During this audit the installed macOS package metadata
+reported version 1.8.0; the Computer Use service timed out on app inspection, so
+version presentation, policy selection, restart persistence, notification delivery
+and native page opening remain unverified. Windows, Linux and Store checks remain
+outstanding without those installations.
+
+Current activation observations: proposal App configuration is absent; Pages
+permits only the GA branch; no durable hosting-state branch exists; the successful
+GA workflow has no retained Pages artifact. Exact reconstruction/adoption is
+required before catalog-only delivery. Bootstrap must compare all served bytes
+and deploy nothing. Do not substitute current develop site output.
+
+The normal Linux CI suite exposed a ready-timer shutdown race: task abort alone
+is cooperative, and a timer already being polled can continue into a new check.
+`production_scheduler_shutdown_ready_timer_cannot_begin_check` deterministically
+holds the production worker inside that poll, drops its manager, then releases
+the ready timer. The original manager starts one request and fails; the fix
+publishes a shutdown flag before abort and checks it at scheduling boundaries,
+so no request begins. The test then waits for worker destruction before asserting
+the transport count. Repeat native quit at startup/retry boundaries when native
+inspection is available; CI does not establish OS shutdown presentation.

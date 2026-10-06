@@ -396,3 +396,14 @@ Catalog automation first checks App credential availability on a lightweight
 runner. Missing credentials produce an explicit catalog-pending outcome while
 preserving successful application publication; proposal execution requires both
 credentials. Token and PR failures remain actionable automation errors (ADR 0020).
+
+The update manager injects its timer for lifecycle regression coverage while
+production retains the same 30-second delay and retry sequence. Tests enter the
+shared startup ownership path and verify duplicate-start prevention and shutdown
+cancellation, including a pending catalog transport. See the phase-one operational
+readiness audit in the verification matrix.
+
+Shutdown publishes the update manager's stop flag before aborting its task. The
+worker checks this flag after startup and retry waits, preventing a ready timer
+already inside its current poll from starting a new request during shutdown.
+Abort separately cancels a pending catalog transport.

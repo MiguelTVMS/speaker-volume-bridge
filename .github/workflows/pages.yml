@@ -98,9 +98,10 @@ jobs:
         env:
           MODE: ${{ steps.mode.outputs.mode }}
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
         run: |
           mode="$MODE"
-          if [ "$EVENT" = schedule ] && [ -f storage/state.json ]; then
+          if { [ "$EVENT" = schedule ] || { [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; }; } && [ -f storage/state.json ]; then
             git -C tools fetch origin main
             published=$(python3 -c 'import json; print(json.load(open("storage/state.json")).get("published", {}).get("revision", ""))')
             mode=$(python3 tools/scripts/compose-catalog-site.py source-mode --repository tools --revision "$published" --current origin/main)

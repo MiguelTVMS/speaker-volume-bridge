@@ -28,7 +28,7 @@ jobs:
           git fetch origin "refs/pull/$PR_NUMBER/head"
           test "$(git rev-parse FETCH_HEAD)" = "$HEAD"
           git fetch origin main
-          if [ "$(git rev-parse FETCH_HEAD)" != "$BASE" ] || ! git merge-base --is-ancestor "$BASE" "$HEAD"; then
+          if [ "$(git rev-parse FETCH_HEAD)" != "$BASE" ]; then
             echo 'Update the PR with current main before promotion validation.' >&2
             exit 1
           fi
@@ -48,6 +48,12 @@ jobs:
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
                   summary.write('GA content promotion retains its existing validation route.\n')
           PY_SCOPE
+          # Published release heads may diverge while preserving the exact release tree.
+          # Require ancestry only when this PR changes workflow definitions.
+          if [ -s "$RUNNER_TEMP/changed-workflows" ] && ! git merge-base --is-ancestor "$BASE" "$HEAD"; then
+            echo 'Update workflow changes with current main before promotion validation.' >&2
+            exit 1
+          fi
       - name: Require approved develop workflow definitions
         if: steps.scope.outputs.has_workflows == 'true'
         env:

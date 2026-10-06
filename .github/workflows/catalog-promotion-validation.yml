@@ -32,7 +32,7 @@ jobs:
             echo 'Update the PR with current main before promotion validation.' >&2
             exit 1
           fi
-          git diff --name-only -z "$BASE" "$HEAD" > "$RUNNER_TEMP/promotion-files"
+          git diff --no-renames --name-only -z "$BASE" "$HEAD" > "$RUNNER_TEMP/promotion-files"
           python3 - <<'PY_SCOPE'
           import os
           from pathlib import Path

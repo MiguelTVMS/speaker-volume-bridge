@@ -1012,3 +1012,11 @@ tree equals the published release tree. The prior unconditional ancestry gate
 rejects that supported production route; the fixed production scope step accepts
 it without changing the pinned head. Workflow-changing divergent heads and stale
 event bases remain rejected by the existing regression.
+
+The base-advance regression now first obtains successful validation, advances
+main without changing the proposed head, and proves that fresh validation rejects
+the previously accepted workflow tree. The live acceptance additionally requires
+strict up-to-date required checks: verify the old success cannot authorize merge
+after main advances, update the handoff, and require fresh passing validation.
+That administrator protection and compatibility with pinned release promotions
+remain outstanding; this PR does not configure branch policy.

@@ -100,3 +100,9 @@ events and workflow-changing heads that do not contain current main, ensuring
 compared workflow definitions represent the merge result. Content-only published
 release promotions retain their existing exact prospective merge-tree proof and
 pinned release commit; workflow ancestry does not block that supported route.
+
+A prior successful gate must not authorize merging after the base advances.
+Activation requires the gate as a strict up-to-date required check, with existing
+approvals preserved and pinned-release compatibility coordinated. If that cannot
+be configured compatibly, an approved equivalent freshness guarantee is required
+before activation. PR-event validation alone is not that guarantee.

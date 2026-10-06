@@ -232,3 +232,21 @@ that base to be an ancestor of the proposed head. Update stale workflow handoffs
 with current main and rerun validation before approval or merge. Published
 release heads without workflow changes retain the existing exact prospective
 merge-tree validation and remain pinned to the published release commit.
+
+### Prevent stale success at merge
+
+Before activating workflow handoffs, an administrator must require the trusted
+`Catalog workflow promotion validation / validate` check on main and require
+branches to be up to date before merging (strict required checks). Preserve
+existing approvals and required checks. A successful run alone is insufficient:
+a main push does not trigger this PR event, and loose checks can retain success
+from an older base. After a base advance, update the workflow PR and wait for a
+fresh successful run on the current base before its approved merge.
+
+This protection is an outstanding administrator prerequisite, not a setting
+applied by this PR. Global strict checks also affect pinned divergent release
+promotions: their published head cannot be rebased or replaced. Coordinate that
+existing release route before enabling a global rule; do not silently break it.
+If strict checks cannot be applied compatibly, keep workflow activation blocked
+until an approved alternative guarantees fresh validation at merge. Never treat
+a loose prior success as equivalent protection.

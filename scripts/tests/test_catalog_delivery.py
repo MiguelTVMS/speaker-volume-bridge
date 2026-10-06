@@ -497,14 +497,18 @@ class HostingTests(unittest.TestCase):
             head = git('rev-parse', 'HEAD')
             git('branch', 'develop', head)
             git('update-ref', 'refs/pull/7/head', head)
+            env = dict(os.environ, BASE=base, HEAD=head, PR_NUMBER='7', RUNNER_TEMP=str(root),
+                       GITHUB_OUTPUT=str(root / 'output'), GITHUB_STEP_SUMMARY=str(root / 'summary'))
+            scope = workflow_script('catalog-promotion-validation.yml', 'Identify workflow-only handoff')
+            initial = subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, capture_output=True)
+            self.assertEqual(initial.returncode, 0, initial.stderr.decode())
+            self.assertIn('has_workflows=true', (root / 'output').read_text())
             git('checkout', 'main')
             workflow.write_text('first: base\nsecond: new base\n')
             git('add', '.')
             git('commit', '-qm', 'Main advances without a conflict')
             advanced = git('rev-parse', 'HEAD')
-            env = dict(os.environ, BASE=advanced, HEAD=head, PR_NUMBER='7', RUNNER_TEMP=str(root),
-                       GITHUB_OUTPUT=str(root / 'output'), GITHUB_STEP_SUMMARY=str(root / 'summary'))
-            scope = workflow_script('catalog-promotion-validation.yml', 'Identify workflow-only handoff')
+            env['BASE'] = advanced
             rejected = subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, capture_output=True)
             self.assertNotEqual(rejected.returncode, 0)
             # Also reject a stale event whose recorded base was current when emitted.

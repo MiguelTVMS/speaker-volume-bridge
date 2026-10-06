@@ -955,12 +955,14 @@ const fn edition_name(edition: DistributionEdition) -> &'static str {
 pub struct UpdateManager {
     service: Arc<UpdateService>,
     task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    stopped: Arc<AtomicBool>,
 }
 impl UpdateManager {
     pub fn new(service: Arc<UpdateService>) -> Self {
         Self {
             service,
             task: Mutex::new(None),
+            stopped: Arc::new(AtomicBool::new(false)),
         }
     }
     pub fn service(&self) -> &Arc<UpdateService> {
@@ -997,6 +999,7 @@ impl UpdateManager {
         }
         let service = Arc::clone(&self.service);
         let app_handle = app.clone();
+        let stopped = Arc::clone(&self.stopped);
         *task = Some(tauri::async_runtime::spawn(async move {
             sleep(Duration::from_secs(30)).await;
             #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with pinned Rust.
@@ -1006,11 +1009,17 @@ impl UpdateManager {
                 Duration::from_secs(30 * 60),
             ];
             loop {
+                if stopped.load(Ordering::SeqCst) {
+                    return;
+                }
                 if service.automatic_due() {
                     let status = run_check_and_deliver(&app_handle, &service, false).await;
                     if status.check_failed {
                         for delay in backoff {
                             sleep(delay).await;
+                            if stopped.load(Ordering::SeqCst) {
+                                return;
+                            }
                             let status = run_check_and_deliver(&app_handle, &service, false).await;
                             if !status.check_failed {
                                 break;
@@ -1081,6 +1090,9 @@ where
 }
 impl Drop for UpdateManager {
     fn drop(&mut self) {
+        // Abort is cooperative; a currently polling ready timer must also see
+        // shutdown before it can begin another catalog request.
+        self.stopped.store(true, Ordering::SeqCst);
         if let Ok(mut task) = self.task.lock()
             && let Some(task) = task.take()
         {
@@ -1228,6 +1240,58 @@ mod tests {
             clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
             resume.send(()).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn production_scheduler_shutdown_ready_timer_cannot_begin_check() {
+        struct WorkerDropped(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for WorkerDropped {
+            fn drop(&mut self) {
+                let _ = self.0.take().unwrap().send(());
+            }
+        }
+        let (service, transport) = service(
+            catalog("2.0.0"),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let manager = UpdateManager::new(service);
+        let (entered, wait_entered) = tokio::sync::oneshot::channel();
+        let entered = Mutex::new(Some(entered));
+        let (release, wait_release) = std::sync::mpsc::channel();
+        let wait_release = Mutex::new(wait_release);
+        let (dropped, wait_dropped) = tokio::sync::oneshot::channel();
+        let worker_dropped = WorkerDropped(Some(dropped));
+        manager.start_with_sleep(app.handle(), move |_| {
+            let _keep_alive = &worker_dropped;
+            let first = entered.lock().unwrap().take();
+            // Hold the worker inside its current poll while shutdown occurs.
+            // Abort cannot interrupt that poll, and the timer then becomes ready.
+            let is_first = first.is_some();
+            if let Some(entered) = first {
+                entered.send(()).unwrap();
+                wait_release.lock().unwrap().recv().unwrap();
+            }
+            async move {
+                if !is_first {
+                    std::future::pending::<()>().await;
+                }
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(5), wait_entered)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(manager);
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), wait_dropped)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

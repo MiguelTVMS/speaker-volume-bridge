@@ -900,7 +900,7 @@ release is part of this audit.
 
 | Work package | Implemented / automated evidence | Outstanding acceptance |
 | --- | --- | --- |
-| #160 catalog contract | Typed contract, validator, fixtures, additive compatibility, site artifact inclusion | Final audit of normal validation results |
+| #160 catalog contract | Typed contract, validator, fixtures, additive compatibility, site artifact inclusion verified | Satisfied; live publication is tracked separately |
 | #161 distribution resolver | Startup resolver and package provenance tests | Installed direct/Store packages and unavailable architectures |
 | #162 background checks | Service tests and production manager scheduler regression | Normal PR CI and native startup/restart checks |
 | #163 notifications and controls | UI and shared orchestration tests | Native tray, notification activation, persistence and exact page opening |
@@ -939,3 +939,13 @@ permits only the GA branch; no durable hosting-state branch exists; the successf
 GA workflow has no retained Pages artifact. Exact reconstruction/adoption is
 required before catalog-only delivery. Bootstrap must compare all served bytes
 and deploy nothing. Do not substitute current develop site output.
+
+The normal Linux CI suite exposed a ready-timer shutdown race: task abort alone
+is cooperative, and a timer already being polled can continue into a new check.
+`production_scheduler_shutdown_ready_timer_cannot_begin_check` deterministically
+holds the production worker inside that poll, drops its manager, then releases
+the ready timer. The original manager starts one request and fails; the fix
+publishes a shutdown flag before abort and checks it at scheduling boundaries,
+so no request begins. The test then waits for worker destruction before asserting
+the transport count. Repeat native quit at startup/retry boundaries when native
+inspection is available; CI does not establish OS shutdown presentation.

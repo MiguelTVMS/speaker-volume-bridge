@@ -402,3 +402,8 @@ production retains the same 30-second delay and retry sequence. Tests enter the
 shared startup ownership path and verify duplicate-start prevention and shutdown
 cancellation, including a pending catalog transport. See the phase-one operational
 readiness audit in the verification matrix.
+
+Shutdown publishes the update manager's stop flag before aborting its task. The
+worker checks this flag after startup and retry waits, preventing a ready timer
+already inside its current poll from starting a new request during shutdown.
+Abort separately cancels a pending catalog transport.

@@ -157,3 +157,9 @@ lifecycle tests; request, delivery, task ownership and cancellation use producti
 orchestration. Delayed startup, bounded retry waits, repeated start and shutdown
 are checked through this path, including cancellation of an in-flight transport.
 These tests do not establish installed-package or OS notification acceptance.
+
+Task abort is cooperative. Manager shutdown first publishes an explicit stop flag
+and the scheduler checks it at request boundaries, including a timer that became
+ready within an already running poll. A deterministic production lifecycle test
+fails with abort alone and passes with the stop flag; a separate pending-transport
+regression confirms cancellation still occurs.

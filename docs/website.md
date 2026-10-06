@@ -121,9 +121,11 @@ Save the v1 record as `withdrawal-v1.json`:
 
 Save the v2 record as `withdrawal-v2.json` using the same fields plus
 `"classification": "GA"` inside `target`. GA uses `channel: stable` in both feeds.
-For Alpha or Beta, use only the v2 record, set the matching classification and
-`channel: prereleases`, and do not modify v1. Repeat for each affected architecture
-and edition. An explicit reviewed version cutoff records withdrawal intent even
+For Alpha or Beta direct targets, use only the v2 record, set the matching
+classification and `channel: prereleases`, and do not modify v1. Store editions
+(`microsoft_store` and `mac_app_store`) use only the v1 record and preparation
+command, even for GA; v2 excludes Store targets. Use both feeds only for direct
+GA targets. Repeat for each affected architecture and edition. An explicit reviewed version cutoff records withdrawal intent even
 if that offer is absent; without an existing entry or cutoff the tool cannot
 infer it. The withdrawal ledger prevents equal or older offers from being restored.
 
@@ -140,7 +142,8 @@ python3 scripts/validate-update-catalog.py pages/updates/v2/catalog.json
 git diff -- pages/updates/v1/catalog.json pages/updates/v2/catalog.json
 ```
 
-For a preview-only withdrawal, omit the v1 preparation command. Review the removed
+For a preview-only direct withdrawal, omit the v1 preparation command. For a
+Store withdrawal, omit the v2 preparation command and do not create a v2 record. Review the removed
 entries and retained tombstones, commit only the intended catalogs, and open a
 normal PR to `develop`. Require CI and human approval. After approved merge and
 delivery, verify both served feeds and unchanged non-catalog website files.

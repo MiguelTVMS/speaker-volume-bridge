@@ -76,3 +76,11 @@ regressions distinguish workflow-only changes from changed GA content.
 Exact served-byte bootstrap must account for edge transformations operationally.
 Do not normalize differences or adopt transformed content without a separately
 reviewed verification design. Reconstruction does not authorize publishing.
+
+Push reconciliation uses the last verified published GA revision, as scheduled
+reconciliation does. Comparing only adjacent commits would miss an approved GA
+source change whose earlier deployment failed or was superseded. A production
+workflow-shell regression reproduces that sequence and requires GA recovery on
+the following workflow-only push. The promotion gate also rejects workflow files
+outside its reviewed allowlist before comparing approved definitions; its actual
+shell guard is tested with an additional unreviewed workflow.

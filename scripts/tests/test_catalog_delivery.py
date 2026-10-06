@@ -23,6 +23,13 @@ proposer = load('propose-release-catalog')
 STAMP = '2026-10-05T12:00:00Z'
 
 
+def workflow_script(path, step):
+    import textwrap
+    text = (ROOT / '.github/workflows' / path).read_text()
+    block = text.split('      - name: ' + step, 1)[1].split('        run: |\n', 1)[1]
+    return textwrap.dedent(block.split('\n      - ', 1)[0])
+
+
 def feeds():
     return {f: json.dumps({'schemaVersion': int(f[1:]), 'generatedAt': STAMP, 'futureCatalog': {'preserve': True}, 'entries': []}).encode() for f in release.FEEDS}
 
@@ -281,6 +288,62 @@ class HostingTests(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/pages.yml').read_text()
         self.assertEqual(workflow.count('compose-catalog-site.py source-mode'), 2)
         self.assertIn('BEFORE: ${{ github.event.before }}', workflow)
+
+    def test_main_push_reconciles_unserved_ga_from_published_revision(self):
+        import os
+        import shutil
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / 'tools'
+            tools.mkdir()
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(tools), '-c', 'commit.gpgsign=false', *args], text=True).strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            (tools / 'index.html').write_text('published GA')
+            git('add', '.')
+            git('commit', '-qm', 'Published GA')
+            published = git('rev-parse', 'HEAD')
+            (tools / 'index.html').write_text('approved but not served GA')
+            git('commit', '-qam', 'Unserved GA')
+            before = git('rev-parse', 'HEAD')
+            workflow = tools / '.github/workflows/pages.yml'
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text('handoff')
+            git('add', '.')
+            git('commit', '-qm', 'Workflow only')
+            after = git('rev-parse', 'HEAD')
+            self.assertFalse(site.ga_source_changed(tools, before, after))
+            self.assertTrue(site.ga_source_changed(tools, published, after))
+            git('branch', '-M', 'main')
+            git('remote', 'add', 'origin', str(tools))
+            scripts = tools / 'scripts'
+            scripts.mkdir()
+            for name in ('compose-catalog-site.py', 'validate-update-catalog.py'):
+                shutil.copy(ROOT / 'scripts' / name, scripts / name)
+            (root / 'storage').mkdir()
+            (root / 'storage/state.json').write_text(json.dumps({'published': {'revision': published}}))
+            output = root / 'output'
+            env = dict(os.environ, MODE='catalog', EVENT='push', REF='refs/heads/main', GITHUB_OUTPUT=str(output))
+            subprocess.run(['bash', '-e', '-c', workflow_script('pages.yml', 'Reconcile superseded GA events')],
+                           cwd=root, env=env, check=True, capture_output=True)
+            self.assertIn('mode=ga', output.read_text())
+
+    def test_promotion_step_rejects_unreviewed_additional_workflow(self):
+        import os
+        script = workflow_script('catalog-promotion-validation.yml', 'Require approved develop workflow definitions')
+        allowlist = script.split('git fetch origin develop', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = root / 'promotion-files'
+            env = dict(os.environ, RUNNER_TEMP=str(root))
+            paths.write_text('.github/workflows/pages.yml\n.github/workflows/update-catalog.yml\n')
+            good = subprocess.run(['bash', '-e', '-c', allowlist], env=env, capture_output=True)
+            self.assertEqual(good.returncode, 0)
+            paths.write_text(paths.read_text() + '.github/workflows/unreviewed.yml\n')
+            bad = subprocess.run(['bash', '-e', '-c', allowlist], env=env, capture_output=True)
+            self.assertNotEqual(bad.returncode, 0)
 
     def setup_site(self, directory):
         root = Path(directory)

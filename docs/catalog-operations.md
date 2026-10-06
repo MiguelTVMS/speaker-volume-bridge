@@ -71,8 +71,11 @@ with the existing administrator and approval process:
   workflow-only promotion before any subsequent GA website deployment. An old main
   workflow can still deploy stale main catalogs until this handoff is complete.
   Both branches must use the same concurrency group and composition entry point.
-  A push containing only workflow changes restores the retained GA bundle instead
-  of rebuilding it. Scheduled reconciliation compares source content excluding
+  A push containing only workflow changes restores the retained GA bundle when
+  its source matches the last verified publication. Both pushes and scheduled
+  reconciliation compare against that published reference, not the previous
+  commit. Approved GA content left unserved by a failed or superseded run is
+  rebuilt instead of silently retaining the older site. Scheduled reconciliation compares source content excluding
   workflow files, so a workflow-only promotion does not later rewrite GA metadata.
   Actual GA content changes and explicit main recovery still rebuild normally.
   This handoff does not authorize publishing new website content.
@@ -195,7 +198,8 @@ reviewed change to the verification contract before adopting state. A failed
 comparison leaves bootstrap and catalog delivery outstanding.
 
 Workflow-only main handoffs receive a dedicated promotion validation check. It
-requires the promoted definitions to match approved develop and runs the approved
+rejects additional workflows outside the reviewed handoff, requires every
+promoted definition to match approved develop, and runs the approved
 production catalog regression suite. The handoff stays draft until its develop
 dependency is merged and this check passes. It never approves or merges the PR.
 Ordinary GA content promotions retain their existing validation route.

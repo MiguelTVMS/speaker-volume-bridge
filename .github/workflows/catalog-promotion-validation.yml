@@ -34,6 +34,12 @@ jobs:
       - name: Require approved develop workflow definitions
         if: steps.scope.outputs.workflow_only == 'true'
         run: |
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/pages.yml|.github/workflows/update-catalog.yml|.github/workflows/catalog-promotion-validation.yml) ;;
+              *) echo 'Unexpected workflow outside the reviewed handoff scope.' >&2; exit 1 ;;
+            esac
+          done < "$RUNNER_TEMP/promotion-files"
           git fetch origin develop
           git diff --exit-code origin/develop HEAD -- \
             .github/workflows/pages.yml .github/workflows/update-catalog.yml \

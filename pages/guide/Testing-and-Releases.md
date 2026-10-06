@@ -89,8 +89,9 @@ Before a guide update:
 
 Catalog updates require verified public packages, normal pull-request checks and
 human approval. They can be delivered from develop while retaining the last
-approved GA website. A workflow-only hosting promotion preserves that website
-and its displayed version; it does not publish another application release.
+approved GA website. When the GA source is already published, a workflow-only hosting promotion
+preserves that website and its displayed version. Approved GA content left
+unserved by a failed deployment uses the normal recovery path; it does not publish another application release.
 
 Initial activation requires an exact verified copy of the served GA website.
 Missing retained artifacts or hosting transformations that change HTML bytes

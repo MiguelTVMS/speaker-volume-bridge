@@ -912,3 +912,10 @@ catalog promotion check now verifies workflow-only handoffs against approved
 develop definitions and runs that branch's production catalog regression suite.
 The draft promotion is expected to wait for its develop dependency; local lint
 alone is insufficient to approve the handoff.
+
+Workflow review regressions execute the actual shell steps. One creates a real
+published GA source, an approved but unserved GA change, and a workflow-only push:
+the reconciliation step must select GA recovery using the published reference.
+The other submits an extra workflow to the promotion allowlist guard and requires
+rejection. Reverting either fix fails its regression. Neither test claims a live
+Pages deployment or supplies administrator authorization.

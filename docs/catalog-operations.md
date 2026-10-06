@@ -210,3 +210,16 @@ Promotion validation recognizes both `.yml` and `.yaml` workflows, including a
 handoff that adds only an unreviewed workflow. It watches the workflow directory
 and rejects definitions outside the reviewed scope instead of treating another
 workflow extension as a GA content change.
+
+The promotion validator runs from trusted main using `pull_request_target`, with
+read-only permissions and an explicit base checkout without persisted credentials.
+It fetches PR objects for comparison only and executes regression tools from
+approved develop. PR content cannot replace its validator or execute on this
+runner. A separate, human-reviewed gate-only bootstrap must install the validator
+on main before activating the composition handoff. The first gate installation
+cannot validate itself; review it against the merged develop definition and its
+normal CI evidence. Adding only this gate does not trigger the existing Website
+workflow or deploy content. Keep the activation handoff draft until the trusted
+check runs successfully. If Actions event policy blocks this event, an
+administrator must authorize this specific trusted workflow through the normal
+approval process; do not substitute a PR-controlled check.

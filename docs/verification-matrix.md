@@ -933,3 +933,9 @@ change with an unrelated documentation change: the prior gate fails the test by
 skipping approval checks; the fix rejects unapproved definitions and permits the
 path only after they match approved develop. Changed workflow paths are compared
 literally, and the focused workflow-only handoff retains its stricter allowlist.
+
+Trusted promotion regression: a PR replaces the validator and deployment workflow
+while adding unrelated content. The previous validator accepts it; the base-side
+validator rejects it without checking out or executing PR code. Both outcomes
+were reproduced locally. Gate installation and live base-side CI remain pending
+human approval; this does not establish deployment or native acceptance.

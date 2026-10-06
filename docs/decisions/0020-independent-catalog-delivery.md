@@ -90,3 +90,7 @@ the definitions. Any changed workflow in a main PR must match approved develop,
 and the approved production catalog suite runs. The workflow-only classification
 retains its focused allowlist; ordinary GA content keeps its existing content
 validation route without exempting included workflows from review checks.
+
+Promotion authorization uses a trusted base-side validator. Install that gate
+through a separate approved bootstrap before workflow activation. It reads PR
+Git objects but executes only trusted base code and approved develop tests.

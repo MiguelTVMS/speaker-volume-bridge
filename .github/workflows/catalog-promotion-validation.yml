@@ -4,8 +4,6 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
-    paths:
-      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -29,6 +27,11 @@ jobs:
           # Fetch objects only. Never check out or execute the PR tree.
           git fetch origin "refs/pull/$PR_NUMBER/head"
           test "$(git rev-parse FETCH_HEAD)" = "$HEAD"
+          git fetch origin main
+          if [ "$(git rev-parse FETCH_HEAD)" != "$BASE" ] || ! git merge-base --is-ancestor "$BASE" "$HEAD"; then
+            echo 'Update the PR with current main before promotion validation.' >&2
+            exit 1
+          fi
           git diff --name-only -z "$BASE" "$HEAD" > "$RUNNER_TEMP/promotion-files"
           python3 - <<'PY_SCOPE'
           import os

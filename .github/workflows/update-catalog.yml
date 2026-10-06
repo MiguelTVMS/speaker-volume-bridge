@@ -8,9 +8,9 @@ on:
         type: string
     secrets:
       CATALOG_APP_ID:
-        required: true
+        required: false
       CATALOG_APP_PRIVATE_KEY:
-        required: true
+        required: false
   schedule:
     - cron: '43 3 * * *'
   workflow_dispatch:
@@ -28,8 +28,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  propose:
+  credentials:
     if: github.ref == 'refs/heads/develop' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.preflight.outputs.configured }}
+    steps:
+      - name: Check catalog automation credentials
+        id: preflight
+        env:
+          CATALOG_APP_ID: ${{ secrets.CATALOG_APP_ID }}
+          CATALOG_APP_PRIVATE_KEY: ${{ secrets.CATALOG_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$CATALOG_APP_ID" ] || [ -z "$CATALOG_APP_PRIVATE_KEY" ]; then
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::catalog-pending: configure the catalog GitHub App credentials, then run Propose update catalog on develop for the already public release. Do not dispatch another application release.'
+            echo 'catalog-pending: application publication is separate from catalog preparation. Catalog GitHub App credentials are missing; configure them and retry Propose update catalog for the public release tag. No catalog PR was created and no catalog was deployed.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  propose:
+    needs: credentials
+    if: needs.credentials.outputs.configured == 'true' && (github.ref == 'refs/heads/develop' || github.event_name == 'schedule')
     runs-on: macos-latest
     steps:
       # An installation token triggers normal pull_request CI. GITHUB_TOKEN

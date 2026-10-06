@@ -877,3 +877,16 @@ Live acceptance, after separate authorization and prerequisites:
 
 Hosting/App/main-workflow activation and live/native acceptance have not been
 performed by this implementation. See [operator prerequisites and recovery](catalog-operations.md).
+
+### Missing catalog credentials after public publication
+
+The regression executes the production workflow preflight shell with both
+credentials absent, each independently absent and both present. It checks the
+configured output, catalog-pending summary, secret redaction and downstream
+proposal gate. It fails against the required-secret/no-preflight workflow and
+passes after the fix. Normal CI runs it with the catalog orchestration suite.
+Live acceptance requires an approved workflow update, an already public release,
+and a missing-credential invocation: verify publication remains successful, the
+warning identifies pending catalog preparation, and no proposal runner starts.
+Then configure the App and verify normal proposal CI and approval. This live
+acceptance and credential provisioning have not been performed locally.

@@ -84,3 +84,15 @@ Before a guide update:
 3. Use the released tag as the source of truth for features, settings, defaults, assets, and limitations.
 4. Recheck issue state before changing any limitation link.
 5. Update the version banner and validate all internal and external links.
+
+## Independent catalog activation
+
+Catalog updates require verified public packages, normal pull-request checks and
+human approval. They can be delivered from develop while retaining the last
+approved GA website. A workflow-only hosting promotion preserves that website
+and its displayed version; it does not publish another application release.
+
+Initial activation requires an exact verified copy of the served GA website.
+Missing retained artifacts or hosting transformations that change HTML bytes
+leave activation pending until reviewed recovery and full comparison succeed.
+Catalog delivery and installed-app verification are separate acceptance steps.

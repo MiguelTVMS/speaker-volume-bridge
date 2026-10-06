@@ -71,6 +71,10 @@ with the existing administrator and approval process:
   workflow-only promotion before any subsequent GA website deployment. An old main
   workflow can still deploy stale main catalogs until this handoff is complete.
   Both branches must use the same concurrency group and composition entry point.
+  A push containing only workflow changes restores the retained GA bundle instead
+  of rebuilding it. Scheduled reconciliation compares source content excluding
+  workflow files, so a workflow-only promotion does not later rewrite GA metadata.
+  Actual GA content changes and explicit main recovery still rebuild normally.
   This handoff does not authorize publishing new website content.
 
 Snapshots use immutable content-addressed ZIP files in the hosting-state branch.
@@ -173,3 +177,19 @@ versions receive the exact action, wrong edition/architecture remains unavailabl
 and Stable/Prereleases remain separate. These controlled clients do not prove
 native installed-package recognition or actual Pages deployment. See the
 [verification matrix](verification-matrix.md) for the live procedure.
+
+## Exact bootstrap and edge transformations
+
+An expired Pages artifact can be reconstructed only from the original approved
+GA source, generated build metadata and the original build image digest. Generate
+the complete inventory locally and compare every file using ordinary and
+cache-refresh reads before requesting adoption of the immutable snapshot.
+Retaining a review archive locally changes no served content. Adoption still
+requires the administrator-reviewed recovery described above.
+
+A hosting-edge HTML transformation breaks exact artifact-to-served-byte equality,
+even when displayed content looks equivalent. Do not silently strip injected
+scripts or record a transformed HTML response as the original GA build. Resolve
+the transformation through approved hosting configuration, or obtain an explicit
+reviewed change to the verification contract before adopting state. A failed
+comparison leaves bootstrap and catalog delivery outstanding.

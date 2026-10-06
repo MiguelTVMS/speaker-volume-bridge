@@ -59,9 +59,15 @@ jobs:
           REQUESTED: ${{ inputs.mode }}
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
           mode=catalog
           if [ "$REF" = refs/heads/main ] && [ "$EVENT" != schedule ]; then mode=ga; fi
+          if [ "$REF" = refs/heads/main ] && [ "$EVENT" = push ]; then
+            git -C tools fetch origin main
+            mode=$(python3 tools/scripts/compose-catalog-site.py source-mode --repository tools --revision "$BEFORE" --current "$AFTER")
+          fi
           if [ "$REQUESTED" = bootstrap ]; then mode=bootstrap; fi
           if [ "$REQUESTED" = verify-candidate ]; then mode=verify-candidate; fi
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
@@ -97,7 +103,7 @@ jobs:
           if [ "$EVENT" = schedule ] && [ -f storage/state.json ]; then
             git -C tools fetch origin main
             published=$(python3 -c 'import json; print(json.load(open("storage/state.json")).get("published", {}).get("revision", ""))')
-            if [ "$published" != "$(git -C tools rev-parse origin/main)" ]; then mode=ga; fi
+            mode=$(python3 tools/scripts/compose-catalog-site.py source-mode --repository tools --revision "$published" --current origin/main)
           fi
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7

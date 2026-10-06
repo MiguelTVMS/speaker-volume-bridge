@@ -890,3 +890,19 @@ and a missing-credential invocation: verify publication remains successful, the
 warning identifies pending catalog preparation, and no proposal runner starts.
 Then configure the App and verify normal proposal CI and approval. This live
 acceptance and credential provisioning have not been performed locally.
+
+### Workflow-only main activation regression
+
+`test_workflow_only_promotion_preserves_ga_source_for_push_and_schedule` invokes
+the production composition CLI on a real repository. A workflow-only commit
+selects retained catalog composition; a subsequent GA content commit selects a
+GA rebuild. Both push and schedule call that source comparison in the workflow.
+The previous SHA-only comparison fails the regression; the corrected source
+comparison passes. Missing published-source evidence fails closed.
+
+An exact reconstruction from the successful GA source, original generated
+metadata and pinned image produced a complete 66-file inventory. Normal and
+cache-refresh comparisons matched 40 files, including both catalogs; 26 HTML
+files differed because the hosting edge injected a script loader and rewrote
+script tags. No snapshot was adopted or deployed. Resolve that approved hosting
+prerequisite and repeat all-file byte verification before bootstrap acceptance.

@@ -244,6 +244,44 @@ class OrchestrationTests(unittest.TestCase):
 
 
 class HostingTests(unittest.TestCase):
+    def test_workflow_only_promotion_preserves_ga_source_for_push_and_schedule(self):
+        import sys
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(repository), *args], text=True).strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            git('config', 'commit.gpgsign', 'false')
+            (repository / 'index.html').write_text('approved GA')
+            git('add', '.')
+            git('commit', '-qm', 'GA')
+            published = git('rev-parse', 'HEAD')
+            workflows = repository / '.github/workflows'
+            workflows.mkdir(parents=True)
+            (workflows / 'pages.yml').write_text('workflow-only handoff')
+            git('add', '.')
+            git('commit', '-qm', 'Promote workflows')
+            promoted = git('rev-parse', 'HEAD')
+            cli = ROOT / 'scripts/compose-catalog-site.py'
+            command = [sys.executable, str(cli), 'source-mode', '--repository', str(repository),
+                       '--revision', published, '--current', promoted]
+            self.assertEqual(subprocess.check_output(command, text=True).strip(), 'catalog')
+            self.assertFalse(site.ga_source_changed(repository, published, promoted))
+            # A later actual GA content change still rebuilds.
+            (repository / 'index.html').write_text('new approved GA')
+            git('add', '.')
+            git('commit', '-qm', 'GA content')
+            command[-1] = git('rev-parse', 'HEAD')
+            self.assertEqual(subprocess.check_output(command, text=True).strip(), 'ga')
+            self.assertTrue(site.ga_source_changed(repository, published, command[-1]))
+            with self.assertRaises(ValueError):
+                site.ga_source_changed(repository, '', promoted)
+        workflow = (ROOT / '.github/workflows/pages.yml').read_text()
+        self.assertEqual(workflow.count('compose-catalog-site.py source-mode'), 2)
+        self.assertIn('BEFORE: ${{ github.event.before }}', workflow)
+
     def setup_site(self, directory):
         root = Path(directory)
         website, catalogs = root / 'website', root / 'catalogs'

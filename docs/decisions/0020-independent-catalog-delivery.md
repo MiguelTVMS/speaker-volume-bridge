@@ -62,3 +62,17 @@ checks both credentials before scheduling the proposal runner; missing values
 produce catalog-pending warnings and retry instructions, never a success claim
 for catalog creation or delivery. No GITHUB_TOKEN fallback is introduced.
 Present but invalid credentials still fail token creation.
+
+### Workflow-only activation preserves GA source
+
+Main activation promotes workflow definitions through review without a GA source
+change. Production composition compares the approved source trees while excluding
+workflow files for both the promotion push and later scheduled reconciliation.
+Such a promotion uses the retained bundle, preserving its generated metadata and
+all non-catalog bytes. Actual source changes and explicit GA recovery still use
+the GA build path. A missing source or snapshot fails closed. Real-Git and CLI
+regressions distinguish workflow-only changes from changed GA content.
+
+Exact served-byte bootstrap must account for edge transformations operationally.
+Do not normalize differences or adopt transformed content without a separately
+reviewed verification design. Reconstruction does not authorize publishing.

@@ -525,6 +525,41 @@ class HostingTests(unittest.TestCase):
         trigger = source.split('permissions:', 1)[0]
         self.assertNotIn('paths:', trigger)
 
+    def test_gate_preserves_pinned_divergent_release_promotion(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], text=True).strip()
+            git('init', '-q', '-b', 'release')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            workflows = root / '.github/workflows'
+            workflows.mkdir(parents=True)
+            (workflows / 'pages.yml').write_text('unchanged workflow')
+            git('add', '.')
+            git('commit', '-qm', 'Common source')
+            git('branch', 'main')
+            (root / 'README.md').write_text('Published release content')
+            git('add', '.')
+            git('commit', '-qm', 'Published pinned release')
+            head = git('rev-parse', 'HEAD')
+            git('checkout', 'main')
+            git('commit', '--allow-empty', '-qm', 'Prior promotion history')
+            base = git('rev-parse', 'HEAD')
+            self.assertNotEqual(subprocess.run(['git', 'merge-base', '--is-ancestor', base, head], cwd=root).returncode, 0)
+            # Supported release promotion verifies its prospective tree equals the pinned tree.
+            self.assertEqual(git('merge-tree', '--write-tree', base, head), git('rev-parse', head + '^{tree}'))
+            git('remote', 'add', 'origin', str(root))
+            git('update-ref', 'refs/pull/7/head', head)
+            env = dict(os.environ, BASE=base, HEAD=head, PR_NUMBER='7', RUNNER_TEMP=str(root),
+                       GITHUB_OUTPUT=str(root / 'output'), GITHUB_STEP_SUMMARY=str(root / 'summary'))
+            scope = workflow_script('catalog-promotion-validation.yml', 'Identify workflow-only handoff')
+            accepted = subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, capture_output=True)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr.decode())
+            self.assertIn('has_workflows=false', (root / 'output').read_text())
+            self.assertEqual(git('rev-parse', 'release'), head)
+
     def setup_site(self, directory):
         root = Path(directory)
         website, catalogs = root / 'website', root / 'catalogs'

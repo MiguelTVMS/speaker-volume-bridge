@@ -227,5 +227,8 @@ approval process; do not substitute a PR-controlled check.
 The trusted gate runs for every main PR without event path filtering, so a
 required check can complete on ordinary GA content proposals. Workflow-specific
 checks remain conditional. Before classifying changes, it verifies the live main
-revision matches the event base and is an ancestor of the proposed head. Update
-a stale PR with current main and rerun validation before approval or merge.
+revision matches the event base. PRs changing workflow definitions also require
+that base to be an ancestor of the proposed head. Update stale workflow handoffs
+with current main and rerun validation before approval or merge. Published
+release heads without workflow changes retain the existing exact prospective
+merge-tree validation and remain pinned to the published release commit.

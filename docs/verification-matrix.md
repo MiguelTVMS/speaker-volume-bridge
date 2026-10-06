@@ -1005,3 +1005,10 @@ accepts the stale head; the fixed production step rejects it and stale event
 bases. A fresh content-only PR passes classification with no workflow checks.
 The trigger has no path filter so ordinary GA proposals complete the required
 check. These local results do not establish live main gate installation.
+
+Pinned divergent release regression: the release head and current main share
+source but diverge because of prior promotion history. The prospective merge
+tree equals the published release tree. The prior unconditional ancestry gate
+rejects that supported production route; the fixed production scope step accepts
+it without changing the pinned head. Workflow-changing divergent heads and stale
+event bases remain rejected by the existing regression.

@@ -96,5 +96,7 @@ through a separate approved bootstrap before workflow activation. It reads PR
 Git objects but executes only trusted base code and approved develop tests.
 
 The required promotion gate has no event path filter. It rejects stale base
-events and heads that do not contain current main, ensuring the compared head
-represents the merge result rather than a divergent endpoint tree.
+events and workflow-changing heads that do not contain current main, ensuring
+compared workflow definitions represent the merge result. Content-only published
+release promotions retain their existing exact prospective merge-tree proof and
+pinned release commit; workflow ancestry does not block that supported route.

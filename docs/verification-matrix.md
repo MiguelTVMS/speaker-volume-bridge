@@ -998,3 +998,10 @@ publishes a shutdown flag before abort and checks it at scheduling boundaries,
 so no request begins. The test then waits for worker destruction before asserting
 the transport count. Repeat native quit at startup/retry boundaries when native
 inspection is available; CI does not establish OS shutdown presentation.
+
+Main gate regression: branch from main, approve a workflow change on develop,
+then advance main with a nonconflicting workflow edit. The prior scope step
+accepts the stale head; the fixed production step rejects it and stale event
+bases. A fresh content-only PR passes classification with no workflow checks.
+The trigger has no path filter so ordinary GA proposals complete the required
+check. These local results do not establish live main gate installation.

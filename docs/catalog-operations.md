@@ -223,3 +223,9 @@ workflow or deploy content. Keep the activation handoff draft until the trusted
 check runs successfully. If Actions event policy blocks this event, an
 administrator must authorize this specific trusted workflow through the normal
 approval process; do not substitute a PR-controlled check.
+
+The trusted gate runs for every main PR without event path filtering, so a
+required check can complete on ordinary GA content proposals. Workflow-specific
+checks remain conditional. Before classifying changes, it verifies the live main
+revision matches the event base and is an ancestor of the proposed head. Update
+a stale PR with current main and rerun validation before approval or merge.

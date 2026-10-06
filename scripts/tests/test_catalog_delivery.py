@@ -258,7 +258,7 @@ class HostingTests(unittest.TestCase):
             repository = Path(directory)
             def git(*args):
                 return subprocess.check_output(['git', '-C', str(repository), *args], text=True).strip()
-            git('init', '-q')
+            git('init', '-q', '-b', 'fixture')
             git('config', 'user.name', 'Test')
             git('config', 'user.email', 'test@example.invalid')
             git('config', 'commit.gpgsign', 'false')
@@ -299,7 +299,7 @@ class HostingTests(unittest.TestCase):
             tools.mkdir()
             def git(*args):
                 return subprocess.check_output(['git', '-C', str(tools), '-c', 'commit.gpgsign=false', *args], text=True).strip()
-            git('init', '-q')
+            git('init', '-q', '-b', 'fixture')
             git('config', 'user.name', 'Test')
             git('config', 'user.email', 'test@example.invalid')
             (tools / 'index.html').write_text('published GA')
@@ -352,7 +352,7 @@ class HostingTests(unittest.TestCase):
             root = Path(directory)
             def git(*args):
                 return subprocess.check_output(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], text=True).strip()
-            git('init', '-q')
+            git('init', '-q', '-b', 'fixture')
             git('config', 'user.name', 'Test')
             git('config', 'user.email', 'test@example.invalid')
             workflows = root / '.github/workflows'
@@ -361,6 +361,7 @@ class HostingTests(unittest.TestCase):
             git('add', '.')
             git('commit', '-qm', 'Approved workflow')
             base = git('rev-parse', 'HEAD')
+            git('branch', 'main', base)
             (workflows / 'unreviewed.yaml').write_text('unreviewed')
             git('add', '.')
             git('commit', '-qm', 'Additional workflow')
@@ -377,7 +378,7 @@ class HostingTests(unittest.TestCase):
             result = subprocess.run(['bash', '-e', '-c', guard], cwd=root, env=env, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
         workflow = (ROOT / '.github/workflows/catalog-promotion-validation.yml').read_text()
-        self.assertIn("- '.github/workflows/**'", workflow)
+        self.assertNotIn('    paths:', workflow)
 
     def test_mixed_content_cannot_skip_workflow_definition_validation(self):
         import os
@@ -385,7 +386,7 @@ class HostingTests(unittest.TestCase):
             root = Path(directory)
             def git(*args):
                 return subprocess.check_output(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], text=True).strip()
-            git('init', '-q')
+            git('init', '-q', '-b', 'fixture')
             git('config', 'user.name', 'Test')
             git('config', 'user.email', 'test@example.invalid')
             workflows = root / '.github/workflows'
@@ -395,6 +396,7 @@ class HostingTests(unittest.TestCase):
             git('commit', '-qm', 'Approved')
             base = git('rev-parse', 'HEAD')
             git('branch', 'develop', base)
+            git('branch', 'main', base)
             git('remote', 'add', 'origin', str(root))
             (workflows / 'pages.yml').write_text('unreviewed')
             (root / 'README.md').write_text('unrelated content')
@@ -437,7 +439,7 @@ class HostingTests(unittest.TestCase):
             root = Path(directory)
             def git(*args):
                 return subprocess.check_output(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], text=True).strip()
-            git('init', '-q')
+            git('init', '-q', '-b', 'fixture')
             git('config', 'user.name', 'Test')
             git('config', 'user.email', 'test@example.invalid')
             workflows = root / '.github/workflows'
@@ -449,6 +451,7 @@ class HostingTests(unittest.TestCase):
             git('commit', '-qm', 'Trusted base')
             base = git('rev-parse', 'HEAD')
             git('branch', 'develop', base)
+            git('branch', 'main', base)
             git('remote', 'add', 'origin', str(root))
             validator.write_text('name: Bypassed validator\non: pull_request_target\njobs: {}\n')
             (workflows / 'pages.yml').write_text('unreviewed deployment')
@@ -469,6 +472,58 @@ class HostingTests(unittest.TestCase):
             self.assertFalse((root / 'executed').exists())
             self.assertEqual(git('rev-parse', 'HEAD'), base)
             self.assertFalse((root / 'approved-tools').exists())
+
+    def test_promotion_rejects_base_advance_and_accepts_content_only_current_head(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], text=True).strip()
+            git('init', '-q', '-b', 'fixture')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.invalid')
+            workflows = root / '.github/workflows'
+            workflows.mkdir(parents=True)
+            workflow = workflows / 'pages.yml'
+            workflow.write_text('first: base\nsecond: base\n')
+            git('add', '.')
+            git('commit', '-qm', 'Base')
+            base = git('rev-parse', 'HEAD')
+            git('branch', 'main', base)
+            git('remote', 'add', 'origin', str(root))
+            workflow.write_text('first: approved\nsecond: base\n')
+            git('add', '.')
+            git('commit', '-qm', 'Approved head')
+            head = git('rev-parse', 'HEAD')
+            git('branch', 'develop', head)
+            git('update-ref', 'refs/pull/7/head', head)
+            git('checkout', 'main')
+            workflow.write_text('first: base\nsecond: new base\n')
+            git('add', '.')
+            git('commit', '-qm', 'Main advances without a conflict')
+            advanced = git('rev-parse', 'HEAD')
+            env = dict(os.environ, BASE=advanced, HEAD=head, PR_NUMBER='7', RUNNER_TEMP=str(root),
+                       GITHUB_OUTPUT=str(root / 'output'), GITHUB_STEP_SUMMARY=str(root / 'summary'))
+            scope = workflow_script('catalog-promotion-validation.yml', 'Identify workflow-only handoff')
+            rejected = subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            # Also reject a stale event whose recorded base was current when emitted.
+            env['BASE'] = base
+            stale = subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, capture_output=True)
+            self.assertNotEqual(stale.returncode, 0)
+            # An ordinary content-only PR still emits a successful no-workflow result.
+            git('checkout', '-b', 'content')
+            (root / 'README.md').write_text('GA content')
+            git('add', '.')
+            git('commit', '-qm', 'Content only')
+            env.update(BASE=advanced, HEAD=git('rev-parse', 'HEAD'))
+            git('update-ref', 'refs/pull/7/head', env['HEAD'])
+            accepted = subprocess.run(['bash', '-e', '-c', scope], cwd=root, env=env, capture_output=True)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr.decode())
+            self.assertIn('has_workflows=false', (root / 'output').read_text())
+        source = (ROOT / '.github/workflows/catalog-promotion-validation.yml').read_text()
+        trigger = source.split('permissions:', 1)[0]
+        self.assertNotIn('paths:', trigger)
 
     def setup_site(self, directory):
         root = Path(directory)

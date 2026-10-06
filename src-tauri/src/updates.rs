@@ -955,12 +955,14 @@ const fn edition_name(edition: DistributionEdition) -> &'static str {
 pub struct UpdateManager {
     service: Arc<UpdateService>,
     task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    stopped: Arc<AtomicBool>,
 }
 impl UpdateManager {
     pub fn new(service: Arc<UpdateService>) -> Self {
         Self {
             service,
             task: Mutex::new(None),
+            stopped: Arc::new(AtomicBool::new(false)),
         }
     }
     pub fn service(&self) -> &Arc<UpdateService> {
@@ -978,6 +980,17 @@ impl UpdateManager {
         }
     }
     pub fn start(&self, app: &tauri::AppHandle) {
+        self.start_with_sleep(app, tokio::time::sleep);
+    }
+
+    // Inject only the timer; lifecycle ownership and check delivery remain shared
+    // with production startup so tests can drive every scheduling boundary.
+    fn start_with_sleep<R, S, F>(&self, app: &tauri::AppHandle<R>, sleep: S)
+    where
+        R: tauri::Runtime,
+        S: Fn(Duration) -> F + Send + 'static,
+        F: std::future::Future<Output = ()> + Send,
+    {
         let Ok(mut task) = self.task.lock() else {
             return;
         };
@@ -986,8 +999,9 @@ impl UpdateManager {
         }
         let service = Arc::clone(&self.service);
         let app_handle = app.clone();
+        let stopped = Arc::clone(&self.stopped);
         *task = Some(tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(30)).await;
+            sleep(Duration::from_secs(30)).await;
             #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with pinned Rust.
             let backoff = [
                 Duration::from_secs(60),
@@ -995,11 +1009,17 @@ impl UpdateManager {
                 Duration::from_secs(30 * 60),
             ];
             loop {
+                if stopped.load(Ordering::SeqCst) {
+                    return;
+                }
                 if service.automatic_due() {
                     let status = run_check_and_deliver(&app_handle, &service, false).await;
                     if status.check_failed {
                         for delay in backoff {
-                            tokio::time::sleep(delay).await;
+                            sleep(delay).await;
+                            if stopped.load(Ordering::SeqCst) {
+                                return;
+                            }
                             let status = run_check_and_deliver(&app_handle, &service, false).await;
                             if !status.check_failed {
                                 break;
@@ -1008,7 +1028,7 @@ impl UpdateManager {
                     }
                 }
                 #[allow(clippy::duration_suboptimal_units)]
-                tokio::time::sleep(Duration::from_secs(60)).await;
+                sleep(Duration::from_secs(60)).await;
             }
         }));
     }
@@ -1070,6 +1090,9 @@ where
 }
 impl Drop for UpdateManager {
     fn drop(&mut self) {
+        // Abort is cooperative; a currently polling ready timer must also see
+        // shutdown before it can begin another catalog request.
+        self.stopped.store(true, Ordering::SeqCst);
         if let Ok(mut task) = self.task.lock()
             && let Some(task) = task.take()
         {
@@ -1152,6 +1175,185 @@ mod tests {
             ),
             transport,
         )
+    }
+
+    #[tokio::test]
+    async fn production_scheduler_delays_retries_once_and_cancels_on_shutdown() {
+        async fn boundary(
+            timers: &mut tokio::sync::mpsc::UnboundedReceiver<(
+                Duration,
+                tokio::sync::oneshot::Sender<()>,
+            )>,
+        ) -> (Duration, tokio::sync::oneshot::Sender<()>) {
+            tokio::time::timeout(Duration::from_secs(5), timers.recv())
+                .await
+                .unwrap()
+                .unwrap()
+        }
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let (service, transport) = service(
+            catalog("2.0.0"),
+            clock.clone(),
+            Arc::new(MemoryPersistence::default()),
+        );
+        *transport.result.lock().unwrap() = Err("offline");
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let manager = UpdateManager::new(service);
+        let (sender, mut timers) = tokio::sync::mpsc::unbounded_channel();
+        let timer = move |delay| {
+            let (resume, wait) = tokio::sync::oneshot::channel();
+            sender.send((delay, resume)).unwrap();
+            async move {
+                let _ = wait.await;
+            }
+        };
+        manager.start_with_sleep(app.handle(), timer.clone());
+        manager.start_with_sleep(app.handle(), timer);
+        let (delay, resume) = boundary(&mut timers).await;
+        assert_eq!(delay, Duration::from_secs(30));
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+        assert!(
+            timers.try_recv().is_err(),
+            "duplicate start created a worker"
+        );
+        clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
+        resume.send(()).unwrap();
+        for (attempt, expected) in [60, 300, 1800, 60].into_iter().enumerate() {
+            let (delay, resume) = boundary(&mut timers).await;
+            assert_eq!(delay.as_secs(), expected);
+            assert_eq!(transport.calls.load(Ordering::SeqCst), attempt + 1);
+            if attempt == 3 {
+                drop(manager);
+                // Releasing the timer after shutdown must never fetch again.
+                let _ = resume.send(());
+                assert!(
+                    tokio::time::timeout(Duration::from_secs(5), timers.recv())
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+                assert_eq!(transport.calls.load(Ordering::SeqCst), 4);
+                return;
+            }
+            clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
+            resume.send(()).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn production_scheduler_shutdown_ready_timer_cannot_begin_check() {
+        struct WorkerDropped(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for WorkerDropped {
+            fn drop(&mut self) {
+                let _ = self.0.take().unwrap().send(());
+            }
+        }
+        let (service, transport) = service(
+            catalog("2.0.0"),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let manager = UpdateManager::new(service);
+        let (entered, wait_entered) = tokio::sync::oneshot::channel();
+        let entered = Mutex::new(Some(entered));
+        let (release, wait_release) = std::sync::mpsc::channel();
+        let wait_release = Mutex::new(wait_release);
+        let (dropped, wait_dropped) = tokio::sync::oneshot::channel();
+        let worker_dropped = WorkerDropped(Some(dropped));
+        manager.start_with_sleep(app.handle(), move |_| {
+            let _keep_alive = &worker_dropped;
+            let first = entered.lock().unwrap().take();
+            // Hold the worker inside its current poll while shutdown occurs.
+            // Abort cannot interrupt that poll, and the timer then becomes ready.
+            let is_first = first.is_some();
+            if let Some(entered) = first {
+                entered.send(()).unwrap();
+                wait_release.lock().unwrap().recv().unwrap();
+            }
+            async move {
+                if !is_first {
+                    std::future::pending::<()>().await;
+                }
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(5), wait_entered)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(manager);
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), wait_dropped)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn production_scheduler_shutdown_cancels_in_flight_transport() {
+        struct CancelOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for CancelOnDrop {
+            fn drop(&mut self) {
+                if let Some(sender) = self.0.take() {
+                    let _ = sender.send(());
+                }
+            }
+        }
+        struct PendingTransport {
+            entered: tokio::sync::Notify,
+            cancelled: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+        #[async_trait]
+        impl CatalogTransport for PendingTransport {
+            async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
+                let _guard = CancelOnDrop(self.cancelled.lock().unwrap().take());
+                self.entered.notify_one();
+                std::future::pending().await
+            }
+        }
+        let (cancelled, wait) = tokio::sync::oneshot::channel();
+        let transport = Arc::new(PendingTransport {
+            entered: tokio::sync::Notify::new(),
+            cancelled: Mutex::new(Some(cancelled)),
+        });
+        let persistence = Arc::new(MemoryPersistence::default());
+        let service = Arc::new(
+            UpdateService::new(
+                distribution(),
+                transport.clone(),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                persistence.clone(),
+            )
+            .unwrap(),
+        );
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let manager = UpdateManager::new(service);
+        manager.start_with_sleep(app.handle(), |_| async {});
+        tokio::time::timeout(Duration::from_secs(5), transport.entered.notified())
+            .await
+            .unwrap();
+        drop(manager);
+        tokio::time::timeout(Duration::from_secs(5), wait)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            persistence
+                .0
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .last_successful_check
+                .is_none()
+        );
     }
 
     #[tokio::test]

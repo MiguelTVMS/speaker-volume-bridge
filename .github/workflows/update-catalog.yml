@@ -65,7 +65,7 @@ jobs:
           ref: develop
           fetch-depth: 0
           token: ${{ steps.app.outputs.token }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Install package inspection tools

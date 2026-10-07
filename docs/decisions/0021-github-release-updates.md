@@ -36,7 +36,9 @@ startup delay, daily success interval, bounded retries, duplicate-start guard an
 shutdown cancellation. Notifications and exact release-page opening are retained.
 The application never downloads or installs an update.
 
-Former catalog contracts and tooling remain historical pending retirement. Old
+Automatic release catalog proposals, scheduled reconciliation and develop website
+deployments are retired. Website delivery remains on main. Historical manual
+catalog contracts and tooling remain available. Old
 applications receive no new migration or redirects. No app release is dispatched
 by implementation or tests; installed migration requires a future approved release.
 

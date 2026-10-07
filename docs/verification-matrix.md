@@ -1052,3 +1052,7 @@ regression fails against the former workflow and passes with this change. Apple
 commands are stubbed; actual signing, unsigned DMG installation, App Store Connect
 upload, Store review and public availability remain native/operator checks.
 No application release is dispatched by these tests.
+
+The website-trigger regression fails against the former develop/scheduled delivery
+configuration and passes with main-only delivery. This check validates trigger
+configuration; no deployment or served content modification occurs.

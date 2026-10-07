@@ -732,9 +732,12 @@ class WorkflowRegressionTests(unittest.TestCase):
         self.assertIn('scripts/propose-release-catalog.py', proposal)
         self.assertNotIn('gh pr merge', proposal)
 
-    def test_develop_merge_delivers_without_main_promotion_preserving_ga_snapshots(self):
+    def test_release_api_design_keeps_website_delivery_on_main(self):
         workflow = (ROOT / '.github/workflows/pages.yml').read_text()
-        self.assertIn('branches: [main, develop]', workflow)
+        self.assertIn('branches: [main]', workflow)
+        self.assertNotIn('  schedule:', workflow)
+        self.assertIn("if: github.ref == 'refs/heads/main'", workflow)
+        self.assertNotIn("if: github.ref == 'refs/heads/main' ||", workflow)
         self.assertIn('group: github-pages', workflow)
         self.assertIn('compose-catalog-site.py restore', workflow)
         self.assertIn('compose-catalog-site.py compose', workflow)

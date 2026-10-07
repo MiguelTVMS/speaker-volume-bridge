@@ -1,5 +1,9 @@
 # Public website
 
+Website delivery runs from main only; develop changes and scheduled legacy
+catalog restoration no longer initiate deployments. No served content changes
+when this workflow configuration merges into develop.
+
 New-build update checks use the public GitHub Releases API and do not depend on
 website/catalog publication. Catalog procedures below describe retained historical
 tooling; legacy delivery and redirects are outside the current rollout scope.

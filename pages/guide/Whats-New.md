@@ -28,7 +28,7 @@ There are five platform downloads: Windows x64 and ARM64 installers, an Apple Si
 
 On Ubuntu, the new package replaces the old package and keeps the old shell command as a compatibility link. On macOS, remove the old app bundle after quitting it so the two differently named bundles do not remain side by side. See [Installation](/guide/Installation.html) and [Upgrading](/guide/Upgrading.html).
 
-Windows direct downloads remain unsigned. The macOS app and disk image are signed and notarized. Store review and availability are separate from GitHub publication.
+Windows direct downloads remain unsigned. The documented GA baseline has a signed and notarized macOS app and disk image. Later releases can disable signing; check their exact release notes before installing. Store review and availability are separate from GitHub publication.
 
 ## Features carried forward
 

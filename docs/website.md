@@ -42,7 +42,13 @@ from the repository root, then open `http://localhost:4000`. A plain Python file
 server does not expand the shared includes or render the guide Markdown. Check
 the landing, guide, privacy, and guide upgrade pages at mobile and desktop widths.
 
-## Publish
+## Historical catalog publication and recovery
+
+The procedures in this section, through reviewed withdrawal, describe the
+former catalog delivery design and are not current deployment instructions.
+Develop deployment and scheduled reconciliation are retired. For current website
+delivery, use the Pages workflow on main after normal approved promotion; new
+application update checks need no website deployment.
 
 GitHub Pages remains the hosting provider. Website delivery composes the retained,
 verified GA site with approved catalogs from `develop`. GA source promotion stays
@@ -335,7 +341,7 @@ The Windows card likewise provides x64 and ARM64 buttons. Publish both
 Windows installer assets in a stable release before deploying
 the updated website. Generated Markdown and llms.txt carry the same choices.
 
-### Combined preview feed
+### Historical combined preview feed
 
 The proposal workflow maintains both v1 (stable-only transport) and v2
 (combined GA/Alpha/Beta transport) from the same verified release-tag invocation.

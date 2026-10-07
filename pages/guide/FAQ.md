@@ -70,8 +70,9 @@ Yes. Open [Night schedule](/guide/Night-Schedule.html), select weekly half-hour 
 
 ## Does the app install updates automatically?
 
-No. Recognized releases can check the public project catalog for a compatible
-update and open a validated release or Store page. The app does not download or
+No. Recognized direct releases can query the GitHub Releases API for a compatible
+update and open a validated release page. Store editions use their Store to check
+for updates; the in-app checker does not offer Store updates. The app does not download or
 run an installer. Automatic checks and native update notifications have separate
 switches under **Updates**. See [Update checks](/guide/Updates.html).
 

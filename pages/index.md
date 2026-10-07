@@ -58,7 +58,7 @@ Latest stable release · [Check the latest release ↗](https://github.com/Migue
 
 ### macOS
 
-For Macs running macOS 13 or later. Signed with Developer ID and notarized by Apple. Open the DMG and drag the app into Applications.
+For Macs running macOS 13 or later. Check the release notes for signing and notarization status before installing. Open the DMG and drag the app into Applications.
 
 Apple Silicon (ARM64) only. Intel Macs are not supported.
 

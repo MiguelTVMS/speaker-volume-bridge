@@ -1,5 +1,11 @@
 export type UpdatePhase =
-  'idle' | 'checking' | 'up_to_date' | 'update_available' | 'unavailable' | 'unsupported';
+  | 'idle'
+  | 'checking'
+  | 'up_to_date'
+  | 'update_available'
+  | 'unavailable'
+  | 'unsupported'
+  | 'store_managed';
 
 export type UpdateStatus = {
   policy?: 'stable' | 'prereleases';
@@ -31,6 +37,8 @@ const editions: Record<string, string> = {
 
 export function updateStateText(status: UpdateStatus): string {
   switch (status.phase) {
+    case 'store_managed':
+      return `Updates are managed by the ${editionLabel(status.edition)}. Open the Store to check for updates.`;
     case 'checking':
       return 'Checking for updates…';
     case 'up_to_date':
@@ -55,4 +63,13 @@ export function editionLabel(edition: string): string {
 export function releasePolicyControl(status: UpdateStatus): string {
   if (!status.prereleaseSupported) return '';
   return `<label class="toggle"><span>Release policy</span><select id="update-policy" aria-label="Release policy"><option value="stable"${status.policy !== 'prereleases' ? ' selected' : ''}>Stable only</option><option value="prereleases"${status.policy === 'prereleases' ? ' selected' : ''}>Include prereleases</option></select></label><p class="setting-note">Include prereleases includes public Alpha/Beta releases and newer stable releases. Switching to Stable only never downgrades: you will receive the next newer stable release.</p>`;
+}
+
+export function storeActionLabel(status: UpdateStatus): string | null {
+  if (status.phase !== 'store_managed') return null;
+  return status.edition === 'microsoft_store'
+    ? 'Open Microsoft Store'
+    : status.edition === 'mac_app_store'
+      ? 'Open Mac App Store'
+      : null;
 }

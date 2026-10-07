@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { editionLabel, releasePolicyControl, updateStateText } from './updates.ts';
+import {
+  editionLabel,
+  storeActionLabel,
+  releasePolicyControl,
+  updateStateText,
+} from './updates.ts';
 
 const status = (phase, values = {}) => ({
   phase,
@@ -50,4 +55,15 @@ test('release dropdown exposes Stable only and Include prereleases with persiste
   );
   assert.match(markup, /value="stable" selected>Stable only/);
   assert.match(markup, /value="prereleases">Include prereleases/);
+});
+
+test('Store editions explain delegation and expose only their Store action', () => {
+  for (const edition of ['microsoft_store', 'mac_app_store']) {
+    const managed = status('store_managed', { edition, prereleaseSupported: false });
+    assert.match(updateStateText(managed), /Updates are managed by/);
+    assert.equal(storeActionLabel(managed), `Open ${editionLabel(edition)}`);
+    assert.equal(releasePolicyControl(managed), '');
+    assert.doesNotMatch(updateStateText(managed), /up to date|unavailable/i);
+  }
+  assert.equal(storeActionLabel(status('idle')), null);
 });

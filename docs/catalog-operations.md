@@ -1,5 +1,11 @@
 # Catalog publication and independent website delivery
 
+This is historical catalog tooling. ADR 0021 supersedes catalog delivery for new
+builds. These activation steps are not prerequisites for GitHub Releases updates.
+Existing catalog clients require a one-time manual upgrade as described in
+[upgrade guidance](rebrand-upgrade.md). This readiness change activates none of
+these procedures.
+
 Historical catalog operations. New builds use the anonymous GitHub Releases API
 and require no catalog activation, backfill, credentials or Pages deployment.
 Legacy client delivery and redirects are outside the current rollout scope.

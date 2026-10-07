@@ -942,8 +942,10 @@ develop, and its trusted check has passed on the main activation PR. A separate
 main gate bootstrap is unnecessary. Activation prerequisites remain outstanding;
 a passing gate does not establish deployment or native acceptance.
 
-## Phase-one operational readiness audit
+## Historical catalog operational readiness audit
 
+This historical audit predates ADR 0021. Catalog delivery and activation below
+are superseded for new builds; they are not GitHub Releases readiness gates.
 The operational acceptance issues remain open until their applicable criteria
 are verified. Implemented behavior and passing CI do not establish public catalog
 availability or native acceptance. No self-update implementation or new application
@@ -1056,3 +1058,85 @@ No application release is dispatched by these tests.
 The website-trigger regression fails against the former develop/scheduled delivery
 configuration and passes with main-only delivery. This check validates trigger
 configuration; no deployment or served content modification occurs.
+
+## GitHub Releases readiness and Store delegation
+
+### Automated regression evidence
+
+`store_managed_production_paths_never_discover_or_notify` constructs both recognized
+Store editions with the former catalog client's automatic checks enabled. It
+enters shared production wake/manual notification orchestration and the production
+manager's delayed startup and periodic boundary, verifies zero transport calls,
+no permission or delivery callback, no offer or success timestamp, rejected policy
+and release actions, fixed edition-authorized Store actions, and restart persistence.
+Only the timer, persistence and release transport are injected. Reinstating the
+faulty discovery eligibility fails with one transport call instead of zero;
+the fix passes. The catalog backfill compatibility test now expects Store-managed
+and zero discovery for the Store target. Normal workspace CI runs these tests.
+
+Browser tests mount the actual Updates UI for both Stores, verify ownership copy,
+absence of Check for updates, release actions and policy selection, disabled
+check/notification switches, and invoke the Store command. These use simulated IPC;
+they do not prove OS Store protocol handling. Direct policy browser and production
+transport/service regressions remain passing. Rust formatting, Clippy, full
+workspace tests, frontend unit tests/build/lint, all 52 browser tests and 18 website
+checks passed locally.
+
+### Available packaged native acceptance, 2026-10-08
+
+An unsigned, optimized macOS ARM64 app bundle built from this readiness change was
+launched from Finder without replacing the installed application. Startup resolved
+Direct download for macOS; native Updates reported installed version 1.8.1 and a
+successful stable check. With automatic checks off, selecting Include prereleases
+showed checking, completed successfully, and preserved the off preference. A full
+Quit and relaunch retained Include prereleases, the successful-check timestamp and
+automatic checks off. Returning to Stable only ran another successful check.
+Original Stable only and automatic-checks-on preferences were restored; the test
+bundle was quit. No speaker was selected and no hardware synchronization was
+validated. The native window was exposed through the existing second-instance
+activation path because the normal bundle starts as a tray app.
+
+The public compatible release list offered no strictly newer version during this
+run. Therefore native offer-page opening, notification presentation/activation,
+and Later were not exercised. Automated production transport and orchestration
+coverage covers these paths, but does not replace that native acceptance.
+
+| Native check | Result / limitation |
+| --- | --- |
+| macOS direct ARM64 package build, launch, edition/version, policy changes and restart | Passed with unsigned local bundle |
+| Signed/notarized installed macOS upgrade and preserved settings after replacement | Unavailable signed candidate; installed older app was not replaced |
+| macOS Intel direct package | Unavailable compatible official installer; no compatibility inferred |
+| Mac App Store receipt/sandbox and native Updates action | Unavailable Store-installed candidate for this change; browser automation rejects native-protocol navigation, so no protocol probe is claimed |
+| Windows direct x64/ARM64 and Microsoft Store action | Unavailable Windows host/packages for this run |
+| Debian x64/ARM64 native launch and browser handling | Unavailable Linux desktop/packages for this run |
+| Native newer offer, notification permission/activation and exact release-page browser opening | No newer compatible public release for the test version; outstanding |
+
+### Exact manual reproduction for outstanding Store checks
+
+1. Install a recognized Store candidate containing this change. Open Updates and
+   verify installed version/edition, Store-managed guidance, no release policy,
+   no Check for updates button and disabled automatic-check/notification switches.
+2. Restart with an enabled automatic preference migrated from a catalog client.
+   Wait beyond the startup boundary, wake the computer and trigger the tray check.
+   Verify Store-managed remains visible with no GitHub discovery, offer, successful
+   discovery timestamp or app-generated update notice. Use a private capture if
+   needed; do not publish diagnostics.
+3. Choose Open Microsoft Store or Open Mac App Store. Confirm respectively the
+   correct product page or the native Updates page. Return without installing and
+   verify app synchronization remains operational.
+4. Repeat with Store unavailable or restricted and confirm the action reports its
+   opening failure without creating a release offer. Repeat on each available
+   supported architecture. Receipt, signing, sandbox and protocol behavior remain
+   outside mock/browser coverage.
+
+For direct native offer acceptance, use an older signed recognized build containing
+this discovery source and an independently published newer compatible release.
+Check both policies, exact release-page opening, Later, denied notifications,
+activation, full restart and return to Stable without downgrade. Do not republish
+or create a release solely to satisfy this check.
+
+Epic #159 now distinguishes superseded catalog work (#160, publication portions of
+#164/#183 and transport portions of #178) from retained distribution, service, UI
+and policy contracts. Existing catalog clients need a one-time manual upgrade;
+no catalog backfill or redirect is activated. Self-installation, signed rollout,
+release publication, deployment and Store submission remain outside this PR.

@@ -22,7 +22,7 @@ immediately before opening it.
 
 ## Automatic checks
 
-Recognized release packages check about 30 seconds after startup by default.
+Recognized direct and Debian packages check about 30 seconds after startup by default.
 After a successful check, the result remains fresh for 24 hours. Temporary
 failures use bounded retry delays and remain quiet in the background. Manual
 checks can retry and show an error without interrupting volume synchronization.
@@ -76,3 +76,25 @@ limits can omit retry headers. Failed checks retain the last
 validated offer, which must be refreshed before opening when stale. The app never
 downloads or installs updates. Previously published apps are not migrated by this
 change; it takes effect after installing a future build that includes it.
+
+## Store delegation and migration from catalog clients
+
+Recognized Microsoft Store and Mac App Store editions show **Updates are managed
+by the Store**. **Open Microsoft Store** opens this product in Microsoft Store;
+**Open Mac App Store** opens the Store's Updates page. Check, automatic-check,
+notification and release-policy controls are unavailable for Store editions.
+Startup, periodic, wake and manual calls make no GitHub discovery requests and
+never infer Store availability from direct-download releases. The Store owns
+update installation and notification behavior.
+
+Existing catalog-based direct clients need a **one-time manual upgrade** to a
+future released version containing GitHub Releases discovery. Download the correct
+edition and architecture from the official release page, quit the current app,
+and install it using the platform instructions. Keep application data to preserve
+settings. Old clients cannot discover this redesign through the retired catalog
+pipeline; no redirect, catalog backfill or silent source switch is provided.
+After upgrading, verify the installed version and edition in Updates and run a
+manual check. The new client discards old catalog offers and check freshness while
+preserving release-policy and notification preferences. Store clients upgrade
+through their existing Store when that version becomes available. This readiness
+work does not publish that version or implement self-installation.

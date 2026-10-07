@@ -52,4 +52,15 @@ both policies, unordered numeric previews, exact page actions, missing/incomplet
 assets, draft/foreign releases, saved policy, failed refresh, rate limits and actual
 HTTP pagination through the production transport. Former catalog fixtures remain
 isolated under test-only compatibility code for existing lifecycle regressions.
-Native dropdown, notification and browser acceptance remain outstanding.
+Unsigned packaged macOS ARM64 dropdown, version/edition detection, checks and
+restart persistence passed during readiness acceptance. Native newer-offer opening,
+notifications, signing, Stores and unavailable platforms remain outstanding; see
+[verification matrix](../verification-matrix.md).
+
+Store editions have a separate `store_managed` update state. The shell rejects
+GitHub discovery for these editions at the shared service boundary, disables
+automatic checks even for migrated enabled preferences, and exposes only fixed
+native Store destinations through an edition-authorized command. No release
+offer or Store availability claim is created. Direct release-policy behavior is
+unchanged. Existing catalog clients require a one-time manual upgrade; see
+[upgrade guidance](../rebrand-upgrade.md).

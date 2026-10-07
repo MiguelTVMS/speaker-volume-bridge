@@ -81,11 +81,27 @@ pub async fn set_update_notifications(enabled: bool, app: AppHandle) -> Result<b
         .ok_or_else(|| "Update checking is unavailable".to_owned())?
         .service()
         .clone();
+    if service.store_action().is_ok() {
+        return Err("Update notifications are managed by the Store".into());
+    }
     let permitted = !enabled || crate::schedule_notifications::permitted(&app, true).await;
     service
         .set_update_notifications(enabled && permitted)
         .map_err(|error| error.to_string())?;
     Ok(enabled && permitted)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn open_update_store(app: AppHandle) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let url = manager
+        .service()
+        .store_action()
+        .map_err(|_| "Store updates are unavailable for this edition".to_owned())?;
+    open_url_with_system(url)
 }
 
 #[tauri::command]

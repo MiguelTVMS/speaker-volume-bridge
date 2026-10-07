@@ -202,6 +202,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             commands::dismiss_update,
             commands::set_update_notifications,
             commands::open_update_page,
+            commands::open_update_store,
             commands::open_project_repository
         ])
         .run(context)

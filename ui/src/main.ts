@@ -27,7 +27,13 @@ import { applySpeakerControls, type SpeakerSettings } from './speaker-controls';
 import { SliderInteraction } from './slider-interaction';
 import { LiveStatus } from './live-status';
 import { UserWrites } from './user-writes';
-import { editionLabel, releasePolicyControl, updateStateText, type UpdateStatus } from './updates';
+import {
+  editionLabel,
+  releasePolicyControl,
+  storeActionLabel,
+  updateStateText,
+  type UpdateStatus,
+} from './updates';
 import './style.css';
 import './platform.css';
 import './windows.css';
@@ -387,14 +393,14 @@ function render(nextSnapshot: Snapshot): void {
         )}
         ${panel(
           'updates',
-          `<div class="panel-heading"><h2>Updates</h2><p>Check for a release published for this installed edition.</p></div>
+          `<div class="panel-heading"><h2>Updates</h2><p>${storeActionLabel(updateStatus) ? 'Manage updates through the Store that installed this edition.' : 'Check for a release published for this installed edition.'}</p></div>
           <p id="update-state" class="setting-note update-state${updateStatus.phase === 'update_available' ? ' update-state-available' : ''}" aria-live="polite">${escapeHtml(updateStateText(updateStatus))}</p>
           <div class="settings-group" data-update>
             <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${updateStatus.lastSuccessfulCheck ? escapeHtml(new Date(updateStatus.lastSuccessfulCheck * 1000).toLocaleString()) : 'Never'}</dd></div></dl>
             ${releasePolicyControl(updateStatus)}
-            <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks the project catalog without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
-            <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
-            <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="primary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button></div>
+            <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks public GitHub Releases without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
+            <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
+            <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="primary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}${storeActionLabel(updateStatus) ? `<button class="primary" type="button" id="open-update-store">${storeActionLabel(updateStatus)}</button>` : `<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button>`}</div>
           </div>`,
         )}
         ${panel(
@@ -502,6 +508,9 @@ function render(nextSnapshot: Snapshot): void {
   document.querySelector('#outputs')?.addEventListener('click', refreshAudioOutputs);
   app.querySelector<HTMLSelectElement>('#update-policy')?.addEventListener('change', (event) => {
     void setUpdatePolicy((event.target as HTMLSelectElement).value as 'stable' | 'prereleases');
+  });
+  document.querySelector('#open-update-store')?.addEventListener('click', () => {
+    void invoke('open_update_store').catch((error) => notice(String(error)));
   });
   document
     .querySelector('#check-for-updates')

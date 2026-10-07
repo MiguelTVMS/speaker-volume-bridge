@@ -157,7 +157,7 @@ Update checks share one shell orchestration path for startup, scheduled, wake an
 manual triggers. The shell persists the last successful check and validated offer
 across restarts, revalidates the cached offer's version, complete target identity,
 and HTTPS action at startup, replaces cached offers only after a successful
-catalog read, and deduplicates update notifications before delivery. Native update
+release metadata read, and deduplicates update notifications before delivery. Native update
 notifications
 carry activation intent; only activating one or choosing the tray Updates action
 navigates to the Updates page.
@@ -169,11 +169,11 @@ conflicting, sideloaded or unverifiable packages never silently enroll in offici
 checks. Resolution failure is an update-only condition and cannot stop audio
 synchronization. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
 
-The shell also owns one update service with injected catalog transport, clock,
+The shell also owns one update service with injected release transport, clock,
 distribution metadata and persistence. It starts only after synchronization has
 started, waits 30 seconds, and performs at most one shared request at a time.
 Successful checks impose a 24-hour freshness interval; transient failures use
-bounded backoff. Wake and clock changes cannot bypass the attempt guard. Catalog
+bounded backoff. Wake and clock changes cannot bypass the attempt guard. Release API
 requests never use the Sonos adapter and contain no speaker/configuration data or
 persistent installation identifier.
 
@@ -203,7 +203,7 @@ origin/expected-write suppression remains in the synchronization adapters. Sonos
 notifications do not identify the originating controller, so an echoed value is
 not treated as proof of authorship and genuine external changes remain observable.
 
-Catalog publication retains the validated document and updates only `generatedAt`
+Historical catalog publication retains the validated document and updates only `generatedAt`
 and `entries`, preserving additive catalog fields and unchanged entry/action
 metadata. The complete result is validated again before writing; repeated
 publication returns the original content. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
@@ -396,3 +396,11 @@ Release dispatch exposes Version, Stable and three signing/Store flags. Stable
 controls GA versus Beta publication. Store delivery requires stable plus explicit
 opt-in and existing approvals; direct macOS signing can be disabled without
 weakening Store signing. See [ADR 0022](decisions/0022-release-workflow-inputs.md).
+
+Store editions have a separate `store_managed` update state. The shell rejects
+GitHub discovery for these editions at the shared service boundary, disables
+automatic checks even for migrated enabled preferences, and exposes only fixed
+native Store destinations through an edition-authorized command. No release
+offer or Store availability claim is created. Direct release-policy behavior is
+unchanged. Existing catalog clients require a one-time manual upgrade; see
+[upgrade guidance](rebrand-upgrade.md).

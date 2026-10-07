@@ -79,3 +79,41 @@ test('dark dropdown menus give every option an explicit readable surface', async
     }
   }
 });
+
+for (const [edition, name] of [
+  ['microsoft_store', 'Microsoft Store'],
+  ['mac_app_store', 'Mac App Store'],
+]) {
+  test(`${edition} delegates Updates to its Store`, async ({ page }) => {
+    await page.goto(`/preview.html?edition=${edition}`);
+    await page.getByRole('button', { name: 'Updates', exact: true }).click();
+    await expect(page.locator('#update-state')).toContainText(`Updates are managed by the ${name}`);
+    await expect(page.getByRole('button', { name: 'Check for updates' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open update page' })).toHaveCount(0);
+    await expect(page.locator('#automatic-update-checks')).toBeDisabled();
+    await expect(page.locator('#update-notifications')).toBeDisabled();
+    await page.evaluate(() => {
+      const host = window as unknown as {
+        __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
+        storeCommands?: string[];
+      };
+      host.storeCommands = [];
+      const invoke = host.__TAURI_INTERNALS__.invoke;
+      host.__TAURI_INTERNALS__.invoke = (command, args) => {
+        if (
+          command === 'open_update_store' ||
+          command === 'check_for_updates' ||
+          command === 'open_update_page'
+        ) {
+          host.storeCommands!.push(command);
+        }
+        return invoke(command, args);
+      };
+    });
+    await page.getByRole('button', { name: `Open ${name}`, exact: true }).click();
+    expect(
+      await page.evaluate(() => (window as unknown as { storeCommands: string[] }).storeCommands),
+    ).toEqual(['open_update_store']);
+    await expect(page.locator('#update-state')).toContainText('Updates are managed by');
+  });
+}

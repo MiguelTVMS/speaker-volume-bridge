@@ -937,8 +937,10 @@ literally, and the focused workflow-only handoff retains its stricter allowlist.
 Trusted promotion regression: a PR replaces the validator and deployment workflow
 while adding unrelated content. The previous validator accepts it; the base-side
 validator rejects it without checking out or executing PR code. Both outcomes
-were reproduced locally. Gate installation and live base-side CI remain pending
-human approval; this does not establish deployment or native acceptance.
+were reproduced locally. The reviewed validator is merged on the default branch,
+develop, and its trusted check has passed on the main activation PR. A separate
+main gate bootstrap is unnecessary. Activation prerequisites remain outstanding;
+a passing gate does not establish deployment or native acceptance.
 
 ## Phase-one operational readiness audit
 
@@ -1004,7 +1006,8 @@ then advance main with a nonconflicting workflow edit. The prior scope step
 accepts the stale head; the fixed production step rejects it and stale event
 bases. A fresh content-only PR passes classification with no workflow checks.
 The trigger has no path filter so ordinary GA proposals complete the required
-check. These local results do not establish live main gate installation.
+check. The live main-targeting gate uses the approved default-branch definition;
+its passing check does not establish catalog activation.
 
 Pinned divergent release regression: the release head and current main share
 source but diverge because of prior promotion history. The prospective merge

@@ -35,91 +35,178 @@ the landing, guide, privacy, and guide upgrade pages at mobile and desktop width
 
 ## Publish
 
-In repository Settings > Pages, select **GitHub Actions** as the source. The
-Website workflow builds `pages/` with the official GitHub Pages Jekyll action
-when changes to that directory or the workflow reach `main`. It then publishes
-resolved guide Markdown beside the rendered HTML before uploading the artifact.
-It does not depend on release creation or application
-packaging. Manual dispatch is supported on `main` only. Configure the
-`github-pages` environment to allow deployments from `main`.
-
-Changes follow the normal feature branch, approved PR, and Gitflow process.
-No deployment runs from feature branches or `develop`.
-
-The machine-readable update catalog is published with the same atomic `pages/`
-artifact at `updates/v1/catalog.json`. Validate it with
-`python3 scripts/validate-update-catalog.py`. Its entries represent independently
-verified public availability per distribution and application architecture; a
-build, tag, upload, submission or workspace version is not sufficient evidence.
-See [ADR 0019](decisions/0019-distribution-aware-updates.md) for the v1 contract.
+GitHub Pages remains the hosting provider. Website delivery composes the retained,
+verified GA site with approved catalogs from `develop`. GA source promotion stays
+on `main`; catalog-only delivery can run from `develop` without another application
+release. The workflow serializes these deliveries and verifies served content.
+See [catalog operations](catalog-operations.md) for the administrator prerequisites,
+trusted workflow handoff, durable snapshot adoption and exact-byte verification.
+Activation is incomplete until those live acceptance checks are satisfied.
 
 ### Catalog publication
 
-Catalog entries deliberately lag package creation. First complete the ordinary
-`develop` release-candidate flow and publish the stable release through its
-approved promotion PR. Confirm each direct-download asset is publicly retrievable,
-or separately confirm the exact Store edition is publicly listed. Drafts,
-prereleases in the stable feed, submissions and uploads are not stable availability evidence.
+First verify an existing release is public. Builds, drafts, uploads and Store
+submissions are not public availability evidence. The proposal workflow inspects
+actual direct-download packages and their provenance before preparing entries.
 
-From `develop`, run **Propose update catalog** with a JSON availability record and
-the SHA-256 of the catalog that was reviewed. The workflow serializes writers,
-revalidates the full document, changes only the selected versioned catalog, and
-opens a focused PR back to `develop`. It never publishes a package or deploys the
-site. Repeated evidence is idempotent; older versions, incomplete asset sets,
-unverified Store listings and stale catalog digests fail closed. Each architecture
-and edition advances independently, so partial availability is expected.
+Select the `develop` branch and run **Propose update catalog** with the required
+`release_tag` input naming that already public release. This is the only manual
+input. Do not supply JSON availability records, catalog digests or a selected
+feed. The workflow reads current catalogs and independently verifies public
+release metadata, package bytes, versions, architectures and publisher channel.
+It updates both versioned feeds as applicable: GA direct releases enter v1 and
+v2; Alpha/Beta direct releases enter v2 only. It opens a focused proposal PR back
+to `develop` with normal CI and human review. It never publishes an application
+package or approves or merges its own proposal.
 
-For a withdrawn public package, use a `withdraw` record with its four-field target
-and a non-empty reason. Withdrawal removes that target and never exposes an older
-release as a downgrade. Retry a failed or stale proposal from current `develop`.
-After review, the catalog follows the normal release path from `develop` to
-`release/<version>` and then `main`; only the `main` Pages deployment serves it.
-That deployment fetches the public catalog, validates the served bytes, and
-requires a cache-control header before completing.
+After approved merge, catalog delivery overlays the approved feeds onto the
+retained GA snapshot. Verify both public catalogs and every non-catalog website
+file. Catalog publication does not require another release or a catalog promotion
+to `main`. Scheduled reconciliation can recover missed proposals or delivery, but
+does not replace those approvals or served-byte verification.
 
 Operator cases:
 
-- **Initial bootstrap:** start from the checked-in empty valid catalog, calculate
-  its SHA-256, and propose only the first independently verified target. An empty
-  catalog remains a valid normal state until then.
-- **Store lag:** the release operator who observes the exact version publicly
-  obtainable in Microsoft Store or Mac App Store supplies the explicit Store
-  record. Do not reuse build, submission or approval status.
-- **Retry or conflict:** fetch current `develop`, review its new digest and rerun.
-  The concurrency group prevents overlapping writers; a PR conflict is resolved
-  by closing the stale proposal and generating a new one, never by hand-merging
-  unverified entries.
-- **Withdrawal:** use the explicit target and reason. Do not republish a prior
-  version as a substitute.
-- **Failure:** leave the current catalog untouched. Fix the availability evidence,
-  complete asset publication, or wait for Store visibility before retrying. A
-  release without a catalog entry is supported and appears unavailable to clients.
+- **Initial bootstrap:** adopt the actual served GA snapshot using the documented
+  Website bootstrap procedure. Bootstrap deploys nothing. An empty catalog stays
+  valid until independently verified release entries are approved and delivered.
+- **Missing credentials:** configure the catalog GitHub App, then rerun the
+  proposal workflow on `develop` for the existing public release tag. Do not
+  dispatch another application release to recover catalog delivery.
+- **Retry or conflict:** rerun against current approved `develop`. Review the
+  regenerated proposal and retain normal CI and human approval. Do not manually
+  combine unverified entries or supply a previously reviewed digest.
+- **Store availability:** the automatic direct-release proposal does not establish
+  or create Store availability. Keep unavailable or unverified Store targets
+  outstanding; a submission or approval cannot substitute for public availability.
+  Once verified, use the [reviewed Store publication procedure](#reviewed-store-publication).
+- **Withdrawal:** the manual release-tag dispatch has no withdrawal input. Handle
+  withdrawn packages through the [reviewed withdrawal procedure](#reviewed-withdrawal)
+  below; never restore an older release as a downgrade.
+- **Before deployment:** proposal, build or pre-deployment failures leave the
+  previous served site in place. Correct the failed prerequisite and retry.
+- **After deployment starts:** a deployment error or failed served-byte check is
+  an unverified outcome. Pages may already serve the candidate catalogs; do not
+  assume rollback or report catalog delivery as verified. Retain the previous and
+  candidate snapshots and follow [delivery recovery](catalog-operations.md#independent-catalog-delivery).
+  For ambiguous GA delivery, use Website `verify-candidate` without deployment,
+  or the documented main recovery run. Retry catalog-only delivery on develop
+  when appropriate. Never clear pending state to bypass verification. A public
+  application release with pending catalog delivery remains supported.
 
-Example direct-release evidence:
+### Reviewed Store publication
+
+The release-tag proposal workflow verifies direct-download packages only. A
+publicly obtainable Store offer needs a separate reviewed v1 catalog change;
+v2 excludes Store targets. Verify the exact Store edition, public version and
+application architecture, and retain the evidence in an approved private location.
+A package upload, submission, certification or private test listing is insufficient.
+No Store availability is asserted by this guide or its template.
+
+On a focused branch from current approved `develop`, review the v1 catalog and
+capture its digest. Save this template as `store-upsert.json` outside the committed
+change. Replace the version, public publication timestamp, architecture and notes
+with verified values. Change both confirmation flags to `true` only after public
+availability is independently confirmed for that exact target:
 
 ```json
 {
   "operation": "upsert",
-  "verifiedAvailable": true,
-  "source": {
-    "kind": "github_release",
-    "draft": false,
-    "prerelease": false,
-    "requiredAssets": ["SpeakerVolumeBridge-windows-x64.exe"],
-    "availableAssets": ["SpeakerVolumeBridge-windows-x64.exe"]
-  },
+  "verifiedAvailable": false,
+  "source": {"kind": "microsoft_store", "published": false},
   "entry": {
-    "edition": "direct_windows",
+    "edition": "microsoft_store",
     "channel": "stable",
     "os": "windows",
     "architecture": "x86_64",
-    "version": "1.8.0",
-    "publishedAt": "2026-10-04T12:00:00Z",
-    "releaseNotes": "Stable release notes.",
+    "version": "<verified-version>",
+    "publishedAt": "<verified-publication-timestamp>",
+    "releaseNotes": "<reviewed-public-release-notes>",
     "action": {"type": "open_url", "url": "https://svb.miguel.ms/guide/Upgrading.html"}
   }
 }
 ```
+
+For Mac App Store, set both `source.kind` and `entry.edition` to `mac_app_store`,
+set `entry.os` to `macos`, and use the verified application architecture. Retain
+`channel: stable` and omit classification in v1. Repeat only for independently
+verified architectures. The confirmation flags are operator assertions; the tool
+does not query a Store or establish public availability for you.
+
+Keep the digest captured at catalog review through preparation:
+
+```sh
+store_expected=$(python3 -c 'import hashlib; from pathlib import Path; print(hashlib.sha256(Path("pages/updates/v1/catalog.json").read_bytes()).hexdigest())')
+python3 scripts/prepare-update-catalog.py store-upsert.json --catalog pages/updates/v1/catalog.json --expected-sha256 "$store_expected"
+python3 scripts/validate-update-catalog.py pages/updates/v1/catalog.json
+git diff -- pages/updates/v1/catalog.json
+```
+
+The unchanged template fails closed. A changed catalog digest also stops
+preparation. Review that only the verified Store target advances and existing
+targets and withdrawal cutoffs are preserved. The tool cannot overwrite an equal
+or newer offer with a different equal or older record; do not bypass that check.
+Commit only the intended v1 catalog and open a normal PR to `develop` with
+sanitized evidence and a private verification reference. Require CI and human
+approval. After approved merge and delivery, verify the served v1 catalog and
+unchanged non-catalog website files; confirm v2 remains free of Store targets.
+Local preparation is neither deployed availability nor Store publication.
+
+### Reviewed withdrawal
+
+Use a focused branch from current approved `develop`. Inspect the current catalogs
+and review the exact edition, channel, OS, application architecture and version
+cutoff before preparing a change. The following records illustrate one Windows
+GA target; replace the target and version with the reviewed values, and supply a
+non-empty withdrawal reason. Do not run the example unchanged unless it identifies
+the actual withdrawn offer. Keep the record files outside the committed catalog
+change.
+
+Save the v1 record as `withdrawal-v1.json`:
+
+```json
+{
+  "operation": "withdraw",
+  "target": {
+    "edition": "direct_windows",
+    "channel": "stable",
+    "os": "windows",
+    "architecture": "x86_64"
+  },
+  "version": "1.8.0",
+  "reason": "Public package withdrawn after review"
+}
+```
+
+Save the v2 record as `withdrawal-v2.json` using the same fields plus
+`"classification": "GA"` inside `target`. GA uses `channel: stable` in both feeds.
+For Alpha or Beta direct targets, use only the v2 record, set the matching
+classification and `channel: prereleases`, and do not modify v1. Store editions
+(`microsoft_store` and `mac_app_store`) use only the v1 record and preparation
+command, even for GA; v2 excludes Store targets. Use both feeds only for direct
+GA targets. Repeat for each affected architecture and edition. An explicit reviewed version cutoff records withdrawal intent even
+if that offer is absent; without an existing entry or cutoff the tool cannot
+infer it. The withdrawal ledger prevents equal or older offers from being restored.
+
+Capture both digests when reviewing the catalogs, then retain those values through
+preparation so a changed catalog fails closed:
+
+```sh
+v1_expected=$(python3 -c 'import hashlib; from pathlib import Path; print(hashlib.sha256(Path("pages/updates/v1/catalog.json").read_bytes()).hexdigest())')
+v2_expected=$(python3 -c 'import hashlib; from pathlib import Path; print(hashlib.sha256(Path("pages/updates/v2/catalog.json").read_bytes()).hexdigest())')
+python3 scripts/prepare-update-catalog.py withdrawal-v1.json --catalog pages/updates/v1/catalog.json --expected-sha256 "$v1_expected"
+python3 scripts/prepare-update-catalog.py withdrawal-v2.json --catalog pages/updates/v2/catalog.json --expected-sha256 "$v2_expected"
+python3 scripts/validate-update-catalog.py pages/updates/v1/catalog.json
+python3 scripts/validate-update-catalog.py pages/updates/v2/catalog.json
+git diff -- pages/updates/v1/catalog.json pages/updates/v2/catalog.json
+```
+
+For a preview-only direct withdrawal, omit the v1 preparation command. For a
+Store withdrawal, omit the v2 preparation command and do not create a v2 record. Review the removed
+entries and retained tombstones, commit only the intended catalogs, and open a
+normal PR to `develop`. Require CI and human approval. After approved merge and
+delivery, verify both served feeds and unchanged non-catalog website files.
+Neither local preparation nor a passing validator establishes deployed withdrawal.
 
 ## Content maintenance
 
@@ -247,14 +334,12 @@ the updated website. Generated Markdown and llms.txt carry the same choices.
 
 ### Combined preview feed
 
-The proposal workflow now selects v1 (unchanged stable-only transport) or v2
-(combined GA/Alpha/Beta transport). V2 uses the same reviewed writer and site
-promotion flow, with exact release page actions and mandatory publisher
-classification. The workflow independently fetches public GitHub release metadata
-and compatible nonempty assets before preparing direct availability records.
-Numeric preview versions are classified from the publisher's release-body marker
-and matching GitHub prerelease status. V2 excludes Store targets. Duplicate targets
-include classification; withdrawal identifies it too. Select the maximum semantic
-version across matching edition/OS/application-architecture candidates. A GA must
-be proposed to both feeds if it should reach both policies. Validate both served
-catalogs after deployment; a missing/empty preview feed remains unavailable.
+The proposal workflow maintains both v1 (stable-only transport) and v2
+(combined GA/Alpha/Beta transport) from the same verified release-tag invocation.
+V2 uses exact release-page actions and mandatory publisher classification.
+Numeric preview versions are classified from the release-body marker and matching
+GitHub prerelease status. V2 excludes Store targets. Classification participates
+in duplicate-target identity and withdrawal. Clients select the maximum semantic
+version across matching edition, OS and application-architecture candidates under
+their saved channel policy. Validate both served catalogs after deployment; a
+missing or empty preview feed remains unavailable.

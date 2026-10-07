@@ -50,7 +50,7 @@ a Store-signed Windows package, App Store receipt, or official Debian package
 registration is required for those editions. Ambiguous/custom packages remain
 unknown and do not affect speaker startup.
 
-New builds of recognized release installations query the anonymous GitHub Releases
+New builds of recognized direct and Debian installations query the anonymous GitHub Releases
 API 30 seconds after startup by default and no more than once per 24 hours after a
 successful check. Stable only excludes prereleases; Include prereleases considers
 both stable releases and prereleases. Offers require a compatible published asset

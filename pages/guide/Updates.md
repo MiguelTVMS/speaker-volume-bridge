@@ -22,7 +22,7 @@ immediately before opening it.
 
 ## Automatic checks
 
-Recognized release packages check about 30 seconds after startup by default.
+Recognized direct and Debian packages check about 30 seconds after startup by default.
 After a successful check, the result remains fresh for 24 hours. Temporary
 failures use bounded retry delays and remain quiet in the background. Manual
 checks can retry and show an error without interrupting volume synchronization.

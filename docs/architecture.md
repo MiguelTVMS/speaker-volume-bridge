@@ -169,11 +169,11 @@ conflicting, sideloaded or unverifiable packages never silently enroll in offici
 checks. Resolution failure is an update-only condition and cannot stop audio
 synchronization. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
 
-The shell also owns one update service with injected catalog transport, clock,
+The shell also owns one update service with injected release transport, clock,
 distribution metadata and persistence. It starts only after synchronization has
 started, waits 30 seconds, and performs at most one shared request at a time.
 Successful checks impose a 24-hour freshness interval; transient failures use
-bounded backoff. Wake and clock changes cannot bypass the attempt guard. Catalog
+bounded backoff. Wake and clock changes cannot bypass the attempt guard. Release API
 requests never use the Sonos adapter and contain no speaker/configuration data or
 persistent installation identifier.
 
@@ -203,7 +203,7 @@ origin/expected-write suppression remains in the synchronization adapters. Sonos
 notifications do not identify the originating controller, so an echoed value is
 not treated as proof of authorship and genuine external changes remain observable.
 
-Catalog publication retains the validated document and updates only `generatedAt`
+Historical catalog publication retains the validated document and updates only `generatedAt`
 and `entries`, preserving additive catalog fields and unchanged entry/action
 metadata. The complete result is validated again before writing; repeated
 publication returns the original content. See [ADR 0019](decisions/0019-distribution-aware-updates.md).

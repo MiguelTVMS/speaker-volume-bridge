@@ -56,15 +56,16 @@ normal file-management behavior.
 
 ## Update checks
 
-For recognized release installations, the application can request the public
-update catalog from GitHub at `api.github.com`. Previously published
+For recognized direct and Debian installations, the application can request the public
+release information from GitHub at `api.github.com`. Previously published
 versions request the website feed at `svb.miguel.ms`. The request necessarily
 exposes ordinary web-hosting metadata such as the computer's public IP address, request time,
 API path, and network user agent to the hosting provider. It does not include
 speaker information, application settings, logs, a persistent installation
 identifier, analytics, or advertising data. Automatic checks can be disabled in
 Settings. The locally stored update record contains the preference and check,
-notification, and release-version state.
+notification, and release-version state. New Store editions make no GitHub update
+discovery requests; their update actions open the Store that installed them.
 
 ## Personal information and third parties
 

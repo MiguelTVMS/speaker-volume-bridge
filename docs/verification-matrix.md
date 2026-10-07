@@ -1106,7 +1106,7 @@ coverage covers these paths, but does not replace that native acceptance.
 | macOS direct ARM64 package build, launch, edition/version, policy changes and restart | Passed with unsigned local bundle |
 | Signed/notarized installed macOS upgrade and preserved settings after replacement | Unavailable signed candidate; installed older app was not replaced |
 | macOS Intel direct package | Unavailable compatible official installer; no compatibility inferred |
-| Mac App Store receipt/sandbox and native Updates action | Unavailable Store-installed candidate for this change |
+| Mac App Store receipt/sandbox and native Updates action | Unavailable Store-installed candidate for this change; browser automation rejects native-protocol navigation, so no protocol probe is claimed |
 | Windows direct x64/ARM64 and Microsoft Store action | Unavailable Windows host/packages for this run |
 | Debian x64/ARM64 native launch and browser handling | Unavailable Linux desktop/packages for this run |
 | Native newer offer, notification permission/activation and exact release-page browser opening | No newer compatible public release for the test version; outstanding |

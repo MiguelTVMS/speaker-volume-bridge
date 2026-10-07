@@ -480,7 +480,7 @@ fn store_url(edition: DistributionEdition) -> Option<&'static str> {
         DistributionEdition::MicrosoftStore => {
             Some("ms-windows-store://pdp/?ProductId=9N7JKGXCMST0")
         }
-        DistributionEdition::MacAppStore => Some("macappstore://showUpdates"),
+        DistributionEdition::MacAppStore => Some("macappstore://showUpdatesPage"),
         _ => None,
     }
 }
@@ -1474,7 +1474,7 @@ mod tests {
             let expected = if edition == DistributionEdition::MicrosoftStore {
                 "ms-windows-store://pdp/?ProductId=9N7JKGXCMST0"
             } else {
-                "macappstore://showUpdates"
+                "macappstore://showUpdatesPage"
             };
             assert_eq!(service.store_action().unwrap(), expected);
             assert!(

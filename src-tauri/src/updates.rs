@@ -52,6 +52,7 @@ pub enum UpdatePhase {
     UpdateAvailable,
     Unavailable,
     Unsupported,
+    StoreManaged,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -473,6 +474,17 @@ impl<'de> Deserialize<'de> for UniqueJson {
     }
 }
 
+// Fixed native Store destinations never come from release metadata or frontend input.
+fn store_url(edition: DistributionEdition) -> Option<&'static str> {
+    match edition {
+        DistributionEdition::MicrosoftStore => {
+            Some("ms-windows-store://pdp/?ProductId=9N7JKGXCMST0")
+        }
+        DistributionEdition::MacAppStore => Some("macappstore://showUpdates"),
+        _ => None,
+    }
+}
+
 pub struct UpdateService {
     distribution: InstalledDistribution,
     transport: Arc<dyn ReleaseTransport>,
@@ -532,7 +544,14 @@ impl UpdateService {
             preferences.cached_offer = None;
             persistence.save(&preferences)?;
         }
-        let phase = if !distribution.check_supported {
+        let phase = if store_url(distribution.edition).is_some() {
+            preferences.automatic_checks = false;
+            preferences.cached_offer = None;
+            preferences.last_successful_check = None;
+            preferences.freshness_target = None;
+            persistence.save(&preferences)?;
+            UpdatePhase::StoreManaged
+        } else if !distribution.check_supported {
             UpdatePhase::Unsupported
         } else if preferences.cached_offer.is_some() {
             UpdatePhase::UpdateAvailable
@@ -571,6 +590,9 @@ impl UpdateService {
             request_sequence: AtomicU64::new(0),
             completed_generation: AtomicU64::new(0),
         })
+    }
+    pub fn store_action(&self) -> Result<&'static str, UpdateError> {
+        store_url(self.distribution.edition).ok_or(UpdateError::State)
     }
     pub fn status(&self) -> Result<UpdateStatus, UpdateError> {
         let preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
@@ -626,7 +648,9 @@ impl UpdateService {
     }
     pub fn set_automatic_checks(&self, enabled: bool) -> Result<(), UpdateError> {
         let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
-        preferences.automatic_checks = enabled && self.distribution.check_supported;
+        preferences.automatic_checks = enabled
+            && self.distribution.check_supported
+            && store_url(self.distribution.edition).is_none();
         self.persistence.save(&preferences)
     }
     pub fn set_update_notifications(&self, enabled: bool) -> Result<(), UpdateError> {
@@ -735,7 +759,9 @@ impl UpdateService {
             return false;
         };
         let now = self.clock.now();
-        preferences.automatic_checks
+        store_url(self.distribution.edition).is_none()
+            && self.distribution.check_supported
+            && preferences.automatic_checks
             && preferences
                 .last_attempted_check
                 .is_none_or(|last| now.saturating_sub(last) >= 60)
@@ -746,7 +772,7 @@ impl UpdateService {
                     .is_none_or(|last| now.saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()))
     }
     pub async fn check(&self, manual: bool) -> UpdateStatus {
-        if !self.distribution.check_supported {
+        if store_url(self.distribution.edition).is_some() || !self.distribution.check_supported {
             return self.status().unwrap_or_default();
         }
         let sequence = self.request_sequence.load(Ordering::SeqCst);
@@ -1395,6 +1421,98 @@ mod tests {
             ),
             transport,
         )
+    }
+
+    #[tokio::test]
+    async fn store_managed_production_paths_never_discover_or_notify() {
+        for edition in [
+            DistributionEdition::MicrosoftStore,
+            DistributionEdition::MacAppStore,
+        ] {
+            let mut installed = distribution();
+            installed.edition = edition;
+            let persistence = Arc::new(MemoryPersistence::default());
+            // Reproduce an existing catalog client's enabled automatic preference.
+            *persistence.0.lock().unwrap() = Some(UpdatePreferences {
+                automatic_checks: true,
+                last_successful_check: Some(99),
+                ..UpdatePreferences::default()
+            });
+            let transport = Arc::new(FakeTransport {
+                result: Mutex::new(Err("Store must not contact releases")),
+                calls: AtomicUsize::new(0),
+            });
+            let service = Arc::new(
+                UpdateService::new(
+                    installed.clone(),
+                    transport.clone(),
+                    Arc::new(FakeClock(AtomicU64::new(100))),
+                    persistence.clone(),
+                )
+                .unwrap(),
+            );
+            let app = tauri::test::mock_builder()
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .unwrap();
+            service.set_automatic_checks(true).unwrap();
+            UpdateManager::wake_service(app.handle(), service.clone()).await;
+            let manual = run_check_and_deliver_with(
+                app.handle(),
+                &service,
+                true,
+                || async { panic!("Store must not request notification permission") },
+                |_| async { panic!("Store must not notify") },
+            )
+            .await;
+            assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+            assert!(!service.automatic_due());
+            assert_eq!(manual.phase, UpdatePhase::StoreManaged);
+            assert!(manual.action.is_none());
+            assert!(manual.available_version.is_none());
+            assert!(manual.last_successful_check.is_none());
+            assert!(service.set_policy(UpdatePolicy::Prereleases).is_err());
+            let expected = if edition == DistributionEdition::MicrosoftStore {
+                "ms-windows-store://pdp/?ProductId=9N7JKGXCMST0"
+            } else {
+                "macappstore://showUpdates"
+            };
+            assert_eq!(service.store_action().unwrap(), expected);
+            assert!(
+                service
+                    .claim_offer_generation("2.0.0", expected, manual.generation)
+                    .is_err()
+            );
+            let manager = UpdateManager::new(service);
+            let (tick, mut ticks) = tokio::sync::mpsc::unbounded_channel();
+            manager.start_with_sleep(app.handle(), move |duration| {
+                let tick = tick.clone();
+                async move {
+                    tick.send(duration).unwrap();
+                    if duration != Duration::from_secs(30) {
+                        std::future::pending::<()>().await;
+                    }
+                }
+            });
+            assert_eq!(ticks.recv().await.unwrap(), Duration::from_secs(30));
+            assert_eq!(ticks.recv().await.unwrap(), Duration::from_secs(60));
+            drop(manager);
+            assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+            let restarted = UpdateService::new(
+                installed,
+                transport,
+                Arc::new(FakeClock(AtomicU64::new(101))),
+                persistence,
+            )
+            .unwrap();
+            assert_eq!(restarted.status().unwrap().phase, UpdatePhase::StoreManaged);
+            assert!(!restarted.status().unwrap().automatic_checks);
+        }
+        let (direct, _) = service(
+            Vec::new(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        assert!(direct.store_action().is_err());
     }
 
     #[tokio::test]
@@ -2472,7 +2590,7 @@ mod tests {
                 ApplicationArchitecture::Aarch64,
                 "1.7.1",
                 UpdatePolicy::Stable,
-                UpdatePhase::Unavailable,
+                UpdatePhase::StoreManaged,
             ),
         ] {
             let mut package = distribution();
@@ -2502,7 +2620,10 @@ mod tests {
                 status.phase, expected,
                 "{edition:?}/{architecture:?}/{version}/{policy:?}"
             );
-            assert_eq!(transport.calls.load(Ordering::Relaxed), 1);
+            assert_eq!(
+                transport.calls.load(Ordering::Relaxed),
+                usize::from(expected != UpdatePhase::StoreManaged)
+            );
             if expected == UpdatePhase::UpdateAvailable {
                 assert_eq!(status.available_version.as_deref(), Some("1.8.0"));
                 let action = status.action.unwrap();

@@ -157,7 +157,7 @@ Update checks share one shell orchestration path for startup, scheduled, wake an
 manual triggers. The shell persists the last successful check and validated offer
 across restarts, revalidates the cached offer's version, complete target identity,
 and HTTPS action at startup, replaces cached offers only after a successful
-catalog read, and deduplicates update notifications before delivery. Native update
+release metadata read, and deduplicates update notifications before delivery. Native update
 notifications
 carry activation intent; only activating one or choosing the tray Updates action
 navigates to the Updates page.
@@ -396,3 +396,11 @@ Release dispatch exposes Version, Stable and three signing/Store flags. Stable
 controls GA versus Beta publication. Store delivery requires stable plus explicit
 opt-in and existing approvals; direct macOS signing can be disabled without
 weakening Store signing. See [ADR 0022](decisions/0022-release-workflow-inputs.md).
+
+Store editions have a separate `store_managed` update state. The shell rejects
+GitHub discovery for these editions at the shared service boundary, disables
+automatic checks even for migrated enabled preferences, and exposes only fixed
+native Store destinations through an edition-authorized command. No release
+offer or Store availability claim is created. Direct release-policy behavior is
+unchanged. Existing catalog clients require a one-time manual upgrade; see
+[upgrade guidance](rebrand-upgrade.md).

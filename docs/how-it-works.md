@@ -269,3 +269,11 @@ on a legacy-app check, or display a conflict warning. Settings and Night Mode ke
 their normal selection/write serialization and explicit stop behavior. See
 [decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
 [manual removal guide](removing-old-app.md).
+
+Store editions have a separate `store_managed` update state. The shell rejects
+GitHub discovery for these editions at the shared service boundary, disables
+automatic checks even for migrated enabled preferences, and exposes only fixed
+native Store destinations through an edition-authorized command. No release
+offer or Store availability claim is created. Direct release-policy behavior is
+unchanged. Existing catalog clients require a one-time manual upgrade; see
+[upgrade guidance](rebrand-upgrade.md).

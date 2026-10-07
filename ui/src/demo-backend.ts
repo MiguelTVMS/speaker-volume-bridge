@@ -47,20 +47,23 @@ export function createDemoBackend(
   };
   const initialSnapshot = structuredClone(snapshot);
   const initialSpeakerSettings = structuredClone(speakerSettings);
+  const storeManaged = ['microsoft_store', 'mac_app_store'].includes(options.edition ?? '');
   const updateStatus = {
-    phase: 'update_available',
+    phase: storeManaged ? 'store_managed' : 'update_available',
     installedVersion: '1.7.1',
-    availableVersion: '1.8.0',
+    availableVersion: storeManaged ? null : '1.8.0',
     edition: options.edition ?? 'direct_macos',
     policy: 'stable',
     prereleaseSupported: ['direct_macos', 'direct_windows', 'debian'].includes(
       options.edition ?? 'direct_macos',
     ),
     generation: 0,
-    lastSuccessfulCheck: 1791108000,
-    action: { type: 'open_url', url: 'https://svb.miguel.ms/guide/Upgrading.html' },
+    lastSuccessfulCheck: storeManaged ? null : 1791108000,
+    action: storeManaged
+      ? null
+      : { type: 'open_url', url: 'https://svb.miguel.ms/guide/Upgrading.html' },
     message: null,
-    automaticChecks: true,
+    automaticChecks: !storeManaged,
     updateNotifications: true,
     promptDismissed: false,
     offerStale: false,
@@ -133,6 +136,7 @@ export function createDemoBackend(
       case 'set_update_notifications':
         updateStatus.updateNotifications = (payload as { enabled: boolean }).enabled;
         return updateStatus.updateNotifications;
+      case 'open_update_store':
       case 'open_update_page':
       case 'open_project_repository':
         return;

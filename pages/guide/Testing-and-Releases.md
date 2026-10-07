@@ -55,7 +55,7 @@ Record only non-sensitive model, operating-system, firmware, and pass/fail infor
 
 ## Release flow
 
-The Release workflow runs from `develop`, increments the single Cargo workspace version, validates that exact commit, builds Windows x64/ARM64 installers, an Apple Silicon macOS DMG, and Ubuntu x64/ARM64 Debian packages, creates the annotated version tag, and publishes GitHub release assets. Microsoft Store submission is opt-in for GA releases after GitHub publication. Mac App Store package creation is also opt-in and does not submit to Apple automatically.
+The Release workflow runs from `develop`, increments the single Cargo workspace version, validates that exact commit, builds Windows x64/ARM64 installers, an Apple Silicon macOS DMG, and Ubuntu x64/ARM64 Debian packages, creates the annotated version tag, and publishes GitHub release assets. With Stable enabled, Push MS Store submits the Microsoft Store package and Push Apple Store builds the signed package and uploads it to App Store Connect. Both uploads require successful GitHub Release publication first and their existing approvals. Apple upload does not submit the build for review or establish public Store availability.
 
 Release channels are:
 
@@ -85,10 +85,15 @@ Before a guide update:
 4. Recheck issue state before changing any limitation link.
 5. Update the version banner and validate all internal and external links.
 
-## Independent catalog activation
+## Historical independent catalog activation
+
+This section describes legacy manual catalog tooling only. New builds discover
+updates through the anonymous GitHub Releases API and do not require catalog
+credentials, bootstrap or delivery. Automatic proposals, scheduled reconciliation
+and develop website deployments are retired; current website delivery uses main.
 
 Catalog updates require verified public packages, normal pull-request checks and
-human approval. They can be delivered from develop while retaining the last
+human approval. The former delivery path used develop while retaining the last
 approved GA website. When the GA source is already published, a workflow-only hosting promotion
 preserves that website and its displayed version. Approved GA content left
 unserved by a failed deployment uses the normal recovery path; it does not publish another application release.

@@ -20,6 +20,8 @@ of 100, with at most ten pages and two MiB total, ten seconds per request and th
 redirects. Incomplete pagination, network failures, invalid JSON and rate limits
 remain unavailable, retaining an existing validated offer. Rate-limit responses
 honor Retry-After/reset with a minimum one-minute cooldown, including manual checks.
+All forbidden responses receive this cooldown conservatively because secondary
+limits can omit Retry-After while the primary quota remains available.
 
 Candidates must have a canonical v-prefixed semantic version, publication time,
 exact project release page, and exactly one uploaded nonempty official installer

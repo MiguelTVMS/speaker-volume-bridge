@@ -373,9 +373,9 @@ Windows installer directory migration stays in the NSIS adapter: only the former
 The update service also owns the persisted Stable/Prereleases policy and explicit
 package capability. Policy changes increment a generation before clearing offers;
 responses, notification claims and queued page actions revalidate that generation.
-Stable clients retain schema v1; opted-in clients select the newest compatible GA,
-Alpha or Beta from schema v2. Installed publisher classification is separate from
-user preference. Later installers must consume this same contract. See ADR 0019.
+Installed publisher classification is separate from user preference. The former
+schema v1/v2 catalog contract in ADR 0019 is historical and retained only for
+test fixtures and manual tooling. New builds use the Releases API contract below.
 
 ## Release update discovery
 
@@ -385,7 +385,8 @@ Semantic version precedence, installed edition and application architecture
 control selection. Published metadata must contain the exact official package
 asset and release page. Store availability is never inferred from direct packages.
 The transport bounds pagination, response bytes and timeouts, and respects rate
-limits. User preferences, notifications and generation guards remain local.
+limits, including a minimum one-minute cooldown for headerless forbidden
+responses that may represent secondary limits. User preferences, notifications and generation guards remain local.
 Source migration clears old catalog offers/freshness. The scheduler retains its
 30-second startup delay, bounded retry sequence, single-worker ownership and
 shutdown flag/abort behavior. No self-installation is introduced. See

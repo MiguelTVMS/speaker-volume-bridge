@@ -67,10 +67,12 @@ executable produced by the unprivileged build job, imports the Developer ID
 identity into an ephemeral keychain, bundles a sandboxed application, signs it
 with Hardened Runtime, submits it to Apple for notarization, staples the ticket,
 and verifies the result before the installers are published. The protected Mac App
-Store job runs only when **Build Mac App Store package** is checked. It
+Store package job runs only when **Stable** and **Push Apple Store** are checked. It
 independently imports its Apple Distribution and Mac Installer
 Distribution identities, embeds the Mac App Store provisioning profile, verifies
-the sandbox entitlements and profile, then produces a signed upload `.pkg`.
+the sandbox entitlements and profile, then produces a signed upload `.pkg`. After successful GitHub Release publication,
+the upload job validates and delivers it to App Store Connect; review and public
+Store availability remain separate steps.
 Each Windows architecture uploads its compiled output for two independent
 packaging jobs. One produces the clean Microsoft Store MSIX payload while the
 other applies Tauri's NSIS-specific metadata to produce the direct-download
@@ -115,7 +117,7 @@ MSIX declares `en-US`, so its upload enables the English Store listing.
 
 After the first Store submission is certified and live, the `Release` workflow
 builds and validates the MSIX from the same versioned commit as the other
-platform packages. For a GA release with **Submit release to Microsoft Store (GA only)** checked,
+platform packages. With **Stable** and **Push MS Store** checked,
 it publishes the GitHub Release first and then submits the MSIX to Store product `9N7JKGXCMST0`. Alpha and Beta releases
 still build the MSIX for validation but intentionally skip Store submission.
 

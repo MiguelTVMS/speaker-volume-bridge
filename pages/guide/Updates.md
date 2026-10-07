@@ -70,7 +70,9 @@ specific release's page. A release offered under both policies notifies once.
 
 Checks use GitHub's public API without a login or token. No separate catalog file
 or website deployment is needed. GitHub applies limits shared by your public IP;
-rate-limited requests wait until retry is allowed. Failed checks retain the last
+rate-limited requests wait until retry is allowed. Forbidden responses also pause
+checks for at least one minute, including manual checks, because secondary rate
+limits can omit retry headers. Failed checks retain the last
 validated offer, which must be refreshed before opening when stale. The app never
 downloads or installs updates. Previously published apps are not migrated by this
 change; it takes effect after installing a future build that includes it.

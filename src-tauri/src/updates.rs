@@ -298,12 +298,9 @@ fn rate_limit_deadline(
     headers: &reqwest::header::HeaderMap,
     now: u64,
 ) -> Option<u64> {
-    if status != reqwest::StatusCode::TOO_MANY_REQUESTS
-        && !(status == reqwest::StatusCode::FORBIDDEN
-            && (headers
-                .get("x-ratelimit-remaining")
-                .is_some_and(|value| value == "0")
-                || headers.contains_key("retry-after")))
+    // Secondary limits can omit Retry-After while the primary quota remains.
+    // Conservatively cool down every forbidden response without reading its body.
+    if status != reqwest::StatusCode::TOO_MANY_REQUESTS && status != reqwest::StatusCode::FORBIDDEN
     {
         return None;
     }
@@ -2370,6 +2367,36 @@ mod tests {
             Err(UpdateError::RateLimited)
         ));
         server.await.unwrap();
+        // The server no longer exists. A second network request would fail differently.
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+    }
+
+    #[tokio::test]
+    async fn release_api_production_transport_cools_down_headerless_secondary_limit() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).await.unwrap();
+                request.push(byte[0]);
+            }
+            socket.write_all(b"HTTP/1.1 403 Forbidden\r\nX-RateLimit-Remaining: 100\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+        });
+        let mut transport = HttpReleaseTransport::new().unwrap();
+        transport.endpoint = format!("http://{address}/releases");
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+        server.await.unwrap();
+        assert!(transport.retry_after.load(Ordering::SeqCst) >= SystemUpdateClock.now() + 59);
         // The server no longer exists. A second network request would fail differently.
         assert!(matches!(
             transport.fetch().await,

@@ -1,5 +1,10 @@
 # Public website
 
+New-build update checks use the public GitHub Releases API and do not depend on
+website/catalog publication. Catalog procedures below describe retained historical
+tooling; legacy delivery and redirects are outside the current rollout scope.
+See [ADR 0021](decisions/0021-github-release-updates.md).
+
 The user-facing website lives in `pages/`. Jekyll assembles static HTML from the
 page sources, shared layouts and includes, with local CSS and no third-party
 fonts. Optional tracking is managed through a consent-gated Google Tag Manager
@@ -58,12 +63,6 @@ It updates both versioned feeds as applicable: GA direct releases enter v1 and
 v2; Alpha/Beta direct releases enter v2 only. It opens a focused proposal PR back
 to `develop` with normal CI and human review. It never publishes an application
 package or approves or merges its own proposal.
-
-After approved merge, catalog delivery overlays the approved feeds onto the
-retained GA snapshot. Verify both public catalogs and every non-catalog website
-file. Catalog publication does not require another release or a catalog promotion
-to `main`. Scheduled reconciliation can recover missed proposals or delivery, but
-does not replace those approvals or served-byte verification.
 
 Operator cases:
 

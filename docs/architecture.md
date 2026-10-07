@@ -377,36 +377,19 @@ Stable clients retain schema v1; opted-in clients select the newest compatible G
 Alpha or Beta from schema v2. Installed publisher classification is separate from
 user preference. Later installers must consume this same contract. See ADR 0019.
 
-## Release catalog delivery
+## Release update discovery
 
-Release completion and recovery share package inspection and atomic pair
-preparation outside the runtime crates. GA advances both develop-owned feeds;
-Alpha/Beta advance only v2. Store entries, additive metadata and persistent
-withdrawal ledgers survive reconciliation. Focused PRs retain required review
-and CI; release-published, catalog-pending and catalog-live are separate states.
-
-One serialized Pages composer restores an immutable last-published GA website
-for catalog delivery or builds approved main GA content, then overlays current
-develop feeds. Non-catalog bytes are preserved and actual served bytes/cache
-refresh are verified. Durable Git snapshots replace reliance on expiring Actions
-artifacts; missing state fails closed. See [ADR 0020](decisions/0020-independent-catalog-delivery.md)
-and [operator instructions](catalog-operations.md) for bootstrap and prerequisites.
-
-Catalog automation first checks App credential availability on a lightweight
-runner. Missing credentials produce an explicit catalog-pending outcome while
-preserving successful application publication; proposal execution requires both
-credentials. Token and PR failures remain actionable automation errors (ADR 0020).
-
-The update manager injects its timer for lifecycle regression coverage while
-production retains the same 30-second delay and retry sequence. Tests enter the
-shared startup ownership path and verify duplicate-start prevention and shutdown
-cancellation, including a pending catalog transport. See the phase-one operational
-readiness audit in the verification matrix.
-
-Shutdown publishes the update manager's stop flag before aborting its task. The
-worker checks this flag after startup and retry waits, preventing a ready timer
-already inside its current poll from starting a new request during shutdown.
-Abort separately cancels a pending catalog transport.
+The Tauri shell reads the public GitHub Releases API anonymously. Stable only
+filters out prereleases; Include prereleases selects across GA and previews.
+Semantic version precedence, installed edition and application architecture
+control selection. Published metadata must contain the exact official package
+asset and release page. Store availability is never inferred from direct packages.
+The transport bounds pagination, response bytes and timeouts, and respects rate
+limits. User preferences, notifications and generation guards remain local.
+Source migration clears old catalog offers/freshness. The scheduler retains its
+30-second startup delay, bounded retry sequence, single-worker ownership and
+shutdown flag/abort behavior. No self-installation is introduced. See
+[ADR 0021](decisions/0021-github-release-updates.md).
 
 Release dispatch exposes Version, Stable and three signing/Store flags. Stable
 controls GA versus Beta publication. Store delivery requires stable plus explicit

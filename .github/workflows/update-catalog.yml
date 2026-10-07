@@ -11,8 +11,6 @@ on:
         required: false
       CATALOG_APP_PRIVATE_KEY:
         required: false
-  schedule:
-    - cron: '43 3 * * *'
   workflow_dispatch:
     inputs:
       release_tag:
@@ -29,7 +27,7 @@ concurrency:
 
 jobs:
   credentials:
-    if: github.ref == 'refs/heads/develop' || github.event_name == 'schedule'
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     outputs:
       configured: ${{ steps.preflight.outputs.configured }}
@@ -50,7 +48,7 @@ jobs:
 
   propose:
     needs: credentials
-    if: needs.credentials.outputs.configured == 'true' && (github.ref == 'refs/heads/develop' || github.event_name == 'schedule')
+    if: needs.credentials.outputs.configured == 'true' && (github.ref == 'refs/heads/develop')
     runs-on: macos-latest
     steps:
       # An installation token triggers normal pull_request CI. GITHUB_TOKEN
@@ -81,8 +79,4 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          if [ "${{ github.event_name }}" = schedule ]; then
-            python3 scripts/propose-release-catalog.py --reconcile >> "$GITHUB_STEP_SUMMARY"
-          else
-            python3 scripts/propose-release-catalog.py >> "$GITHUB_STEP_SUMMARY"
-          fi
+          python3 scripts/propose-release-catalog.py >> "$GITHUB_STEP_SUMMARY"

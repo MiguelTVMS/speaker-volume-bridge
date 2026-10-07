@@ -56,10 +56,10 @@ release branch, or a previously closed PR require manual review.
 
 See the repository Releases page for the current published version.
 
-Successful public release publication prepares verified catalog review changes.
-It does not imply catalog approval or live availability. Catalogs remain on develop
-and approved merges deliver them independently of GA website content or another
-application release. See [catalog operations](catalog-operations.md).
+New builds discover public releases directly through the anonymous GitHub API.
+No catalog file, proposal credentials, backfill or website deployment is required.
+The legacy automatic catalog proposal and scheduled reconciliation are retired;
+manual historical tooling remains available. See ADR 0021.
 
 The release workflow compiles one macOS ARM64 executable, Ubuntu AMD64 and
 ARM64 Debian packages, and Windows x64 and ARM64 executables per version. The protected macOS direct-download job downloads the exact
@@ -349,23 +349,12 @@ This is an explicit administrative step after PR approval: merging the PR does
 not change live settings or initiate a release. See GitHub's
 [environment API](https://docs.github.com/en/rest/deployments/environments#create-or-update-an-environment).
 
-## Release policy publication prerequisite
+## Release policy metadata
 
-The release workflow stamps GA/Alpha/Beta package provenance separately from user
-policy. Preserve the existing publisher body marker, even for numeric preview
-versions. Publish no catalog entry until a non-draft public release and the exact
-compatible assets have been independently verified. Stable schema v1 remains GA
-only. Combined schema v2 contains direct macOS/Windows and official Debian GA plus
-Alpha/Beta candidates; never Store entries. The consumer picks the highest compatible
-semantic version, not the newest publication timestamp.
-
-Successful public Release publication invokes the shared catalog proposer. GA
-prepares both feeds; Alpha/Beta prepare only v2. Recovery uses Propose update
-catalog on develop with `release_tag`, without another application release.
-Verification inspects all required public packages and opens/reuses a focused
-review PR. Approval and required CI remain necessary. An approved develop merge
-then triggers independent composition with the retained GA website; only actual
-served-content verification establishes catalog-live. Store entries remain
-independently maintained. See [catalog operator instructions](catalog-operations.md)
-for App/environment/main-workflow prerequisites, safe bootstrap, unpublished
-backfill, withdrawals, concurrent-event recovery and live acceptance limits.
+Stable true stamps GA provenance and publishes a non-prerelease. Stable false
+stamps Beta provenance and sets GitHub's prerelease flag. New builds use that
+flag to implement Stable only or Include prereleases, including existing Alpha
+releases. They compare semantic versions and require an uploaded official asset
+for the installed edition and architecture; publication order is not version order.
+Store uploads do not establish public Store availability. No direct-release asset
+can establish an update offer for a Store installation. See ADR 0021.

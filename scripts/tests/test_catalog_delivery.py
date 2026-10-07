@@ -701,7 +701,7 @@ class WorkflowRegressionTests(unittest.TestCase):
         import os
         text = (ROOT / '.github/workflows/update-catalog.yml').read_text()
         self.assertIn('  credentials:', text)
-        contract = text.split('    secrets:', 1)[1].split('  schedule:', 1)[0]
+        contract = text.split('    secrets:', 1)[1].split('  workflow_dispatch:', 1)[0]
         self.assertNotIn('required: true', contract)
         job = text.split('  credentials:', 1)[1].split('  propose:', 1)[0]
         script = job.split('        run: |\n', 1)[1]
@@ -723,18 +723,12 @@ class WorkflowRegressionTests(unittest.TestCase):
         self.assertIn('needs: credentials', proposal)
         self.assertIn("needs.credentials.outputs.configured == 'true'", proposal)
 
-    def test_release_success_invokes_shared_proposer_independent_of_ga_and_store(self):
+    def test_new_release_api_design_retires_automatic_catalog_proposals(self):
         workflow = (ROOT / '.github/workflows/release-candidate.yml').read_text()
-        self.assertIn('  propose-catalog:', workflow)
-        job = workflow.split('  propose-catalog:', 1)[1].split('\n  propose-main-promotion:', 1)[0]
-        self.assertIn("needs.publish-release.result == 'success'", job)
-        self.assertNotIn('inputs.stable', job)
-        self.assertNotIn("inputs.channel == 'GA'", job)
-        self.assertIn('uses: ./.github/workflows/update-catalog.yml', job)
+        self.assertNotIn('propose-catalog:', workflow)
         proposal = (ROOT / '.github/workflows/update-catalog.yml').read_text()
-        self.assertIn('workflow_call:', proposal)
+        self.assertNotIn('  schedule:', proposal)
         self.assertIn('workflow_dispatch:', proposal)
-        self.assertIn('actions/create-github-app-token@', proposal)
         self.assertIn('scripts/propose-release-catalog.py', proposal)
         self.assertNotIn('gh pr merge', proposal)
 

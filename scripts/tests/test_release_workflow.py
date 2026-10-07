@@ -233,6 +233,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 env=dict(os.environ, DRAFT_RELEASE='true', EXISTING_DRAFT=existing, RELEASE_TAG='v1.6.0'))
             self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_macos_asset_name_contract_is_guarded_before_build(self):
+        body = jobs(WORKFLOW.read_text())['macos-app']
+        self.assertIn('run: test "$(uname -m)" = arm64', body)
+        self.assertLess(body.index('Verify the official macOS asset architecture contract'), body.index('cargo tauri build --no-bundle'))
+
     def test_macos_publishes_only_the_verified_dmg(self):
         body = jobs(WORKFLOW.read_text())['macos-direct']
         self.assertNotIn('macos.zip', body)

@@ -194,6 +194,8 @@ jobs:
         run: |
           application_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "speaker-volume-bridge"))')"
           test "$RELEASE_VERSION" = "$application_version"
+      - name: Verify the official macOS asset architecture contract
+        run: test "$(uname -m)" = arm64
       - run: cargo tauri build --no-bundle
       - run: test -x target/release/speaker-volume-bridge
       - name: Archive the unsigned macOS executable
@@ -924,15 +926,6 @@ jobs:
               --notes "$release_intro" \
               --generate-notes
           fi
-
-  propose-catalog:
-    name: Release published - prepare catalog review
-    if: ${{ !cancelled() && needs.publish-release.result == 'success' }}
-    needs: [prepare-version, publish-release]
-    uses: ./.github/workflows/update-catalog.yml
-    with:
-      release_tag: ${{ needs.prepare-version.outputs.tag }}
-    secrets: inherit
 
   propose-main-promotion:
     name: Open stable release PR into main

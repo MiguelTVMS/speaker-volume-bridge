@@ -62,13 +62,15 @@ regression coverage, and the limitations of value-based origin detection.
 
 ## Update checks
 
-The application-level update state is independent of synchronization:
-`idle`, `checking`, `up_to_date`, `update_available`, `unavailable`, or
-`unsupported`. `unavailable` is never presented as current. Only a valid exact
-edition/channel/OS/application-architecture entry can become available. Missing,
-withdrawn, malformed, prerelease, equal and older catalog data cannot create a
-new offer. Shutdown aborts the scheduler; Settings reopening and runtime restarts
-do not create another checker.
+The update state is independent of synchronization: idle, checking, up_to_date,
+update_available, unavailable or unsupported. Only complete public release
+metadata with a compatible official asset can produce an offer. Stable only
+excludes prereleases; Include prereleases includes GA and previews. Version
+precedence rejects equal/older versions. Missing candidates and failed API requests
+remain unavailable. A policy change clears old actions and increments generation;
+only matching responses can commit or notify. Source migration invalidates former
+catalog offers/freshness. Shutdown cancels the worker and pending requests;
+duplicate starts do not create another checker. See ADR 0021.
 
 ## Upgrading from the former app
 
@@ -78,15 +80,3 @@ on a legacy-app check, or display a conflict warning. Settings and Night Mode ke
 their normal selection/write serialization and explicit stop behavior. See
 [decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
 [manual removal guide](removing-old-app.md).
-
-A policy change transitions immediately to `checking`, clears the previous offer
-and increments the preference generation. Only a matching generation can commit a
-result or claim a notification/action. Stable uses v1; Prereleases uses the combined
-GA/Alpha/Beta v2 feed. Empty/missing feeds yield `unavailable`. Strict semantic
-precedence prevents downgrade or equal-version promotion offers.
-
-Release publication has separate operator states: release-published ->
-catalog-pending (verification/review/approval) -> catalog-live (both applicable
-served feeds verified). Failed preparation/delivery retains pending status and
-does not dispatch an application release. A pending GA website candidate blocks
-catalog-only restoration until explicitly verified or recovered (ADR 0020).

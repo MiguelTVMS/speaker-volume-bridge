@@ -50,9 +50,13 @@ a Store-signed Windows package, App Store receipt, or official Debian package
 registration is required for those editions. Ambiguous/custom packages remain
 unknown and do not affect speaker startup.
 
-Recognized release installations check the bounded HTTPS site catalog 30 seconds
-after startup by default and no more than once per 24 hours after a successful
-check. Manual checks bypass freshness but join an in-flight request. The persisted
+New builds of recognized release installations query the anonymous GitHub Releases
+API 30 seconds after startup by default and no more than once per 24 hours after a
+successful check. Stable only excludes prereleases; Include prereleases considers
+both stable releases and prereleases. Offers require a compatible published asset
+and open the exact validated release page. Responses and pagination are bounded,
+and rate-limit responses postpone further requests. Manual checks bypass freshness
+but join an in-flight request. The persisted
 record contains only the preference, last attempt/success times, and last-notified
 edition/version. Background failures remain quiet and never change audio behavior;
 manual failures are visible and retryable. Debug, demo, custom and ambiguous
@@ -224,33 +228,23 @@ notification preferences and Do not disturb still apply.
 
 ## Update checks and notifications
 
-Startup, periodic, wake and manual update checks use the same orchestration. It
-publishes each resulting status to the UI and reserves each update notice before
-sending, so overlapping triggers do not deliver duplicate notifications. Automatic
-checks re-evaluate every minute and run only when no successful check has occurred
-in the previous 24 hours. The last success and the validated offer survive restart.
-Successful catalog reads replace the cached offer, including withdrawing it when
-the installed edition has no current catalog entry. A network or invalid-catalog
-failure leaves the last validated offer and success timestamp available.
+Startup, periodic, wake and manual checks share orchestration, persist preferences
+and reserve each notification once before sending. Startup waits 30 seconds;
+successful results remain fresh for 24 hours. Bounded retries retain the last valid
+offer on failures. Shutdown cancels the worker and pending requests.
 
-Sending an update notification leaves the current Settings page unchanged.
-Activating the native notification opens Settings and selects Updates; choosing
-the tray's **Check for updates** action also selects Updates. Other notifications
-retain their existing Settings activation behavior.
+Stable only excludes GitHub prereleases. Include prereleases considers both stable
+and preview releases. Both use the anonymous public release list, compare semantic
+versions and require a compatible official package asset. No Store availability is
+inferred. Changing policy saves it, invalidates prior links immediately and checks
+even with automatic checks disabled. Obsolete responses cannot restore old offers.
+Returning to Stable only waits for a strictly newer GA version without downgrading.
 
-All phase-one consumers ignore additive catalog, entry, and `open_url` action
-metadata while validating required fields and rejecting unsupported actions. An
-`open_url` action remains sufficient
-for clients that do not understand later update metadata; no package installation
-is performed.
-
-On startup, a persisted offer is shown only when its version is valid and newer
-than the installed package, its edition/channel/OS/application-architecture
-identity matches the running package, and its HTTPS action still passes URL
-validation. Older cache records without target identity and malformed or stale
-offers are discarded without changing the last successful check time. This lets
-manual upgrades remove obsolete offers while offline startup retains a valid
-newer offer until its normal freshness interval expires.
+Notifications leave the current Settings page unchanged. Activating an update
+notification or choosing the tray check action opens Updates. Open update page
+revalidates and opens the exact project release page; it never installs a package.
+Previous-source cache freshness is discarded during source migration. Unavailable
+or rate-limited responses are never described as up to date. See ADR 0021.
 
 ## UI demo builds
 
@@ -275,20 +269,3 @@ on a legacy-app check, or display a conflict warning. Settings and Night Mode ke
 their normal selection/write serialization and explicit stop behavior. See
 [decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
 [manual removal guide](removing-old-app.md).
-
-### Stable releases and Prereleases
-
-Recognized direct macOS, direct Windows and official Debian editions expose a
-persisted release policy. Stable releases is the default. Prereleases includes
-public Alpha/Beta and newer GA releases, including previews with numeric versions.
-Selection requests a check even with automatic checks off, invalidates previous
-links immediately and rejects obsolete responses. Returning to Stable waits for
-its next strictly newer GA release. A missing preview source remains unavailable.
-Both policies preserve speaker settings and notification preferences. See ADR 0019.
-
-Catalog changes are prepared after public package verification, reviewed on
-develop and delivered independently of another application release. Catalog-only
-delivery preserves the last published GA website. A release may be public while
-its catalog PR is pending; only served-content verification establishes live
-availability. Store availability remains independently confirmed. See
-[catalog operations](catalog-operations.md).

@@ -6,7 +6,8 @@ for (const edition of ['direct_macos', 'direct_windows', 'debian']) {
     await page.getByRole('button', { name: 'Updates', exact: true }).click();
     const selector = page.getByRole('combobox', { name: 'Release policy' });
     await expect(selector).toHaveValue('stable');
-    await expect(page.getByText(/Prereleases includes public Alpha\/Beta/)).toBeVisible();
+    await expect(selector.locator('option')).toHaveText(['Stable only', 'Include prereleases']);
+    await expect(page.getByText(/Include prereleases includes public Alpha\/Beta/)).toBeVisible();
     await page.locator('#automatic-update-checks').uncheck();
     await selector.selectOption('prereleases');
     await expect(page.locator('#update-state')).toHaveText('Checking for updates…');

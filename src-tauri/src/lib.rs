@@ -142,7 +142,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             }
             let state = AppState::new(store, configuration, guard);
             app.manage(state);
-            let update_service = updates::HttpCatalogTransport::new().and_then(|transport| {
+            let update_service = updates::HttpReleaseTransport::new().and_then(|transport| {
                 updates::UpdateService::new(
                     installed_distribution,
                     std::sync::Arc::new(transport),

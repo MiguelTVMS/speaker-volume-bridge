@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { editionLabel, updateStateText } from './updates.ts';
+import { editionLabel, releasePolicyControl, updateStateText } from './updates.ts';
 
 const status = (phase, values = {}) => ({
   phase,
@@ -42,4 +42,12 @@ test('cached offers remain visible but require a fresh check before opening', ()
   );
   assert.match(text, /was available/);
   assert.match(text, /Check again/);
+});
+
+test('release dropdown exposes Stable only and Include prereleases with persisted keys', () => {
+  const markup = releasePolicyControl(
+    status('idle', { prereleaseSupported: true, policy: 'stable' }),
+  );
+  assert.match(markup, /value="stable" selected>Stable only/);
+  assert.match(markup, /value="prereleases">Include prereleases/);
 });

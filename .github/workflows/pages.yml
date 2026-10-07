@@ -2,7 +2,7 @@ name: Website
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'pages/**'
       - 'Cargo.toml'
@@ -14,16 +14,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: GA rebuild on main, catalogs on develop, or adopt actual served GA artifact
+        description: GA delivery or historical snapshot recovery on main
         type: choice
         options: [deliver, bootstrap, verify-candidate]
         default: deliver
       bootstrap_run:
         description: Successful main Website run with retained github-pages artifact (bootstrap only)
         type: string
-  # Reconcile missed/superseded events, rebuilding only approved main GA content.
-  schedule:
-    - cron: '17 */6 * * *'
 
 permissions:
   contents: read
@@ -35,7 +32,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       pages: write

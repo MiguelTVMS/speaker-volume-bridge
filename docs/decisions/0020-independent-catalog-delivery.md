@@ -1,5 +1,8 @@
 # ADR 0020: Approved release catalogs and independent GA website composition
 
+The catalog transport/delivery decision is superseded for new builds by [ADR 0021](0021-github-release-updates.md). Historical catalog tooling is retained; legacy delivery and redirects are outside the current rollout scope.
+
+
 Status: Accepted for implementation; live activation remains operator-gated.
 
 ## Context

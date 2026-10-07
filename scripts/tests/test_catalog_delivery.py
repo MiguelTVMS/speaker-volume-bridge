@@ -701,7 +701,7 @@ class WorkflowRegressionTests(unittest.TestCase):
         import os
         text = (ROOT / '.github/workflows/update-catalog.yml').read_text()
         self.assertIn('  credentials:', text)
-        contract = text.split('    secrets:', 1)[1].split('  schedule:', 1)[0]
+        contract = text.split('    secrets:', 1)[1].split('  workflow_dispatch:', 1)[0]
         self.assertNotIn('required: true', contract)
         job = text.split('  credentials:', 1)[1].split('  propose:', 1)[0]
         script = job.split('        run: |\n', 1)[1]
@@ -723,24 +723,21 @@ class WorkflowRegressionTests(unittest.TestCase):
         self.assertIn('needs: credentials', proposal)
         self.assertIn("needs.credentials.outputs.configured == 'true'", proposal)
 
-    def test_release_success_invokes_shared_proposer_independent_of_ga_and_store(self):
+    def test_new_release_api_design_retires_automatic_catalog_proposals(self):
         workflow = (ROOT / '.github/workflows/release-candidate.yml').read_text()
-        self.assertIn('  propose-catalog:', workflow)
-        job = workflow.split('  propose-catalog:', 1)[1].split('\n  propose-main-promotion:', 1)[0]
-        self.assertIn("needs.publish-release.result == 'success'", job)
-        self.assertIn('!inputs.draft_release', job)
-        self.assertNotIn("inputs.channel == 'GA'", job)
-        self.assertIn('uses: ./.github/workflows/update-catalog.yml', job)
+        self.assertNotIn('propose-catalog:', workflow)
         proposal = (ROOT / '.github/workflows/update-catalog.yml').read_text()
-        self.assertIn('workflow_call:', proposal)
+        self.assertNotIn('  schedule:', proposal)
         self.assertIn('workflow_dispatch:', proposal)
-        self.assertIn('actions/create-github-app-token@', proposal)
         self.assertIn('scripts/propose-release-catalog.py', proposal)
         self.assertNotIn('gh pr merge', proposal)
 
-    def test_develop_merge_delivers_without_main_promotion_preserving_ga_snapshots(self):
+    def test_release_api_design_keeps_website_delivery_on_main(self):
         workflow = (ROOT / '.github/workflows/pages.yml').read_text()
-        self.assertIn('branches: [main, develop]', workflow)
+        self.assertIn('branches: [main]', workflow)
+        self.assertNotIn('  schedule:', workflow)
+        self.assertIn("if: github.ref == 'refs/heads/main'", workflow)
+        self.assertNotIn("if: github.ref == 'refs/heads/main' ||", workflow)
         self.assertIn('group: github-pages', workflow)
         self.assertIn('compose-catalog-site.py restore', workflow)
         self.assertIn('compose-catalog-site.py compose', workflow)

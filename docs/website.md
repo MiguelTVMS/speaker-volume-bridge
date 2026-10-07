@@ -1,5 +1,14 @@
 # Public website
 
+Website delivery runs from main only; develop changes and scheduled legacy
+catalog restoration no longer initiate deployments. No served content changes
+when this workflow configuration merges into develop.
+
+New-build update checks use the public GitHub Releases API and do not depend on
+website/catalog publication. Catalog procedures below describe retained historical
+tooling; legacy delivery and redirects are outside the current rollout scope.
+See [ADR 0021](decisions/0021-github-release-updates.md).
+
 The user-facing website lives in `pages/`. Jekyll assembles static HTML from the
 page sources, shared layouts and includes, with local CSS and no third-party
 fonts. Optional tracking is managed through a consent-gated Google Tag Manager
@@ -33,7 +42,13 @@ from the repository root, then open `http://localhost:4000`. A plain Python file
 server does not expand the shared includes or render the guide Markdown. Check
 the landing, guide, privacy, and guide upgrade pages at mobile and desktop widths.
 
-## Publish
+## Historical catalog publication and recovery
+
+The procedures in this section, through reviewed withdrawal, describe the
+former catalog delivery design and are not current deployment instructions.
+Develop deployment and scheduled reconciliation are retired. For current website
+delivery, use the Pages workflow on main after normal approved promotion; new
+application update checks need no website deployment.
 
 GitHub Pages remains the hosting provider. Website delivery composes the retained,
 verified GA site with approved catalogs from `develop`. GA source promotion stays
@@ -58,12 +73,6 @@ It updates both versioned feeds as applicable: GA direct releases enter v1 and
 v2; Alpha/Beta direct releases enter v2 only. It opens a focused proposal PR back
 to `develop` with normal CI and human review. It never publishes an application
 package or approves or merges its own proposal.
-
-After approved merge, catalog delivery overlays the approved feeds onto the
-retained GA snapshot. Verify both public catalogs and every non-catalog website
-file. Catalog publication does not require another release or a catalog promotion
-to `main`. Scheduled reconciliation can recover missed proposals or delivery, but
-does not replace those approvals or served-byte verification.
 
 Operator cases:
 
@@ -332,7 +341,7 @@ The Windows card likewise provides x64 and ARM64 buttons. Publish both
 Windows installer assets in a stable release before deploying
 the updated website. Generated Markdown and llms.txt carry the same choices.
 
-### Combined preview feed
+### Historical combined preview feed
 
 The proposal workflow maintains both v1 (stable-only transport) and v2
 (combined GA/Alpha/Beta transport) from the same verified release-tag invocation.

@@ -1028,3 +1028,31 @@ Workflow move regression executes the production scope and approval steps after
 moving an unchanged workflow outside its directory. The previous classifier
 misses the removal; the fixed inventory identifies it and rejects the unapproved
 deletion. Rename detection is disabled so both sides participate in validation.
+
+## Anonymous GitHub Releases redesign
+
+The production-request and shared-service regressions fail against the former raw
+catalog implementation and pass with the release API. New coverage exercises both
+policies, unordered numeric previews, exact release-page actions, actual HTTP
+pagination, saved policy/offer restart, incomplete/foreign/draft metadata and rate
+limits. Existing scheduler lifecycle regressions remain in the normal suite.
+Package naming establishes metadata compatibility, not inspected package bytes.
+New source migration invalidates former catalog cache freshness. Native dropdown,
+version detection, notification activation and exact browser opening remain
+outstanding, as do unavailable Windows/Linux and Store platform checks. The code
+change is not an application release or installed-client verification. Legacy
+catalog delivery/redirects are no longer acceptance requirements for this rollout.
+
+### Release input normalization
+
+Automated workflow regressions verify input ordering/defaults, stable-only Store
+gates, optional direct macOS signing, publication dependency outcomes, and Apple
+validation before upload with private-key cleanup on failure. The input/gate
+regression fails against the former workflow and passes with this change. Apple
+commands are stubbed; actual signing, unsigned DMG installation, App Store Connect
+upload, Store review and public availability remain native/operator checks.
+No application release is dispatched by these tests.
+
+The website-trigger regression fails against the former develop/scheduled delivery
+configuration and passes with main-only delivery. This check validates trigger
+configuration; no deployment or served content modification occurs.

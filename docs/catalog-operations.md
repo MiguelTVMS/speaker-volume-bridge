@@ -1,9 +1,9 @@
 # Catalog publication and independent website delivery
 
-Both catalogs are owned by `develop`. Stable clients continue to read
-`/updates/v1/catalog.json`; Prereleases clients read `/updates/v2/catalog.json`.
-Neither preference selects a Git branch. There is no client URL migration or
-installer in this phase. See [ADR 0020](decisions/0020-independent-catalog-delivery.md).
+Historical catalog operations. New builds use the anonymous GitHub Releases API
+and require no catalog activation, backfill, credentials or Pages deployment.
+Legacy client delivery and redirects are outside the current rollout scope.
+The procedures below are retained for historical tooling only. See ADR 0021.
 
 ## Publication states and approval
 

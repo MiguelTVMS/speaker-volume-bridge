@@ -4,7 +4,7 @@ layout: guide
 
 # Update checks
 
-Speaker Volume Bridge can check the public project catalog for an update that
+Speaker Volume Bridge can check the public GitHub release list for an update that
 matches the installed edition, operating system, and application architecture.
 The app never downloads or installs a package itself.
 
@@ -13,7 +13,7 @@ The app never downloads or installs a package itself.
 Open **Updates** in Settings to see the installed version and recognized
 distribution, the last successful check, and the current checker state. Choose
 **Check for updates** for a manual check. When a verified update is available,
-**Open update page** opens its validated HTTPS release or Store page in the
+**Open update page** opens its validated HTTPS release page in the
 default browser.
 
 An available update remains visible after choosing **Later** or denying an
@@ -40,51 +40,39 @@ the Updates page.
 
 ## Privacy and editions
 
-The catalog request contains no speaker details, configuration, analytics,
+The API request contains no speaker details, configuration, analytics,
 advertising data, or persistent installation identifier. As with any HTTPS
-request, the website host can receive the public IP address, request time,
-catalog path, and network metadata. See [Privacy and security](/guide/Privacy-and-Security.html).
+request, GitHub can receive the public IP address, request time,
+API path, and network metadata. See [Privacy and security](/guide/Privacy-and-Security.html).
 
-Catalog entries are published only after the exact edition and architecture are
-publicly available. Direct downloads and Store editions can therefore offer
-different versions at the same time. A missing catalog entry means no verified
-offer is available for that installation; it does not prove the installed
-version is current.
+The app requires published release metadata and an uploaded official installer
+matching its edition and application architecture. Missing compatible assets mean
+unavailable, not up to date. GitHub release metadata does not prove Store
+availability, so direct-release assets never produce Store update offers.
 
-## Stable releases or Prereleases
+## Stable only or Include prereleases
 
-Recognized direct macOS, direct Windows and official Debian packages offer
-**Release policy** in Updates. **Stable releases** is the default and includes
-public GA releases. **Prereleases** opts into public Alpha/Beta releases and newer
-stable releases. Preview packages may use ordinary numeric version numbers.
-Store, sideloaded, development, unknown and custom editions omit this selector.
+Recognized direct macOS, direct Windows and official Debian packages expose the
+Release policy dropdown. **Stable only** is the default and selects GA releases.
+**Include prereleases** considers GA and public prereleases, including Alpha/Beta
+packages with ordinary numeric versions. The app selects the highest compatible
+semantic version, regardless of publication order. Store, sideloaded, development,
+unknown and custom editions omit this selector.
 
-Changing the policy saves it for the next launch and checks once, even when
-automatic checks are off. Previous offers and links disappear immediately while
-checking. Errors remain visible with **Check for updates** available to retry.
-Your automatic-check, notification and speaker preferences are preserved.
+Changing policy saves it for restart and checks once even with automatic checks
+off. Previous links disappear immediately; errors leave Check for updates
+available. Automatic-check, notification and speaker preferences are preserved.
+Returning to Stable only waits for a strictly newer GA release without downgrading.
+Equal-version promotion does not reinstall a preview. Open update page opens the
+specific release's page. A release offered under both policies notifies once.
 
-Switching to Stable never downgrades or replaces the app: you will receive the
-next newer stable release. Equal-version GA promotion does not reinstall a preview.
-Offers always match your distribution and application architecture. Preview offers
-open that specific release's page. Empty or missing preview information means
-unavailable, not up to date. A release offered through both policies notifies once.
+## Availability and rate limits
 
-## When a public release becomes available in Updates
-
-A public release first goes through package verification and a catalog review.
-GA releases update both feeds; Alpha/Beta update the Prereleases feed. Catalog
-approval and delivery can therefore follow application publication. A public
-release page alone does not prove that its offer is live in Updates.
-
-Approved catalogs are delivered independently of another application release.
-The website keeps the last published GA pages and displayed website version
-while the feeds change. Store availability is confirmed separately. Older Stable
-clients keep their existing feed address. Temporary delivery failures leave the
-app's last validated offer available; **Check for updates** can retry after the
-catalog is verified live. The app continues to open an update page and does not
-download or install an update automatically.
-
-If catalog automation is awaiting configuration, the release remains public while
-its catalog update stays pending. This does not make an unverified offer available
-in the app; the operator can retry catalog preparation for the existing release.
+Checks use GitHub's public API without a login or token. No separate catalog file
+or website deployment is needed. GitHub applies limits shared by your public IP;
+rate-limited requests wait until retry is allowed. Forbidden responses also pause
+checks for at least one minute, including manual checks, because secondary rate
+limits can omit retry headers. Failed checks retain the last
+validated offer, which must be refreshed before opening when stale. The app never
+downloads or installs updates. Previously published apps are not migrated by this
+change; it takes effect after installing a future build that includes it.

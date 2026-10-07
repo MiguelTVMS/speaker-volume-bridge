@@ -1,5 +1,8 @@
 # 0019: Distribution-aware update catalog and phase-one checks
 
+The catalog transport/delivery decision is superseded for new builds by [ADR 0021](0021-github-release-updates.md). Historical catalog tooling is retained; legacy delivery and redirects are outside the current rollout scope.
+
+
 ## Status
 
 Accepted for phase 1.

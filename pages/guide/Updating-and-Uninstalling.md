@@ -16,10 +16,10 @@ If your installed app is still called **Sonos Volume Bridge**, start with [Upgra
 
 ## In-app update checks
 
-Recognized release installations can check the public project catalog for an
+Recognized direct-release installations can query the GitHub Releases API for an
 edition- and architecture-compatible update. Open **Updates** in Settings to run
 a manual check, change automatic checks or native notifications, and open the
-validated release or Store page. The app does not download or install packages.
+validated release page. Store editions must use the Store that installed them. The app does not download or install packages.
 See [Update checks](/guide/Updates.html) for timing, privacy, and distribution
 rules.
 
@@ -59,8 +59,8 @@ Remove the application through Ubuntu's software manager or package manager. Rem
 
 Use the store that installed the app to check for updates. GitHub publication and Store certification are separate, so a store installation may remain on an earlier version after v{{ site.data.release.version }} becomes available as a direct download.
 
-The in-app catalog treats each Store and direct-download edition independently.
-It never redirects one edition to an unverified package for another channel.
+The in-app checker does not offer Store updates or infer Store availability from
+direct-release packages. Use the Store to check for updates to its edition.
 
 ## Switching distribution channels
 

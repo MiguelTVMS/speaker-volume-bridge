@@ -18,9 +18,10 @@ use tauri::Emitter;
 use tokio::sync::Mutex as AsyncMutex;
 use url::Url;
 
-pub const CATALOG_URL: &str = "https://svb.miguel.ms/updates/v1/catalog.json";
-pub const PRERELEASE_CATALOG_URL: &str = "https://svb.miguel.ms/updates/v2/catalog.json";
-const MAX_CATALOG_BYTES: usize = 256 * 1024;
+pub const RELEASES_URL: &str =
+    "https://api.github.com/repos/MiguelTVMS/speaker-volume-bridge/releases";
+const MAX_RELEASE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_RELEASE_PAGES: u32 = 10;
 #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with the repository's pinned Rust.
 const SUCCESS_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -85,10 +86,10 @@ pub struct OpenUrlAction {
 impl OpenUrlAction {
     fn validate(self) -> Result<Self, UpdateError> {
         if self.kind != "open_url" {
-            return Err(UpdateError::InvalidCatalog("unsupported action"));
+            return Err(UpdateError::InvalidRelease("unsupported action"));
         }
         let parsed =
-            Url::parse(&self.url).map_err(|_| UpdateError::InvalidCatalog("invalid action URL"))?;
+            Url::parse(&self.url).map_err(|_| UpdateError::InvalidRelease("invalid action URL"))?;
         if parsed.scheme() != "https"
             || !parsed.username().is_empty()
             || parsed.password().is_some()
@@ -97,7 +98,7 @@ impl OpenUrlAction {
                 Some("svb.miguel.ms" | "github.com" | "apps.microsoft.com" | "apps.apple.com")
             )
         {
-            return Err(UpdateError::InvalidCatalog("untrusted action URL"));
+            return Err(UpdateError::InvalidRelease("untrusted action URL"));
         }
         Ok(self)
     }
@@ -118,6 +119,8 @@ pub struct UpdatePreferences {
     pub generation: u64,
     pub stable_source_available: Option<bool>,
     pub preview_source_available: Option<bool>,
+    #[serde(default)]
+    pub update_source: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -153,6 +156,7 @@ impl Default for UpdatePreferences {
             generation: 0,
             stable_source_available: None,
             preview_source_available: None,
+            update_source: Some("github_releases_v1".into()),
         }
     }
 }
@@ -197,46 +201,119 @@ impl UpdatePersistence for FileUpdatePersistence {
 }
 
 #[async_trait]
-pub trait CatalogTransport: Send + Sync {
+pub trait ReleaseTransport: Send + Sync {
     async fn fetch(&self) -> Result<Vec<u8>, UpdateError>;
     async fn fetch_policy(&self, _policy: UpdatePolicy) -> Result<Vec<u8>, UpdateError> {
         self.fetch().await
     }
 }
 
-pub struct HttpCatalogTransport(reqwest::Client);
-impl HttpCatalogTransport {
+pub struct HttpReleaseTransport {
+    client: reqwest::Client,
+    endpoint: String,
+    retry_after: AtomicU64,
+}
+impl HttpReleaseTransport {
     pub fn new() -> Result<Self, UpdateError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::limited(3))
             .build()?;
-        Ok(Self(client))
+        Ok(Self {
+            client,
+            endpoint: RELEASES_URL.into(),
+            retry_after: AtomicU64::new(0),
+        })
+    }
+    fn request(&self, _policy: UpdatePolicy) -> reqwest::RequestBuilder {
+        self.page_request(1)
+    }
+    fn page_request(&self, page: u32) -> reqwest::RequestBuilder {
+        self.client
+            .get(format!("{}?per_page=100&page={page}", self.endpoint))
+            .header(reqwest::header::USER_AGENT, "Speaker-Volume-Bridge")
+            .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2026-03-10")
     }
 }
 #[async_trait]
-impl CatalogTransport for HttpCatalogTransport {
+impl ReleaseTransport for HttpReleaseTransport {
     async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
         self.fetch_policy(UpdatePolicy::Stable).await
     }
     async fn fetch_policy(&self, policy: UpdatePolicy) -> Result<Vec<u8>, UpdateError> {
-        let url = match policy {
-            UpdatePolicy::Stable => CATALOG_URL,
-            UpdatePolicy::Prereleases => PRERELEASE_CATALOG_URL,
-        };
-        let response = self.0.get(url).send().await?.error_for_status()?;
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
-        {
-            return Err(UpdateError::InvalidCatalog("catalog too large"));
+        if SystemUpdateClock.now() < self.retry_after.load(Ordering::SeqCst) {
+            return Err(UpdateError::RateLimited);
         }
-        let bytes = response.bytes().await?;
-        if bytes.len() > MAX_CATALOG_BYTES {
-            return Err(UpdateError::InvalidCatalog("catalog too large"));
+        let mut releases = Vec::new();
+        let mut total = 0;
+        for page in 1..=MAX_RELEASE_PAGES {
+            let request = if page == 1 {
+                self.request(policy)
+            } else {
+                self.page_request(page)
+            };
+            let response = request.send().await?;
+            if let Some(until) = rate_limit_deadline(
+                response.status(),
+                response.headers(),
+                SystemUpdateClock.now(),
+            ) {
+                self.retry_after.store(until, Ordering::SeqCst);
+                return Err(UpdateError::RateLimited);
+            }
+            let mut response = response.error_for_status()?;
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                total += chunk.len();
+                if total > MAX_RELEASE_BYTES {
+                    return Err(UpdateError::InvalidRelease("release response too large"));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let mut decoder = serde_json::Deserializer::from_slice(&bytes);
+            let unique = UniqueJson::deserialize(&mut decoder)?.0;
+            decoder.end()?;
+            let values = unique
+                .as_array()
+                .ok_or(UpdateError::InvalidRelease("invalid release list"))?;
+            let complete = values.len() < 100;
+            releases.extend(values.iter().cloned());
+            if complete {
+                let bytes = serde_json::to_vec(&releases)?;
+                if bytes.len() > MAX_RELEASE_BYTES {
+                    return Err(UpdateError::InvalidRelease("release response too large"));
+                }
+                return Ok(bytes);
+            }
         }
-        Ok(bytes.to_vec())
+        Err(UpdateError::InvalidRelease(
+            "release pagination limit exceeded",
+        ))
     }
+}
+
+fn rate_limit_deadline(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    now: u64,
+) -> Option<u64> {
+    // Secondary limits can omit Retry-After while the primary quota remains.
+    // Conservatively cool down every forbidden response without reading its body.
+    if status != reqwest::StatusCode::TOO_MANY_REQUESTS && status != reqwest::StatusCode::FORBIDDEN
+    {
+        return None;
+    }
+    let number = |name| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+    };
+    Some(
+        now.saturating_add(number("retry-after").unwrap_or(60).max(60))
+            .max(number("x-ratelimit-reset").unwrap_or(0)),
+    )
 }
 
 pub trait UpdateClock: Send + Sync {
@@ -253,18 +330,21 @@ impl UpdateClock for SystemUpdateClock {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
-    #[error("update catalog is unavailable")]
+    #[error("release information is unavailable")]
     Network(#[from] reqwest::Error),
     #[error("update state I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("update state is invalid: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("invalid update catalog: {0}")]
-    InvalidCatalog(&'static str),
+    #[error("invalid release information: {0}")]
+    InvalidRelease(&'static str),
+    #[error("GitHub rate limit reached; try again later")]
+    RateLimited,
     #[error("update state is unavailable")]
     State,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Catalog {
@@ -272,6 +352,7 @@ struct Catalog {
     generated_at: String,
     entries: Vec<CatalogEntry>,
 }
+#[cfg(test)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CatalogEntry {
@@ -285,6 +366,38 @@ struct CatalogEntry {
     action: OpenUrlAction,
     #[serde(default)]
     classification: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    draft: bool,
+    prerelease: bool,
+    published_at: Option<String>,
+    html_url: String,
+    assets: Vec<GitHubAsset>,
+}
+#[derive(Deserialize)]
+struct GitHubAsset {
+    name: String,
+    state: String,
+    size: u64,
+    browser_download_url: String,
+}
+
+fn release_asset_name(distribution: &InstalledDistribution) -> Option<&'static str> {
+    use ApplicationArchitecture::{Aarch64, X86_64};
+    use DistributionEdition::{Debian, DirectMacos, DirectWindows};
+    // The official unqualified DMG is built on the ARM macOS release runner.
+    // It does not establish support for an Intel installation.
+    match (distribution.edition, distribution.architecture) {
+        (DirectMacos, Aarch64) => Some("speaker-volume-bridge-macos.dmg"),
+        (DirectWindows, X86_64) => Some("speaker-volume-bridge-windows-x64-unsigned.exe"),
+        (DirectWindows, Aarch64) => Some("speaker-volume-bridge-windows-arm64-unsigned.exe"),
+        (Debian, X86_64) => Some("speaker-volume-bridge-linux-x64.deb"),
+        (Debian, Aarch64) => Some("speaker-volume-bridge-linux-arm64.deb"),
+        _ => None,
+    }
 }
 
 struct UniqueJson(serde_json::Value);
@@ -362,7 +475,7 @@ impl<'de> Deserialize<'de> for UniqueJson {
 
 pub struct UpdateService {
     distribution: InstalledDistribution,
-    transport: Arc<dyn CatalogTransport>,
+    transport: Arc<dyn ReleaseTransport>,
     clock: Arc<dyn UpdateClock>,
     persistence: Arc<dyn UpdatePersistence>,
     preferences: Mutex<UpdatePreferences>,
@@ -377,11 +490,22 @@ pub struct UpdateService {
 impl UpdateService {
     pub fn new(
         distribution: InstalledDistribution,
-        transport: Arc<dyn CatalogTransport>,
+        transport: Arc<dyn ReleaseTransport>,
         clock: Arc<dyn UpdateClock>,
         persistence: Arc<dyn UpdatePersistence>,
     ) -> Result<Self, UpdateError> {
         let mut preferences = persistence.load(distribution.check_supported)?;
+        if preferences.update_source.as_deref() != Some("github_releases_v1") {
+            preferences.cached_offer = None;
+            preferences.freshness_target = None;
+            preferences.last_successful_check = None;
+            preferences.last_attempted_check = None;
+            preferences.stable_source_available = None;
+            preferences.preview_source_available = None;
+            preferences.update_source = Some("github_releases_v1".into());
+            preferences.generation += 1;
+            persistence.save(&preferences)?;
+        }
         if !distribution.prerelease_supported() && preferences.policy != UpdatePolicy::Stable {
             preferences.policy = UpdatePolicy::Stable;
             preferences.cached_offer = None;
@@ -734,8 +858,103 @@ impl UpdateService {
         bytes: &[u8],
         policy: UpdatePolicy,
     ) -> Result<UpdateStatus, UpdateError> {
-        if bytes.len() > MAX_CATALOG_BYTES {
-            return Err(UpdateError::InvalidCatalog("catalog too large"));
+        if bytes.len() > MAX_RELEASE_BYTES {
+            return Err(UpdateError::InvalidRelease("release response too large"));
+        }
+        let mut decoder = serde_json::Deserializer::from_slice(bytes);
+        let unique = UniqueJson::deserialize(&mut decoder)?.0;
+        decoder.end()?;
+        // Retain the former contract fixtures for lifecycle regressions only.
+        // Production accepts the GitHub release array exclusively.
+        #[cfg(test)]
+        if unique.is_object() {
+            return self.evaluate_catalog_policy(bytes, policy);
+        }
+        let releases: Vec<GitHubRelease> = serde_json::from_value(unique)?;
+        let asset_name = release_asset_name(&self.distribution);
+        let installed = Version::parse(&self.distribution.version)
+            .map_err(|_| UpdateError::InvalidRelease("invalid installed version"))?;
+        let mut selected: Option<(Version, OpenUrlAction)> = None;
+        for release in releases {
+            if release.draft || (policy == UpdatePolicy::Stable && release.prerelease) {
+                continue;
+            }
+            let Some(version) = release
+                .tag_name
+                .strip_prefix('v')
+                .and_then(|tag| Version::parse(tag).ok())
+            else {
+                continue;
+            };
+            if !release.prerelease && !version.pre.is_empty() {
+                continue;
+            }
+            if release
+                .published_at
+                .as_deref()
+                .is_none_or(|time| time.parse::<jiff::Timestamp>().is_err())
+                || release.html_url != release_page(&version.to_string())
+            {
+                continue;
+            }
+            let Some(name) = asset_name else {
+                continue;
+            };
+            let matching: Vec<_> = release
+                .assets
+                .iter()
+                .filter(|asset| asset.name == name)
+                .collect();
+            if matching.len() != 1 {
+                continue;
+            }
+            let asset = matching[0];
+            let expected = format!(
+                "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/{}/{name}",
+                release.tag_name
+            );
+            if asset.state != "uploaded"
+                || asset.size == 0
+                || asset.browser_download_url != expected
+            {
+                continue;
+            }
+            if selected
+                .as_ref()
+                .is_none_or(|(current, _)| version.cmp_precedence(current).is_gt())
+            {
+                selected = Some((
+                    version,
+                    OpenUrlAction {
+                        kind: "open_url".into(),
+                        url: release.html_url,
+                    }
+                    .validate()?,
+                ));
+            }
+        }
+        let Some((version, action)) = selected else {
+            let mut status = self.base_status(UpdatePhase::Unavailable);
+            status.message =
+                Some("No compatible public release is available. Check again later.".into());
+            return Ok(status);
+        };
+        if !version.cmp_precedence(&installed).is_gt() {
+            return Ok(self.base_status(UpdatePhase::UpToDate));
+        }
+        let mut status = self.base_status(UpdatePhase::UpdateAvailable);
+        status.available_version = Some(version.to_string());
+        status.action = Some(action);
+        Ok(status)
+    }
+    #[cfg(test)]
+    fn evaluate_catalog_policy(
+        &self,
+        bytes: &[u8],
+        policy: UpdatePolicy,
+    ) -> Result<UpdateStatus, UpdateError> {
+        if bytes.len() > MAX_RELEASE_BYTES {
+            return Err(UpdateError::InvalidRelease("catalog too large"));
         }
         let mut decoder = serde_json::Deserializer::from_slice(bytes);
         let unique = UniqueJson::deserialize(&mut decoder)?.0;
@@ -744,7 +963,7 @@ impl UpdateService {
         if catalog.schema_version != if policy == UpdatePolicy::Stable { 1 } else { 2 }
             || catalog.generated_at.parse::<jiff::Timestamp>().is_err()
         {
-            return Err(UpdateError::InvalidCatalog("unsupported schema"));
+            return Err(UpdateError::InvalidRelease("unsupported schema"));
         }
         let mut targets = std::collections::HashSet::new();
         for entry in &catalog.entries {
@@ -760,7 +979,7 @@ impl UpdateService {
                     None
                 },
             )) {
-                return Err(UpdateError::InvalidCatalog("duplicate target"));
+                return Err(UpdateError::InvalidRelease("duplicate target"));
             }
         }
         let target = target_key(&self.distribution);
@@ -784,9 +1003,9 @@ impl UpdateService {
             return Ok(status);
         };
         let available = Version::parse(&entry.version)
-            .map_err(|_| UpdateError::InvalidCatalog("invalid semantic version"))?;
+            .map_err(|_| UpdateError::InvalidRelease("invalid semantic version"))?;
         let installed = Version::parse(&self.distribution.version)
-            .map_err(|_| UpdateError::InvalidCatalog("invalid installed version"))?;
+            .map_err(|_| UpdateError::InvalidRelease("invalid installed version"))?;
         if !available.cmp_precedence(&installed).is_gt() {
             return Ok(self.base_status(UpdatePhase::UpToDate));
         }
@@ -806,21 +1025,22 @@ impl UpdateService {
     }
 }
 
+#[cfg(test)]
 fn validate_entry(entry: &CatalogEntry, policy: UpdatePolicy) -> Result<(), UpdateError> {
     let expected_os = match entry.edition.as_str() {
         "direct_macos" | "mac_app_store" => "macos",
         "direct_windows" | "microsoft_store" => "windows",
         "debian" => "linux",
-        _ => return Err(UpdateError::InvalidCatalog("unsupported edition")),
+        _ => return Err(UpdateError::InvalidRelease("unsupported edition")),
     };
     if entry.os != expected_os {
-        return Err(UpdateError::InvalidCatalog("unsupported platform"));
+        return Err(UpdateError::InvalidRelease("unsupported platform"));
     }
     if !matches!(entry.architecture.as_str(), "aarch64" | "x86_64") {
-        return Err(UpdateError::InvalidCatalog("unsupported architecture"));
+        return Err(UpdateError::InvalidRelease("unsupported architecture"));
     }
     let version = Version::parse(&entry.version)
-        .map_err(|_| UpdateError::InvalidCatalog("invalid semantic version"))?;
+        .map_err(|_| UpdateError::InvalidRelease("invalid semantic version"))?;
     let valid = if policy == UpdatePolicy::Stable {
         entry.channel == "stable"
             && version.pre.is_empty()
@@ -839,18 +1059,18 @@ fn validate_entry(entry: &CatalogEntry, policy: UpdatePolicy) -> Result<(), Upda
         }
     };
     if !valid {
-        return Err(UpdateError::InvalidCatalog("invalid stable version"));
+        return Err(UpdateError::InvalidRelease("invalid stable version"));
     }
     entry
         .published_at
         .parse::<jiff::Timestamp>()
-        .map_err(|_| UpdateError::InvalidCatalog("invalid publication time"))?;
+        .map_err(|_| UpdateError::InvalidRelease("invalid publication time"))?;
     if entry.release_notes.is_empty() || entry.release_notes.len() > 16 * 1024 {
-        return Err(UpdateError::InvalidCatalog("invalid release notes"));
+        return Err(UpdateError::InvalidRelease("invalid release notes"));
     }
     entry.action.clone().validate()?;
     if policy == UpdatePolicy::Prereleases && entry.action.url != release_page(&entry.version) {
-        return Err(UpdateError::InvalidCatalog(
+        return Err(UpdateError::InvalidRelease(
             "preview action must open exact release",
         ));
     }
@@ -1122,14 +1342,14 @@ mod tests {
         calls: AtomicUsize,
     }
     #[async_trait]
-    impl CatalogTransport for FakeTransport {
+    impl ReleaseTransport for FakeTransport {
         async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
             self.result
                 .lock()
                 .unwrap()
                 .clone()
-                .map_err(UpdateError::InvalidCatalog)
+                .map_err(UpdateError::InvalidRelease)
         }
     }
     #[derive(Default)]
@@ -1192,7 +1412,7 @@ mod tests {
         }
         let clock = Arc::new(FakeClock(AtomicU64::new(100)));
         let (service, transport) = service(
-            catalog("2.0.0"),
+            serde_json::to_vec(&vec![public_release("2.0.0", false)]).unwrap(),
             clock.clone(),
             Arc::new(MemoryPersistence::default()),
         );
@@ -1251,7 +1471,7 @@ mod tests {
             }
         }
         let (service, transport) = service(
-            catalog("2.0.0"),
+            serde_json::to_vec(&vec![public_release("2.0.0", false)]).unwrap(),
             Arc::new(FakeClock(AtomicU64::new(100))),
             Arc::new(MemoryPersistence::default()),
         );
@@ -1309,7 +1529,7 @@ mod tests {
             cancelled: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
         }
         #[async_trait]
-        impl CatalogTransport for PendingTransport {
+        impl ReleaseTransport for PendingTransport {
             async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
                 let _guard = CancelOnDrop(self.cancelled.lock().unwrap().take());
                 self.entered.notify_one();
@@ -1837,7 +2057,7 @@ mod tests {
         let manual = service.check(true).await;
         assert_eq!(
             manual.message.as_deref(),
-            Some("invalid update catalog: offline")
+            Some("invalid release information: offline")
         );
         *transport.result.lock().unwrap() = Ok(catalog("2.0.0"));
         clock.0.store(102, Ordering::Relaxed);
@@ -1917,6 +2137,296 @@ mod tests {
         let preferences: UpdatePreferences = serde_json::from_str("{}").unwrap();
         assert!(preferences.update_notifications);
     }
+    #[test]
+    fn production_requests_use_anonymous_release_api() {
+        let transport = HttpReleaseTransport::new().unwrap();
+        for policy in [UpdatePolicy::Stable, UpdatePolicy::Prereleases] {
+            let request = transport.request(policy).build().unwrap();
+            assert_eq!(request.url().host_str(), Some("api.github.com"));
+            assert_eq!(
+                request.url().path(),
+                "/repos/MiguelTVMS/speaker-volume-bridge/releases"
+            );
+            assert!(
+                !request
+                    .headers()
+                    .contains_key(reqwest::header::AUTHORIZATION)
+            );
+            assert!(request.headers().contains_key(reqwest::header::USER_AGENT));
+        }
+    }
+
+    fn public_release(version: &str, prerelease: bool) -> serde_json::Value {
+        serde_json::json!({
+            "tag_name": format!("v{version}"), "draft": false, "prerelease": prerelease,
+            "published_at": "2026-10-07T00:00:00Z", "html_url": release_page(version),
+            "assets": [{"name": "speaker-volume-bridge-macos.dmg", "state": "uploaded", "size": 100,
+                "browser_download_url": format!("https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v{version}/speaker-volume-bridge-macos.dmg")}]
+        })
+    }
+
+    #[tokio::test]
+    async fn release_api_service_selects_policy_by_version_and_opens_exact_page() {
+        let releases = serde_json::to_vec(&vec![
+            public_release("1.6.0", false),
+            public_release("1.8.1", true),
+            public_release("1.8.0", false),
+        ])
+        .unwrap();
+        let (client, _) = service(
+            releases,
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        let stable = client.check(true).await;
+        assert_eq!(stable.available_version.as_deref(), Some("1.8.0"));
+        assert_eq!(
+            client
+                .claim_offer("1.8.0", &release_page("1.8.0"))
+                .unwrap()
+                .url,
+            release_page("1.8.0")
+        );
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        let preview = client.check(true).await;
+        assert_eq!(preview.available_version.as_deref(), Some("1.8.1"));
+        assert_eq!(preview.action.unwrap().url, release_page("1.8.1"));
+    }
+
+    #[tokio::test]
+    async fn release_api_rejects_ineligible_packages_and_preserves_saved_policy() {
+        let mut draft = public_release("9.0.0", false);
+        draft["draft"] = true.into();
+        let mut missing = public_release("8.0.0", false);
+        missing["assets"] = serde_json::json!([]);
+        let mut foreign = public_release("7.0.0", false);
+        foreign["html_url"] = "https://github.com/other/repo/releases/tag/v7.0.0".into();
+        let mut incomplete = public_release("6.0.0", false);
+        incomplete["assets"][0]["state"] = "new".into();
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (client, transport) = service(
+            serde_json::to_vec(&vec![
+                draft,
+                missing,
+                foreign,
+                incomplete,
+                public_release("1.8.1", true),
+                public_release("1.8.0", false),
+            ])
+            .unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence.clone(),
+        );
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        assert_eq!(
+            client.check(true).await.available_version.as_deref(),
+            Some("1.8.1")
+        );
+        let restored = UpdateService::new(
+            distribution(),
+            transport.clone(),
+            Arc::new(FakeClock(AtomicU64::new(101))),
+            persistence,
+        )
+        .unwrap();
+        assert_eq!(restored.status().unwrap().policy, UpdatePolicy::Prereleases);
+        assert_eq!(
+            restored.status().unwrap().available_version.as_deref(),
+            Some("1.8.1")
+        );
+        *transport.result.lock().unwrap() = Err("rate limited");
+        let failure = restored.check(true).await;
+        assert!(failure.check_failed);
+        assert_eq!(failure.available_version.as_deref(), Some("1.8.1"));
+        restored.set_policy(UpdatePolicy::Stable).unwrap();
+        *transport.result.lock().unwrap() =
+            Ok(serde_json::to_vec(&vec![public_release("1.7.1", false)]).unwrap());
+        assert_eq!(restored.check(true).await.phase, UpdatePhase::UpToDate);
+    }
+
+    #[test]
+    fn release_api_source_migration_discards_old_catalog_freshness() {
+        let persistence = Arc::new(MemoryPersistence::default());
+        let old = UpdatePreferences {
+            automatic_checks: false,
+            update_notifications: false,
+            policy: UpdatePolicy::Prereleases,
+            update_source: None,
+            last_successful_check: Some(100),
+            last_attempted_check: Some(100),
+            freshness_target: Some(policy_target(&distribution(), UpdatePolicy::Prereleases)),
+            notified_targets: vec!["previous-notice".into()],
+            ..UpdatePreferences::default()
+        };
+        *persistence.0.lock().unwrap() = Some(old);
+        let (client, _) = service(
+            serde_json::to_vec(&vec![public_release("1.8.1", true)]).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(101))),
+            persistence,
+        );
+        let preferences = client.preferences().unwrap();
+        assert_eq!(preferences.policy, UpdatePolicy::Prereleases);
+        assert!(!preferences.automatic_checks);
+        assert!(!preferences.update_notifications);
+        assert!(preferences.last_successful_check.is_none());
+        assert!(preferences.freshness_target.is_none());
+        assert_eq!(preferences.notified_targets, ["previous-notice"]);
+    }
+
+    #[test]
+    fn release_api_rate_limit_respects_reset_and_retry_after() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-ratelimit-remaining", "0".parse().unwrap());
+        headers.insert("x-ratelimit-reset", "1000".parse().unwrap());
+        assert_eq!(
+            rate_limit_deadline(reqwest::StatusCode::FORBIDDEN, &headers, 100),
+            Some(1000)
+        );
+        headers.insert("retry-after", "1200".parse().unwrap());
+        assert_eq!(
+            rate_limit_deadline(reqwest::StatusCode::TOO_MANY_REQUESTS, &headers, 100),
+            Some(1300)
+        );
+        assert_eq!(
+            rate_limit_deadline(reqwest::StatusCode::OK, &headers, 100),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn release_api_production_transport_paginates_before_service_selection() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for (page, data) in [
+                (1, vec![public_release("1.6.0", false); 100]),
+                (
+                    2,
+                    vec![
+                        public_release("1.8.1", true),
+                        public_release("1.8.0", false),
+                    ],
+                ),
+            ] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    socket.read_exact(&mut byte).await.unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap().to_lowercase();
+                assert!(request.contains(&format!("per_page=100&page={page}")));
+                assert!(request.contains("user-agent: speaker-volume-bridge"));
+                assert!(!request.contains("authorization:"));
+                let body = serde_json::to_vec(&data).unwrap();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(header.as_bytes()).await.unwrap();
+                socket.write_all(&body).await.unwrap();
+            }
+        });
+        let mut transport = HttpReleaseTransport::new().unwrap();
+        transport.endpoint = format!("http://{address}/releases");
+        let client = UpdateService::new(
+            distribution(),
+            Arc::new(transport),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        )
+        .unwrap();
+        assert_eq!(
+            client.check(true).await.available_version.as_deref(),
+            Some("1.8.0")
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn release_api_production_transport_does_not_repeat_rate_limited_requests() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).await.unwrap();
+                request.push(byte[0]);
+            }
+            socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 120\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+        });
+        let mut transport = HttpReleaseTransport::new().unwrap();
+        transport.endpoint = format!("http://{address}/releases");
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+        server.await.unwrap();
+        // The server no longer exists. A second network request would fail differently.
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+    }
+
+    #[tokio::test]
+    async fn release_api_production_transport_cools_down_headerless_secondary_limit() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).await.unwrap();
+                request.push(byte[0]);
+            }
+            socket.write_all(b"HTTP/1.1 403 Forbidden\r\nX-RateLimit-Remaining: 100\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+        });
+        let mut transport = HttpReleaseTransport::new().unwrap();
+        transport.endpoint = format!("http://{address}/releases");
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+        server.await.unwrap();
+        assert!(transport.retry_after.load(Ordering::SeqCst) >= SystemUpdateClock.now() + 59);
+        // The server no longer exists. A second network request would fail differently.
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+    }
+
+    #[test]
+    fn release_api_never_infers_store_or_intel_macos_availability() {
+        for (edition, architecture) in [
+            (
+                DistributionEdition::MicrosoftStore,
+                ApplicationArchitecture::Aarch64,
+            ),
+            (
+                DistributionEdition::MacAppStore,
+                ApplicationArchitecture::Aarch64,
+            ),
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::X86_64,
+            ),
+        ] {
+            let mut installed = distribution();
+            installed.edition = edition;
+            installed.architecture = architecture;
+            assert!(release_asset_name(&installed).is_none());
+        }
+    }
+
     #[tokio::test]
     async fn verified_backfill_uses_production_client_for_version_policy_and_target_selection() {
         let stable = include_bytes!("../../tests/fixtures/update-catalog/backfill-v1.json");
@@ -2164,7 +2674,7 @@ mod tests {
         calls: AtomicUsize,
     }
     #[async_trait]
-    impl CatalogTransport for GatedPolicyTransport {
+    impl ReleaseTransport for GatedPolicyTransport {
         async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
             self.fetch_policy(UpdatePolicy::Stable).await
         }

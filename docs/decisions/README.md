@@ -27,3 +27,7 @@ This folder stores decision records. Keep one record per important design choice
 - [0019-distribution-aware-updates](0019-distribution-aware-updates.md)
 
 - [0020-independent-catalog-delivery](0020-independent-catalog-delivery.md)
+
+- [0021-github-release-updates](0021-github-release-updates.md)
+
+- [0022-release-workflow-inputs](0022-release-workflow-inputs.md)

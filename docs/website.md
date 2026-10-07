@@ -79,6 +79,7 @@ Operator cases:
 - **Store availability:** the automatic direct-release proposal does not establish
   or create Store availability. Keep unavailable or unverified Store targets
   outstanding; a submission or approval cannot substitute for public availability.
+  Once verified, use the [reviewed Store publication procedure](#reviewed-store-publication).
 - **Withdrawal:** the manual release-tag dispatch has no withdrawal input. Handle
   withdrawn packages through the [reviewed withdrawal procedure](#reviewed-withdrawal)
   below; never restore an older release as a downgrade.
@@ -92,6 +93,64 @@ Operator cases:
   or the documented main recovery run. Retry catalog-only delivery on develop
   when appropriate. Never clear pending state to bypass verification. A public
   application release with pending catalog delivery remains supported.
+
+### Reviewed Store publication
+
+The release-tag proposal workflow verifies direct-download packages only. A
+publicly obtainable Store offer needs a separate reviewed v1 catalog change;
+v2 excludes Store targets. Verify the exact Store edition, public version and
+application architecture, and retain the evidence in an approved private location.
+A package upload, submission, certification or private test listing is insufficient.
+No Store availability is asserted by this guide or its template.
+
+On a focused branch from current approved `develop`, review the v1 catalog and
+capture its digest. Save this template as `store-upsert.json` outside the committed
+change. Replace the version, public publication timestamp, architecture and notes
+with verified values. Change both confirmation flags to `true` only after public
+availability is independently confirmed for that exact target:
+
+```json
+{
+  "operation": "upsert",
+  "verifiedAvailable": false,
+  "source": {"kind": "microsoft_store", "published": false},
+  "entry": {
+    "edition": "microsoft_store",
+    "channel": "stable",
+    "os": "windows",
+    "architecture": "x86_64",
+    "version": "<verified-version>",
+    "publishedAt": "<verified-publication-timestamp>",
+    "releaseNotes": "<reviewed-public-release-notes>",
+    "action": {"type": "open_url", "url": "https://svb.miguel.ms/guide/Upgrading.html"}
+  }
+}
+```
+
+For Mac App Store, set both `source.kind` and `entry.edition` to `mac_app_store`,
+set `entry.os` to `macos`, and use the verified application architecture. Retain
+`channel: stable` and omit classification in v1. Repeat only for independently
+verified architectures. The confirmation flags are operator assertions; the tool
+does not query a Store or establish public availability for you.
+
+Keep the digest captured at catalog review through preparation:
+
+```sh
+store_expected=$(python3 -c 'import hashlib; from pathlib import Path; print(hashlib.sha256(Path("pages/updates/v1/catalog.json").read_bytes()).hexdigest())')
+python3 scripts/prepare-update-catalog.py store-upsert.json --catalog pages/updates/v1/catalog.json --expected-sha256 "$store_expected"
+python3 scripts/validate-update-catalog.py pages/updates/v1/catalog.json
+git diff -- pages/updates/v1/catalog.json
+```
+
+The unchanged template fails closed. A changed catalog digest also stops
+preparation. Review that only the verified Store target advances and existing
+targets and withdrawal cutoffs are preserved. The tool cannot overwrite an equal
+or newer offer with a different equal or older record; do not bypass that check.
+Commit only the intended v1 catalog and open a normal PR to `develop` with
+sanitized evidence and a private verification reference. Require CI and human
+approval. After approved merge and delivery, verify the served v1 catalog and
+unchanged non-catalog website files; confirm v2 remains free of Store targets.
+Local preparation is neither deployed availability nor Store publication.
 
 ### Reviewed withdrawal
 

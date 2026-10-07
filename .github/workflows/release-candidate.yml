@@ -3,30 +3,29 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      bump:
-        description: Version increment for the final release
+      version:
+        description: Version
         required: true
         default: Fix
         type: choice
-        options: [Fix, Minor, Major]
-      channel:
-        description: Publication channel
-        required: true
-        default: Beta
-        type: choice
-        options: [GA, Beta, Alpha]
-      draft_release:
-        description: Keep GitHub release private for native validation (no promotion or Store submission)
+        options: [Major, Minor, Fix]
+      stable:
+        description: Stable
         required: false
         default: false
         type: boolean
-      publish_microsoft_store:
-        description: Submit release to Microsoft Store (GA only)
+      sign_apple_pack:
+        description: Sign Apple Pack
+        required: false
+        default: true
+        type: boolean
+      push_apple_store:
+        description: Push Apple Store
         required: false
         default: false
         type: boolean
-      build_app_store:
-        description: Build Mac App Store package
+      push_ms_store:
+        description: Push MS Store
         required: false
         default: false
         type: boolean
@@ -99,7 +98,7 @@ jobs:
       - name: Bump the workspace version
         id: version
         env:
-          BUMP: ${{ inputs.bump }}
+          BUMP: ${{ inputs.version }}
         run: |
           next_version="$(python3 - <<'PY'
           import os
@@ -186,7 +185,7 @@ jobs:
       - run: pnpm --dir ui install --frozen-lockfile
       - name: Stamp package release classification
         env:
-          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
         run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - name: Verify the tag matches the application version
@@ -210,6 +209,23 @@ jobs:
           path: speaker-volume-bridge-*-macos-unsigned.tar.gz
           if-no-files-found: error
           retention-days: 1
+      - name: Bundle an unsigned direct-download disk image
+        if: ${{ !inputs.sign_apple_pack }}
+        env:
+          RELEASE_TAG: ${{ needs.prepare-version.outputs.tag }}
+        run: |
+          cargo tauri bundle --bundles app,dmg --config src-tauri/tauri.direct.conf.json --no-sign
+          shopt -s nullglob
+          images=(target/release/bundle/dmg/*.dmg)
+          test "${#images[@]}" -eq 1
+          hdiutil verify "${images[0]}"
+          cp "${images[0]}" "speaker-volume-bridge-${RELEASE_TAG}-macos.dmg"
+      - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.sign_apple_pack }}
+        with:
+          name: macos-release
+          path: speaker-volume-bridge-*-macos.dmg
+          if-no-files-found: error
 
   linux-deb:
     name: Build Ubuntu Debian package (${{ matrix.arch }})
@@ -264,7 +280,7 @@ jobs:
       - run: pnpm --dir ui install --frozen-lockfile
       - name: Stamp package release classification
         env:
-          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
         run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - name: Verify the tag matches the application version
@@ -285,6 +301,7 @@ jobs:
           path: speaker-volume-bridge-*-linux-${{ matrix.arch }}.deb
           if-no-files-found: error
   macos-direct:
+    if: ${{ inputs.sign_apple_pack }}
     name: Sign and notarize macOS direct-download app
     needs: [prepare-version, all-platform-builds]
     runs-on: macos-latest
@@ -317,7 +334,7 @@ jobs:
           shared-key: workspace
       - name: Stamp package release classification
         env:
-          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
         run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
@@ -431,7 +448,7 @@ jobs:
 
   macos-app-store:
     name: Sign macOS App Store package
-    if: ${{ inputs.build_app_store }}
+    if: ${{ inputs.stable && inputs.push_apple_store }}
     needs: [prepare-version, all-platform-builds]
     runs-on: macos-latest
     environment: apple-app-store
@@ -461,7 +478,7 @@ jobs:
           shared-key: workspace
       - name: Stamp package release classification
         env:
-          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
         run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
@@ -636,7 +653,7 @@ jobs:
       - run: pnpm --dir ui install --frozen-lockfile
       - name: Stamp package release classification
         env:
-          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
         run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - run: cargo tauri build --no-bundle
@@ -695,7 +712,7 @@ jobs:
           shared-key: workspace-Windows-${{ matrix.arch }}
       - name: Stamp package release classification
         env:
-          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
         run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
@@ -754,7 +771,7 @@ jobs:
           path: .
       - name: Stamp package release classification
         env:
-          RELEASE_CLASSIFICATION: ${{ inputs.channel }}
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
         run: python3 scripts/stamp-release-classification.py
       - name: Build and validate the MSIX from the compiled executable
         shell: pwsh
@@ -811,9 +828,10 @@ jobs:
       ${{ !cancelled() &&
           needs.prepare-version.result == 'success' &&
           needs.all-platform-builds.result == 'success' &&
-          needs.macos-direct.result == 'success' &&
+          (needs.macos-direct.result == 'success' ||
+           (!inputs.sign_apple_pack && needs.macos-direct.result == 'skipped')) &&
           (needs.macos-app-store.result == 'success' ||
-           (!inputs.build_app_store && needs.macos-app-store.result == 'skipped')) }}
+           (!(inputs.stable && inputs.push_apple_store) && needs.macos-app-store.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -845,8 +863,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare-version.outputs.tag }}
-          RELEASE_CHANNEL: ${{ inputs.channel }}
-          DRAFT_RELEASE: ${{ inputs.draft_release }}
+          RELEASE_CHANNEL: ${{ inputs.stable && 'GA' || 'Beta' }}
+          DRAFT_RELEASE: false
+          SIGN_APPLE_PACK: ${{ inputs.sign_apple_pack }}
         run: |
           mapfile -t release_assets < <(find release-assets -type f -print)
           test "${#release_assets[@]}" -gt 0
@@ -868,6 +887,11 @@ jobs:
           if [ "$DRAFT_RELEASE" = "true" ]; then
             release_flags+=(--draft)
           fi
+          if [ "$SIGN_APPLE_PACK" = "true" ]; then
+            apple_signing_message="The macOS direct-download package is signed and notarized."
+          else
+            apple_signing_message="The macOS direct-download package is unsigned and not notarized."
+          fi
           release_intro="$(cat <<EOF
           ## Speaker Volume Bridge $RELEASE_TAG
 
@@ -883,7 +907,7 @@ jobs:
 
           ### Important
 
-          The macOS app is signed with Developer ID and notarized by Apple. The Windows installer is currently unsigned, so Windows SmartScreen may ask you to confirm that you want to run it.
+          $apple_signing_message The Windows installer is currently unsigned, so Windows SmartScreen may ask you to confirm that you want to run it.
 
           The generated change list follows this summary.
           EOF
@@ -903,7 +927,7 @@ jobs:
 
   propose-catalog:
     name: Release published - prepare catalog review
-    if: ${{ !cancelled() && !inputs.draft_release && needs.publish-release.result == 'success' }}
+    if: ${{ !cancelled() && needs.publish-release.result == 'success' }}
     needs: [prepare-version, publish-release]
     uses: ./.github/workflows/update-catalog.yml
     with:
@@ -912,7 +936,7 @@ jobs:
 
   propose-main-promotion:
     name: Open stable release PR into main
-    if: ${{ !cancelled() && !inputs.draft_release && inputs.channel == 'GA' && needs.prepare-version.result == 'success' && needs.publish-release.result == 'success' }}
+    if: ${{ !cancelled() && inputs.stable && needs.prepare-version.result == 'success' && needs.publish-release.result == 'success' }}
     needs: [prepare-version, publish-release]
     runs-on: ubuntu-latest
     permissions:
@@ -942,7 +966,7 @@ jobs:
 
   publish-microsoft-store:
     name: Submit GA release to Microsoft Store
-    if: ${{ !cancelled() && !inputs.draft_release && inputs.channel == 'GA' && inputs.publish_microsoft_store && needs.prepare-version.result == 'success' && needs.all-platform-builds.result == 'success' && needs.windows-msix.result == 'success' && needs.publish-release.result == 'success' }}
+    if: ${{ !cancelled() && inputs.stable && inputs.push_ms_store && needs.prepare-version.result == 'success' && needs.all-platform-builds.result == 'success' && needs.windows-msix.result == 'success' && needs.publish-release.result == 'success' }}
     needs: [prepare-version, all-platform-builds, windows-msix, publish-release]
     permissions:
       contents: read
@@ -952,3 +976,39 @@ jobs:
       release_tag: ${{ needs.prepare-version.outputs.tag }}
       dry_run: false
     secrets: inherit
+
+  publish-apple-store:
+    name: Upload stable package to App Store Connect
+    if: ${{ !cancelled() && inputs.stable && inputs.push_apple_store && needs.prepare-version.result == 'success' && needs.macos-app-store.result == 'success' && needs.publish-release.result == 'success' }}
+    needs: [prepare-version, macos-app-store, publish-release]
+    runs-on: macos-latest
+    environment: apple-app-store
+    env:
+      APPLE_API_KEY: ${{ vars.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ vars.APPLE_API_ISSUER }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-app-store-${{ needs.prepare-version.outputs.tag }}
+          path: apple-store-upload
+      - name: Validate and upload the signed package
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_API_KEY"
+          test -n "$APPLE_API_ISSUER"
+          test -n "$APPLE_API_PRIVATE_KEY"
+          key_directory="$RUNNER_TEMP/apple-store-private-keys"
+          mkdir -p "$key_directory"
+          chmod 700 "$key_directory"
+          export API_PRIVATE_KEYS_DIR="$key_directory"
+          trap 'rm -rf "$key_directory"' EXIT
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_directory/AuthKey_${APPLE_API_KEY}.p8"
+          chmod 600 "$key_directory/AuthKey_${APPLE_API_KEY}.p8"
+          shopt -s nullglob
+          packages=(apple-store-upload/*.pkg)
+          test "${#packages[@]}" -eq 1
+          pkgutil --check-signature "${packages[0]}"
+          xcrun altool --validate-app -f "${packages[0]}" -t macos --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
+          xcrun altool --upload-app -f "${packages[0]}" -t macos --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"

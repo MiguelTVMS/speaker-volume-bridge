@@ -728,7 +728,7 @@ class WorkflowRegressionTests(unittest.TestCase):
         self.assertIn('  propose-catalog:', workflow)
         job = workflow.split('  propose-catalog:', 1)[1].split('\n  propose-main-promotion:', 1)[0]
         self.assertIn("needs.publish-release.result == 'success'", job)
-        self.assertIn('!inputs.draft_release', job)
+        self.assertNotIn('inputs.stable', job)
         self.assertNotIn("inputs.channel == 'GA'", job)
         self.assertIn('uses: ./.github/workflows/update-catalog.yml', job)
         proposal = (ROOT / '.github/workflows/update-catalog.yml').read_text()

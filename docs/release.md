@@ -13,18 +13,23 @@ choose one increment:
 - `Minor` increases the minor number and resets the patch number.
 - `Major` increases the major number and resets the minor and patch numbers.
 
-Leave **Build Mac App Store package** unchecked (the default) while the app is
-under Apple evaluation. Check it only when a new signed App Store package is
-needed. This option controls package creation; the workflow does not submit the
-package to Apple automatically. Other release packages and GitHub publication
-continue when the App Store job is skipped. When selected, its signing job must
-succeed before GitHub publication, main promotion, or Microsoft Store submission. The standalone App Store signing
-verification workflow remains available for manual checks.
+The inputs appear in this order: **Version**, **Stable**, **Sign Apple Pack**,
+**Push Apple Store**, **Push MS Store**. Version defaults to Fix. Stable defaults
+to false, publishing a Beta prerelease; true publishes GA. Existing Alpha releases
+remain prereleases for consumers, but this dispatch no longer selects Alpha.
 
-Leave **Submit release to Microsoft Store (GA only)** unchecked (the default)
-to skip Store submission. Check it for a GA release when you want to upload the
-MSIX after GitHub publication succeeds. Alpha and Beta never submit, even when
-checked. Windows installers and MSIX packages are still built normally.
+Sign Apple Pack defaults to true and controls Developer ID signing/notarization
+of the direct macOS DMG. False produces an unsigned, non-notarized DMG and the
+release notes explicitly say so. App Store packages always require Store signing,
+independently of the direct-package signing flag.
+
+Both Store push flags default to false and are ignored unless Stable is true.
+Push Apple Store builds the signed Store package and, after GitHub publication,
+validates and uploads it to App Store Connect. Upload is not submission for review,
+certification or public availability. The existing approval environment applies.
+It requires the App Store Connect key ID, issuer and private key in that environment.
+Push MS Store reuses the verified combined MSIX upload after GitHub publication.
+Store push failures do not undo an already public GitHub release.
 
 The workflow validates `develop`, commits the version bump to `develop`, verifies that the prepared commit belongs to trusted `develop` history, then
 detaches every subsequent build, packaging, signing, and publication checkout at
@@ -320,20 +325,14 @@ match the retained artifact and local verification confirms both embedded x64
 and ARM64 packages. Neutral alone does not prove architecture coverage. This
 submission check does not establish certification or public availability.
 
-## Hold the rebrand release for native validation
+## Native validation before publication
 
-For the first renamed release, dispatch Release from `develop` with `bump=Minor`,
-`channel=GA`, `draft_release=true`, `build_app_store=true` and
-`publish_microsoft_store=false`. Signing approvals still apply. The workflow
-produces a private draft GitHub release and Actions artifacts; it skips main
-promotion and automatic Store submission even if Store submission is selected.
-A draft run refuses to overwrite an existing public release.
-
-Download the artifacts and complete the native checks in [the upgrade guide](rebrand-upgrade.md).
-After those checks pass, publish the existing draft and prepare the normal
-reviewed main-promotion PR for that exact release. Do not rerun the version-bump
-workflow just to publish the draft: that would increment the version again.
-Complete both Store submissions manually with the verified packages.
+Release dispatch publishes a public release and increments the version. It has
+no private-draft switch. Complete the native checks in [the upgrade guide](rebrand-upgrade.md)
+and the standalone signing verification workflows before dispatching a release.
+Keep both Store push flags false until the corresponding package is ready for
+submission. Do not rerun the version-bump workflow to retry a Store upload for
+an already published release. A Store upload does not establish public availability.
 
 ### Signing wait timer maintenance
 

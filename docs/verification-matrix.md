@@ -1028,3 +1028,13 @@ Workflow move regression executes the production scope and approval steps after
 moving an unchanged workflow outside its directory. The previous classifier
 misses the removal; the fixed inventory identifies it and rejects the unapproved
 deletion. Rename detection is disabled so both sides participate in validation.
+
+### Release input normalization
+
+Automated workflow regressions verify input ordering/defaults, stable-only Store
+gates, optional direct macOS signing, publication dependency outcomes, and Apple
+validation before upload with private-key cleanup on failure. The input/gate
+regression fails against the former workflow and passes with this change. Apple
+commands are stubbed; actual signing, unsigned DMG installation, App Store Connect
+upload, Store review and public availability remain native/operator checks.
+No application release is dispatched by these tests.

@@ -19,6 +19,25 @@ def dependencies(body):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_normalized_release_input_order_defaults_and_store_gates(self):
+        text = WORKFLOW.read_text()
+        inputs = text.split('    inputs:\n', 1)[1].split('\npermissions:', 1)[0]
+        blocks = dict(re.findall(r'^      (\w+):\n(.*?)(?=^      \w+:|\Z)', inputs, re.M | re.S))
+        self.assertEqual(list(blocks), ['version', 'stable', 'sign_apple_pack', 'push_apple_store', 'push_ms_store'])
+        for name, default in [('stable', 'false'), ('sign_apple_pack', 'true'), ('push_apple_store', 'false'), ('push_ms_store', 'false')]:
+            self.assertIn('default: ' + default, blocks[name])
+            self.assertIn('type: boolean', blocks[name])
+        self.assertIn('options: [Major, Minor, Fix]', blocks['version'])
+        graph = jobs(text)
+        for job, option in [('macos-app-store', 'push_apple_store'), ('publish-apple-store', 'push_apple_store'), ('publish-microsoft-store', 'push_ms_store')]:
+            expression = re.search(r'^    if: \$\{\{ (.*?) \}\}', graph[job], re.M)[1]
+            for stable in (False, True):
+                for push in (False, True):
+                    value = expression.replace('cancelled()', 'False').replace('inputs.stable', str(stable)).replace('inputs.' + option, str(push))
+                    value = re.sub(r'needs\.[\w-]+\.result', repr('success'), value)
+                    value = value.replace('&&', ' and ').replace('!', ' not ')
+                    self.assertEqual(eval(value.strip(), {'__builtins__': {}}, {}), stable and push)
+
     def test_full_uninstall_cleans_native_toast_registration_but_updates_preserve_it(self):
         root = WORKFLOW.parents[2]
         template = (root / 'src-tauri/windows/installer.nsi').read_text(encoding='utf-8')
@@ -74,6 +93,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 return subprocess.check_output(['git', *args], cwd=directory, text=True, stderr=subprocess.DEVNULL).strip()
             git('init', '-b', 'develop')
             git('config', 'user.name', 'Test')
+            git('config', 'commit.gpgsign', 'false')
             git('config', 'user.email', 'test@example.invalid')
             git('commit', '--allow-empty', '-m', 'release')
             release = git('rev-parse', 'HEAD')
@@ -121,7 +141,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
         def permitted(results, selected, cancelled=False):
             value = expression.replace('cancelled()', str(cancelled))
-            value = value.replace('inputs.build_app_store', str(selected))
+            value = value.replace('(inputs.stable && inputs.push_apple_store)', str(selected)).replace('inputs.sign_apple_pack', 'True')
             value = re.sub(r'needs\.([\w-]+)\.result', lambda match: repr(results[match[1]]), value)
             value = value.replace('&&', ' and ').replace('||', ' or ').replace('!', ' not ')
             return eval(' '.join(value.split()), {'__builtins__': {}}, {})
@@ -135,6 +155,51 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 for job in required:
                     for failure in ('failure', 'cancelled', 'skipped'):
                         self.assertFalse(permitted(results | {job: failure}, selected))
+
+    def test_every_store_publication_requires_successful_github_publication(self):
+        graph = jobs(WORKFLOW.read_text())
+        for job in ('publish-apple-store', 'publish-microsoft-store'):
+            self.assertIn('publish-release', dependencies(graph[job]))
+            self.assertIn("needs.publish-release.result == 'success'", graph[job])
+            self.assertNotIn('always()', graph[job].split('    steps:')[0])
+
+    def test_publication_allows_unsigned_only_when_signing_was_disabled(self):
+        body = jobs(WORKFLOW.read_text())['publish-release']
+        expression = re.search(r'    if: >-\n(.*?)    runs-on:', body, re.S)[1].strip().removeprefix('${{').removesuffix('}}').strip()
+        for sign in (False, True):
+            for result in ('success', 'failure', 'cancelled', 'skipped'):
+                value = expression.replace('cancelled()', 'False').replace('inputs.sign_apple_pack', str(sign)).replace('(inputs.stable && inputs.push_apple_store)', 'False')
+                results = {'prepare-version': 'success', 'all-platform-builds': 'success', 'macos-direct': result, 'macos-app-store': 'skipped'}
+                value = re.sub(r'needs\.([\w-]+)\.result', lambda match: repr(results[match[1]]), value)
+                value = value.replace('&&', ' and ').replace('||', ' or ').replace('!', ' not ')
+                self.assertEqual(eval(' '.join(value.split()), {'__builtins__': {}}, {}), result == 'success' or (not sign and result == 'skipped'))
+        graph = jobs(WORKFLOW.read_text())
+        self.assertIn('if: ${{ !inputs.sign_apple_pack }}', graph['macos-app'])
+        self.assertIn('--no-sign', graph['macos-app'])
+        self.assertIn('$apple_signing_message', body)
+
+    def test_apple_upload_validates_before_upload_and_cleans_key_on_failure(self):
+        body = jobs(WORKFLOW.read_text())['publish-apple-store']
+        script = body.split('        run: |\n', 1)[1]
+        script = '\n'.join(line[10:] for line in script.splitlines())
+        for rejected in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                (workspace / 'apple-store-upload').mkdir()
+                (workspace / 'apple-store-upload/test.pkg').write_text('fixture')
+                tools = workspace / 'bin'
+                tools.mkdir()
+                for name, code in [('pkgutil', '#!/bin/sh\nexit 0\n'), ('xcrun', '#!/bin/sh\nprintf "%s\n" "$*" >> calls\ncase "$*" in *--validate-app*) test "$REJECT_VALIDATION" != true;; esac\n')]:
+                    tool = tools / name
+                    tool.write_text(code)
+                    tool.chmod(0o755)
+                result = subprocess.run(['bash', '-e', '-c', script], cwd=workspace, capture_output=True,
+                    env=dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'], RUNNER_TEMP=directory, APPLE_API_KEY='fixture', APPLE_API_ISSUER='fixture', APPLE_API_PRIVATE_KEY='fixture', REJECT_VALIDATION=str(rejected).lower()))
+                self.assertEqual(result.returncode == 0, not rejected)
+                calls = (workspace / 'calls').read_text()
+                self.assertIn('--validate-app', calls)
+                self.assertEqual('--upload-app' in calls, not rejected)
+                self.assertFalse((workspace / 'apple-store-private-keys').exists())
 
     def test_draft_release_flags_and_downstream_publication_gates(self):
         graph = jobs(WORKFLOW.read_text())
@@ -153,11 +218,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
             for draft in (False, True):
                 value = expression.replace('cancelled()', 'False')
                 value = value.replace('inputs.draft_release', str(draft))
-                value = value.replace('inputs.channel', repr('GA'))
-                value = value.replace('inputs.publish_microsoft_store', 'True')
+                value = value.replace('inputs.stable', 'True')
+                value = value.replace('inputs.push_ms_store', 'True')
                 value = re.sub(r'needs\.[\w-]+\.result', repr('success'), value)
                 value = value.replace('&&', ' and ').replace('!', ' not ')
-                self.assertEqual(eval(value.strip(), {'__builtins__': {}}, {}), not draft, job)
+                self.assertTrue(eval(value.strip(), {'__builtins__': {}}, {}), job)
 
     def test_draft_run_cannot_overwrite_a_public_release(self):
         body = jobs(WORKFLOW.read_text())['publish-release']

@@ -101,3 +101,14 @@ Catalog delivery and installed-app verification are separate acceptance steps.
 Hosting workflow definitions require validation against approved develop even
 when a promotion includes other content. Adding documentation or application
 files cannot exempt those definitions from their approval checks.
+
+## Release workflow inputs
+
+The release workflow asks for Version (Major, Minor or Fix, default Fix), Stable
+(default off), Sign Apple Pack (default on), Push Apple Store (default off), then
+Push MS Store (default off). Stable off publishes a Beta prerelease; Stable on
+publishes GA. Both Store push options run only for stable releases. Apple upload
+requires a signed Store package and does not establish Store approval or public
+availability. Turning off Sign Apple Pack produces an unsigned macOS direct
+package; it does not remove the signing requirement for a Store package.
+Release dispatch publishes publicly, so complete native acceptance beforehand.

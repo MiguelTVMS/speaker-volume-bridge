@@ -407,3 +407,8 @@ Shutdown publishes the update manager's stop flag before aborting its task. The
 worker checks this flag after startup and retry waits, preventing a ready timer
 already inside its current poll from starting a new request during shutdown.
 Abort separately cancels a pending catalog transport.
+
+Release dispatch exposes Version, Stable and three signing/Store flags. Stable
+controls GA versus Beta publication. Store delivery requires stable plus explicit
+opt-in and existing approvals; direct macOS signing can be disabled without
+weakening Store signing. See [ADR 0022](decisions/0022-release-workflow-inputs.md).

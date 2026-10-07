@@ -50,7 +50,8 @@ a Store-signed Windows package, App Store receipt, or official Debian package
 registration is required for those editions. Ambiguous/custom packages remain
 unknown and do not affect speaker startup.
 
-Recognized release installations check the bounded HTTPS site catalog 30 seconds
+New builds of recognized release installations check the bounded HTTPS catalog
+from GitHub raw on develop 30 seconds
 after startup by default and no more than once per 24 hours after a successful
 check. Manual checks bypass freshness but join an in-flight request. The persisted
 record contains only the preference, last attempt/success times, and last-notified
@@ -292,3 +293,9 @@ delivery preserves the last published GA website. A release may be public while
 its catalog PR is pending; only served-content verification establishes live
 availability. Store availability remains independently confirmed. See
 [catalog operations](catalog-operations.md).
+
+New builds consume the reviewed catalogs directly from develop through GitHub
+raw. Stable and Prereleases select v1 and v2 on the same branch. Existing released
+apps retain the website feeds, so their delivery remains a separate compatibility
+requirement. This source change takes effect only in a subsequently installed
+application build; it does not publish one. See ADR 0021.

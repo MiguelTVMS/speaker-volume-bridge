@@ -18,8 +18,8 @@ use tauri::Emitter;
 use tokio::sync::Mutex as AsyncMutex;
 use url::Url;
 
-pub const CATALOG_URL: &str = "https://svb.miguel.ms/updates/v1/catalog.json";
-pub const PRERELEASE_CATALOG_URL: &str = "https://svb.miguel.ms/updates/v2/catalog.json";
+pub const CATALOG_URL: &str = "https://raw.githubusercontent.com/MiguelTVMS/speaker-volume-bridge/develop/pages/updates/v1/catalog.json";
+pub const PRERELEASE_CATALOG_URL: &str = "https://raw.githubusercontent.com/MiguelTVMS/speaker-volume-bridge/develop/pages/updates/v2/catalog.json";
 const MAX_CATALOG_BYTES: usize = 256 * 1024;
 #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with the repository's pinned Rust.
 const SUCCESS_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -213,6 +213,12 @@ impl HttpCatalogTransport {
             .build()?;
         Ok(Self(client))
     }
+    fn request(&self, policy: UpdatePolicy) -> reqwest::RequestBuilder {
+        self.0.get(match policy {
+            UpdatePolicy::Stable => CATALOG_URL,
+            UpdatePolicy::Prereleases => PRERELEASE_CATALOG_URL,
+        })
+    }
 }
 #[async_trait]
 impl CatalogTransport for HttpCatalogTransport {
@@ -220,11 +226,7 @@ impl CatalogTransport for HttpCatalogTransport {
         self.fetch_policy(UpdatePolicy::Stable).await
     }
     async fn fetch_policy(&self, policy: UpdatePolicy) -> Result<Vec<u8>, UpdateError> {
-        let url = match policy {
-            UpdatePolicy::Stable => CATALOG_URL,
-            UpdatePolicy::Prereleases => PRERELEASE_CATALOG_URL,
-        };
-        let response = self.0.get(url).send().await?.error_for_status()?;
+        let response = self.request(policy).send().await?.error_for_status()?;
         if response
             .content_length()
             .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
@@ -1917,6 +1919,32 @@ mod tests {
         let preferences: UpdatePreferences = serde_json::from_str("{}").unwrap();
         assert!(preferences.update_notifications);
     }
+    #[test]
+    fn production_catalog_requests_read_approved_develop_raw_feeds() {
+        let transport = HttpCatalogTransport::new().unwrap();
+        for (policy, schema) in [
+            (UpdatePolicy::Stable, "v1"),
+            (UpdatePolicy::Prereleases, "v2"),
+        ] {
+            let request = transport.request(policy).build().unwrap();
+            assert_eq!(request.method(), reqwest::Method::GET);
+            assert_eq!(
+                request.url().as_str(),
+                format!(
+                    "https://raw.githubusercontent.com/MiguelTVMS/speaker-volume-bridge/develop/pages/updates/{schema}/catalog.json"
+                )
+            );
+            assert!(request.url().query().is_none());
+            assert_eq!(request.url().username(), "");
+            assert!(request.url().password().is_none());
+            assert!(
+                !request
+                    .headers()
+                    .contains_key(reqwest::header::AUTHORIZATION)
+            );
+        }
+    }
+
     #[tokio::test]
     async fn verified_backfill_uses_production_client_for_version_policy_and_target_selection() {
         let stable = include_bytes!("../../tests/fixtures/update-catalog/backfill-v1.json");

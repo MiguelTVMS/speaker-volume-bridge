@@ -45,9 +45,10 @@ Install releases only from the [official GitHub repository](https://github.com/M
 
 ## Update catalog requests
 
-Update checks request the public catalog from `svb.miguel.ms`. They contain no
+New builds request the public catalog from GitHub at `raw.githubusercontent.com`.
+Previously published versions use the website feed at `svb.miguel.ms`. Requests contain no
 speaker or configuration data, analytics, advertising data, or persistent
-installation identifier. The website host can receive ordinary request metadata
+installation identifier. The catalog hosting provider can receive ordinary request metadata
 such as the public IP address, time, catalog path, and network headers. The app
 accepts only a bounded, valid catalog and approved HTTPS project or Store links.
 See [Update checks](/guide/Updates.html).

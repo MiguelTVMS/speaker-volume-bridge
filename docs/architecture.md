@@ -407,3 +407,9 @@ Shutdown publishes the update manager's stop flag before aborting its task. The
 worker checks this flag after startup and retry waits, preventing a ready timer
 already inside its current poll from starting a new request during shutdown.
 Abort separately cancels a pending catalog transport.
+
+The shell catalog transport in new builds reads the approved develop catalog
+files through GitHub raw. Policy chooses v1 or v2 on the same branch; request
+limits, validation and scheduling remain in the existing shell transport.
+Previously published clients still use the website feeds and require their
+compatibility delivery. See [ADR 0021](decisions/0021-raw-update-catalogs.md).

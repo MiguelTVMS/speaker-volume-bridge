@@ -59,7 +59,9 @@ v2; Alpha/Beta direct releases enter v2 only. It opens a focused proposal PR bac
 to `develop` with normal CI and human review. It never publishes an application
 package or approves or merges its own proposal.
 
-After approved merge, catalog delivery overlays the approved feeds onto the
+New builds read the approved develop files directly through GitHub raw. Verify
+both raw feeds against the reviewed catalog bytes after merge. Existing released
+apps retain website URLs; for those clients, catalog delivery overlays feeds onto the
 retained GA snapshot. Verify both public catalogs and every non-catalog website
 file. Catalog publication does not require another release or a catalog promotion
 to `main`. Scheduled reconciliation can recover missed proposals or delivery, but

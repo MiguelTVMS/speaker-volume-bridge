@@ -1028,3 +1028,15 @@ Workflow move regression executes the production scope and approval steps after
 moving an unchanged workflow outside its directory. The previous classifier
 misses the removal; the fixed inventory identifies it and rejects the unapproved
 deletion. Rename detection is disabled so both sides participate in validation.
+
+## GitHub raw catalog source in new builds
+
+`production_catalog_requests_read_approved_develop_raw_feeds` builds the requests
+used by the production HTTP transport. Both policies select their approved raw
+files on develop with GET and no query, URL credentials or authorization header.
+The regression fails with the previous website source and passes with the change.
+Public raw availability must be checked separately against both approved files.
+No application release or installed migration is established by this code change.
+Previously published clients still need verified website feed delivery. Native
+version, policy persistence, notification and exact page-opening checks remain
+outstanding. Privacy sources describe both destinations.

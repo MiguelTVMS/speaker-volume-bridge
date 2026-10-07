@@ -90,3 +90,9 @@ catalog-pending (verification/review/approval) -> catalog-live (both applicable
 served feeds verified). Failed preparation/delivery retains pending status and
 does not dispatch an application release. A pending GA website candidate blocks
 catalog-only restoration until explicitly verified or recovered (ADR 0020).
+
+New-build catalog checks use GitHub raw on develop; the same update states and
+policy generation guards apply. Successful raw-feed verification establishes only
+that source's availability. Previously published website-feed clients retain
+their independent delivery acceptance. Changing source code does not establish
+installed migration. See ADR 0021.

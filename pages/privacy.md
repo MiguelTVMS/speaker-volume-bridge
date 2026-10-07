@@ -36,7 +36,7 @@ Users can reset application preferences from within the application. They can re
 
 ## Update checks
 
-For recognized release installations, the application can request the public update catalog from `svb.miguel.ms`. The request necessarily exposes ordinary web-hosting metadata such as the computer's public IP address, request time, catalog path, and network user agent to the hosting provider. It does not include speaker information, application settings, logs, a persistent installation identifier, analytics, or advertising data. Automatic checks can be disabled in Settings. The locally stored update record contains the preference and check, notification, and release-version state.
+For recognized release installations, the application can request the public update catalog from GitHub at `raw.githubusercontent.com`. Previously published versions request the website feed at `svb.miguel.ms`. The request necessarily exposes ordinary web-hosting metadata such as the computer's public IP address, request time, catalog path, and network user agent to the hosting provider. It does not include speaker information, application settings, logs, a persistent installation identifier, analytics, or advertising data. Automatic checks can be disabled in Settings. The locally stored update record contains the preference and check, notification, and release-version state.
 
 ## Personal information and third parties
 

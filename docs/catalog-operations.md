@@ -1,9 +1,19 @@
 # Catalog publication and independent website delivery
 
-Both catalogs are owned by `develop`. Stable clients continue to read
-`/updates/v1/catalog.json`; Prereleases clients read `/updates/v2/catalog.json`.
-Neither preference selects a Git branch. There is no client URL migration or
-installer in this phase. See [ADR 0020](decisions/0020-independent-catalog-delivery.md).
+Both catalogs are owned by `develop`. New app builds read the reviewed files from
+GitHub raw: `pages/updates/v1/catalog.json` for Stable and
+`pages/updates/v2/catalog.json` for Prereleases in that branch. Neither preference
+selects a different Git branch. An approved catalog merge can update these feeds
+without a Pages deployment; verify both raw responses against the reviewed bytes.
+The App credentials are for proposal automation, not public read access.
+
+Previously published clients retain the website endpoints. Keep independent
+website catalog delivery for them until a separately approved application release
+and adoption establish the new source. This source change does not publish an
+application release, implement an installer, or prove the new build is installed.
+Website snapshot adoption, preserved non-catalog bytes and served verification
+remain compatibility requirements. See [ADR 0021](decisions/0021-raw-update-catalogs.md)
+and [ADR 0020](decisions/0020-independent-catalog-delivery.md).
 
 ## Publication states and approval
 

@@ -50,10 +50,13 @@ a Store-signed Windows package, App Store receipt, or official Debian package
 registration is required for those editions. Ambiguous/custom packages remain
 unknown and do not affect speaker startup.
 
-New builds of recognized release installations check the bounded HTTPS catalog
-from GitHub raw on develop 30 seconds
-after startup by default and no more than once per 24 hours after a successful
-check. Manual checks bypass freshness but join an in-flight request. The persisted
+New builds of recognized release installations query the anonymous GitHub Releases
+API 30 seconds after startup by default and no more than once per 24 hours after a
+successful check. Stable only excludes prereleases; Include prereleases considers
+both stable releases and prereleases. Offers require a compatible published asset
+and open the exact validated release page. Responses and pagination are bounded,
+and rate-limit responses postpone further requests. Manual checks bypass freshness
+but join an in-flight request. The persisted
 record contains only the preference, last attempt/success times, and last-notified
 edition/version. Background failures remain quiet and never change audio behavior;
 manual failures are visible and retryable. Debug, demo, custom and ambiguous

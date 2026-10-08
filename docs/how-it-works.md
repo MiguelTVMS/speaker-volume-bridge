@@ -279,7 +279,7 @@ unchanged. Existing catalog clients require a one-time manual upgrade; see
 [upgrade guidance](rebrand-upgrade.md).
 
 Direct macOS updater preparation is a packaging-only boundary. Verified payloads
-remain private validation artifacts and never create installation actions. The
+remain validation artifacts retained in CI and never create installation actions. The
 GitHub release-page fallback, version/policy guards and Store delegation remain
 unchanged. Native sandboxed replacement acceptance is pending; see
 [ADR 0023](decisions/0023-macos-updater-artifacts.md).

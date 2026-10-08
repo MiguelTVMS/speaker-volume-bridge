@@ -445,7 +445,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
-      - name: Prepare private updater validation artifacts from the approved bundle
+      - name: Prepare updater validation artifacts from the approved bundle
         env:
           RELEASE_VERSION: ${{ needs.prepare-version.outputs.version }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

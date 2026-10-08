@@ -44,7 +44,7 @@ not arbitrary surrounding JSON. Do not trust descriptor version or digest as an
 alternative to validating the signed application. It always records installation
 capability as false and native acceptance as pending, with open_url fallback.
 
-The signed release job optionally prepares private, retained CI validation
+The signed release job optionally prepares retained CI validation
 artifacts. They are deliberately outside the `*-release` publication selection.
 Missing both updater key and public key reports unavailable and retains the DMG;
 partial setup, rejected native bundle, signer failure or verifier failure fails

@@ -237,8 +237,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         graph = jobs(WORKFLOW.read_text())
         direct = graph['macos-direct']
         self.assertNotIn('macos-updater', graph['macos-app-store'])
-        self.assertLess(direct.index('xcrun stapler validate "$image"'), direct.index('Prepare private updater validation artifacts'))
-        step = direct.split('name: Prepare private updater validation artifacts', 1)[1].split('      - uses:', 1)[0]
+        self.assertLess(direct.index('xcrun stapler validate "$image"'), direct.index('Prepare updater validation artifacts'))
+        step = direct.split('name: Prepare updater validation artifacts', 1)[1].split('      - uses:', 1)[0]
         script = '\n'.join(line[10:] for line in step.split('        run: |\n', 1)[1].splitlines())
         for private, public, accepted in [('', '', True), ('fixture', '', False), ('', 'fixture', False), ('fixture', 'fixture', False)]:
             with tempfile.TemporaryDirectory() as directory:

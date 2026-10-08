@@ -1168,3 +1168,94 @@ The Rust audit also identified a yanked yoke-derive release; the lockfile moves 
 inherited from Tauri's GTK/glib-macros dependency on Linux. It has no patched
 release and is not a vulnerability finding. Replacing that macro stack requires
 an upstream-compatible GTK migration; this consolidation does not suppress it.
+
+## Direct macOS updater artifacts
+
+Local evidence, 2026-10-08:
+
+- Tauri CLI 2.11.3 built the actual direct ARM64 application bundle. Bundle identity,
+  version and direct provenance checks passed. A single-app gzip archive matched
+  every packaged entry's bytes, mode and symlink target. A temporary Tauri updater
+  key signed that archive and the offline verifier accepted it. These are local
+  validation artifacts under `target/updater-local-probe`, not production packages.
+- Production artifact preparation refused the unsigned local app before exporting
+  any output. This host reports zero valid code-signing identities. The installed
+  app is the same version as the candidate and fails strict code-signature checks.
+  No installed app, settings container or login registration was modified.
+- Automated packaging tests cover version/identity/edition/architecture mismatch,
+  executable absence, final content preservation, incomplete/duplicate/foreign
+  archive entries, escaping symlinks, native approval failures, signer/verifier
+  failures and no export on those failures. Normal macOS CI additionally uses the
+  real Tauri signer and verifier to reject tampering and the wrong key. Apple
+  approval commands are mocked only in fixture tests, never in production tooling.
+- Shared UpdateService tests exercise releases carrying extra updater assets and
+  preserve stable/preview selection and exact release-page actions. Updater-only
+  releases cannot substitute for the required DMG. Existing shared-service tests
+  continue to cover Store exclusion, downgrade/equal-version rejection, stale
+  responses, persisted policy, failed refresh and the open-page fallback.
+
+### Exact native acceptance protocol
+
+This remains **unavailable / incomplete**, not passed. Do not grant installation
+capability or merge as fully accepted native auto-update work on this evidence.
+
+1. On a disposable native ARM64 account, obtain an older approved direct packaged
+   release and a controlled strictly newer signed/notarized/stapled candidate.
+   Verify both with `verify-macos-artifact.sh direct`, `xcrun stapler validate` and
+   Gatekeeper. Verify version, bundle identifier, signing identity, direct provenance
+   and compiled architecture. Retain the older package for recovery.
+2. Install the old app in the ordinary Applications location. Start it, select a
+   real speaker/output and save non-default synchronization, maximum-volume,
+   Night schedule, update policy/notification and login preferences. Privately
+   record a canonical settings snapshot and configuration-container location.
+   Confirm volume/mute in both directions and current scheduler behavior.
+3. Quit and relaunch the old app; confirm those settings and login state are real
+   persisted baseline data. Back up the container privately. Do not delete data,
+   change the app identifier, remove the sandbox or simulate settings retention by
+   copying fixtures into the new app's container.
+4. Produce the newer payload using the production preparation command after all
+   packaging approvals. Independently verify its signature using the pinned key,
+   extract to a temporary location and recheck version, identity, architecture,
+   entitlements, stapled ticket and Gatekeeper. Verify the signature fails after
+   tampering or with a different key. Reject altered descriptor versions unless
+   they match the authenticated bundle version and the shared selected release.
+5. Use a separately reviewed native test harness for the pinned Tauri updater
+   inside the actual sandboxed old packaged app. Revalidate the selected release
+   through the shared policy immediately before replacement. Observe the supported
+   installer, graceful stop and relaunch. External `cp`, Finder replacement or a
+   helper outside the sandbox does not prove native updater compatibility. No
+   user-facing installation flow or such harness is shipped by this phase.
+6. In the replacement app, confirm the running version is the newer one and the
+   edition/identifier/settings container stayed the same. Compare all saved values,
+   including Night schedule and updater preferences. Check Start at login status,
+   test login launch in that disposable account, then verify actual Sonos/local
+   volume and mute operation in both directions and scheduler control. Relaunch
+   again offline and ensure no stale older offer reappears.
+7. Repeat for a user-writable Applications destination and an administrator-owned
+   non-writable destination. Record actual authorization behavior and cancellation.
+   Also launch from mounted read-only DMG media and an actually translocated
+   quarantined download. In unsupported cases, verify the installed old app and
+   settings remain intact, synchronization remains recoverable and the validated
+   release-page fallback is available. Do not treat an access-mode check as proof
+   that App Sandbox permits replacement.
+8. Repeat with Stable only, Include prereleases, a preview newer than stable,
+   preview-to-newer-GA, equal version, older version and a rapid policy switch.
+   Confirm no downgrade, no stale install target and no Store target. Record each
+   destination/policy result separately, with private evidence and sanitized public
+   pass/fail summaries.
+
+Unavailable here: a valid older signed baseline, signing/notarization access,
+actual sandboxed Tauri replacement, Applications permission/administrator paths,
+DMG/translocation failures, relaunch/settings-container continuity, login launch
+and real hardware synchronization after upgrade. No production updater plugin is
+installed, no native auto-install acceptance is claimed, and no release, website
+deployment or Store submission was performed. See ADR 0023 for the no-go decision.
+
+Local checks for this change passed: workspace formatting, Clippy with warnings
+as errors, 171 Rust tests, 139 Python tests (the real-signature test runs separately
+and passed all nine packaging cases), 13 website JavaScript tests, website source
+and sitemap checks, legacy-identity checks and macOS packaging configuration.
+The release-title regression failed against the former long-title behavior and
+passed with the version-only title. Initial loopback tests were denied by the
+execution sandbox and passed when rerun with loopback permission. Remote CI is
+separate evidence and must be checked on the PR.

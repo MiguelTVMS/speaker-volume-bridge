@@ -2312,6 +2312,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn updater_artifacts_preserve_release_page_policy_and_do_not_create_install_offers() {
+        let mut stable = public_release("1.8.0", false);
+        let mut preview = public_release("1.8.1", true);
+        for release in [&mut stable, &mut preview] {
+            let version = release["tag_name"].as_str().unwrap().to_owned();
+            for name in [
+                "speaker-volume-bridge-macos-aarch64.app.tar.gz",
+                "speaker-volume-bridge-macos-aarch64.app.tar.gz.sig",
+                "speaker-volume-bridge-macos-aarch64.updater.json",
+            ] {
+                release["assets"].as_array_mut().unwrap().push(serde_json::json!({
+                    "name": name, "state": "uploaded", "size": 100,
+                    "browser_download_url": format!(
+                        "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/{version}/{name}"
+                    )
+                }));
+            }
+        }
+        let (client, transport) = service(
+            serde_json::to_vec(&vec![stable, preview.clone()]).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        assert_eq!(
+            client.check(true).await.available_version.as_deref(),
+            Some("1.8.0")
+        );
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        let offer = client.check(true).await;
+        assert_eq!(offer.available_version.as_deref(), Some("1.8.1"));
+        assert_eq!(offer.action.unwrap().url, release_page("1.8.1"));
+        assert!(client.claim_offer("1.8.1", &release_page("1.8.1")).is_ok());
+        client.finish_open();
+        client.set_policy(UpdatePolicy::Stable).unwrap();
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        preview["assets"].as_array_mut().unwrap().remove(0);
+        *transport.result.lock().unwrap() = Ok(serde_json::to_vec(&vec![preview]).unwrap());
+        assert!(client.check(true).await.available_version.is_none());
+    }
+
+    #[tokio::test]
     async fn release_api_rejects_ineligible_packages_and_preserves_saved_policy() {
         let mut draft = public_release("9.0.0", false);
         draft["draft"] = true.into();

@@ -1,0 +1,13 @@
+[package]
+name = "speaker-volume-bridge-updater-artifact"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "0.22.1"
+minisign-verify = "=0.2.5"
+
+[lints]
+workspace = true

@@ -117,3 +117,11 @@ requires a signed Store package and does not establish Store approval or public
 availability. Turning off Sign Apple Pack produces an unsigned macOS direct
 package; it does not remove the signing requirement for a Store package.
 Release dispatch publishes publicly, so complete native acceptance beforehand.
+
+## macOS updater artifacts
+
+Direct macOS updater archive checks are separate from native upgrade acceptance.
+Packaging and signature checks alone do not prove replacement, preserved settings,
+login registration or working synchronization after relaunch. Until those checks
+pass, the app retains its release-page action and manual installation guidance.
+Future release titles use only the version tag.

@@ -233,6 +233,36 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 env=dict(os.environ, DRAFT_RELEASE='true', EXISTING_DRAFT=existing, RELEASE_TAG='v1.6.0'))
             self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_updater_validation_stays_private_and_failure_propagates(self):
+        graph = jobs(WORKFLOW.read_text())
+        direct = graph['macos-direct']
+        self.assertNotIn('macos-updater', graph['macos-app-store'])
+        self.assertLess(direct.index('xcrun stapler validate "$image"'), direct.index('Prepare private updater validation artifacts'))
+        step = direct.split('name: Prepare private updater validation artifacts', 1)[1].split('      - uses:', 1)[0]
+        script = '\n'.join(line[10:] for line in step.split('        run: |\n', 1)[1].splitlines())
+        for private, public, accepted in [('', '', True), ('fixture', '', False), ('', 'fixture', False), ('fixture', 'fixture', False)]:
+            with tempfile.TemporaryDirectory() as directory:
+                env = dict(os.environ, RUNNER_TEMP=directory, GITHUB_STEP_SUMMARY=directory + '/summary',
+                    TAURI_SIGNING_PRIVATE_KEY=private, UPDATER_PUBLIC_KEY=public, RELEASE_VERSION='2.0.0')
+                # A configured verifier failure must fail this step, never become optional success.
+                result = subprocess.run(['bash', '-eu', '-c', 'cargo() { return 1; }\n' + script], env=env, capture_output=True)
+                self.assertEqual(result.returncode == 0, accepted)
+                self.assertFalse((Path(directory) / 'updater.pub').exists())
+        self.assertIn('name: macos-updater-validation', direct)
+        self.assertNotIn('name: macos-updater-release', direct)
+        self.assertIn('pattern: "*-release"', graph['publish-release'])
+
+    def test_future_release_title_is_only_the_version_tag(self):
+        body = jobs(WORKFLOW.read_text())['publish-release']
+        self.assertIn('--title "$RELEASE_TAG"', body)
+        self.assertNotIn('--title "Speaker Volume Bridge', body)
+        command = re.search(r'gh release create .*?--generate-notes', body, re.S)[0]
+        script = 'release_assets=(fixture); release_flags=(--prerelease); gh() { printf "%s\\n" "$@"; }\n' + command
+        result = subprocess.check_output(['bash', '-eu', '-c', script], text=True,
+            env=dict(os.environ, RELEASE_TAG='v2.0.0', release_intro='release'))
+        args = result.splitlines()
+        self.assertEqual(args[args.index('--title') + 1], 'v2.0.0')
+
     def test_macos_asset_name_contract_is_guarded_before_build(self):
         body = jobs(WORKFLOW.read_text())['macos-app']
         self.assertIn('run: test "$(uname -m)" = arm64', body)

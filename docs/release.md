@@ -360,3 +360,22 @@ releases. They compare semantic versions and require an uploaded official asset
 for the installed edition and architecture; publication order is not version order.
 Store uploads do not establish public Store availability. No direct-release asset
 can establish an update offer for a Store installation. See ADR 0021.
+
+## Direct macOS updater validation
+
+See [ADR 0023](decisions/0023-macos-updater-artifacts.md). Build the offline verifier
+with `cargo build --locked --release -p speaker-volume-bridge-updater-artifact`.
+After all existing direct bundle approval checks, run
+`scripts/macos-updater-artifact.py` with the final app, expected version, empty
+output directory and `--public-key` pointing to the Tauri base64 public key file.
+The supported signer reads `TAURI_SIGNING_PRIVATE_KEY` or
+`TAURI_SIGNING_PRIVATE_KEY_PATH` and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Never include operator credentials in documentation, issues or PRs. Configure
+operator-owned secrets privately only with separate authorization.
+
+The signed Release job reads the existing signing environment's updater private
+key/password and public-key variable only when configured. No setup produces an
+explicit unavailable summary; partial or invalid setup fails. Validation artifacts
+are not selected for release upload. Do not publish an install-capable manifest or
+claim a successful native upgrade until acceptance passes. No catalog deployment
+is required. Future GitHub Release titles are exactly the version tag.

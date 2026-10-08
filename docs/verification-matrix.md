@@ -1140,3 +1140,31 @@ Epic #159 now distinguishes superseded catalog work (#160, publication portions 
 and policy contracts. Existing catalog clients need a one-time manual upgrade;
 no catalog backfill or redirect is activated. Self-installation, signed rollout,
 release publication, deployment and Store submission remain outside this PR.
+
+## Consolidated dependency updates and CSS source-map security
+
+The normal frontend unit suite exercises Vite's resolved PostCSS parser with
+indexed previous source maps. It rejects excessive, negative and fractional
+section line offsets while retaining valid indexed-map parsing. The three
+rejection tests fail against source-map-js 1.2.1 and pass against 1.2.2. The test
+stops at parsing, so it reproduces the vulnerable input without triggering the
+resource-intensive source-map flattening operation.
+
+Workspace formatting, Clippy and tests cover the combined Tauri, build helper,
+autostart, notification and Tokio updates. Native login registration and OS
+notification delivery still require platform acceptance: on macOS, Windows and
+Linux, launch an installed build, enable Start at login, restart the session,
+confirm startup, disable Start at login and confirm it no longer starts. Trigger
+an enabled Night schedule notification and confirm delivery and Settings
+activation where supported. Automated tests cannot prove OS registration,
+permission or desktop-session behavior.
+
+Website documentation review: no guide or page update is needed because these
+updates preserve application behavior, setup and supported platforms. Architecture
+and decision records retain the existing adapter boundaries and policies.
+
+The Rust audit also identified a yanked yoke-derive release; the lockfile moves to
+0.8.4. The remaining informational unmaintained proc-macro-error warning is
+inherited from Tauri's GTK/glib-macros dependency on Linux. It has no patched
+release and is not a vulnerability finding. Replacing that macro stack requires
+an upstream-compatible GTK migration; this consolidation does not suppress it.

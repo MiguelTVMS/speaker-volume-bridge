@@ -6,6 +6,8 @@ mod config;
 mod demo;
 mod distribution;
 mod logging;
+#[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+mod native_updater_acceptance;
 mod night_schedule;
 mod runtime;
 mod schedule_notifications;
@@ -16,6 +18,9 @@ mod updates;
 
 use crate::{config::ConfigStore, state::AppState};
 use tauri::Manager;
+
+#[cfg(all(feature = "native-updater-acceptance", feature = "ui-demo"))]
+compile_error!("native updater acceptance must use the real packaged runtime, not ui-demo");
 
 #[cfg(all(feature = "ui-demo", not(debug_assertions)))]
 compile_error!("ui-demo requires a debug build; pass --debug --features ui-demo");
@@ -48,6 +53,8 @@ fn ui_demo_platform() -> Option<&'static str> {
 pub fn run() {
     let mut context = tauri::generate_context!();
     configure_identity(&mut context, ui_demo_enabled());
+    #[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+    native_updater_acceptance::configure(&mut context).expect("Acceptance package configuration");
     run_normal(context);
 }
 
@@ -78,6 +85,8 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
                 })
                 .build(),
         );
+    #[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_autostart::init(
         tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -142,10 +151,17 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             }
             let state = AppState::new(store, configuration, guard);
             app.manage(state);
-            let update_service = updates::HttpReleaseTransport::new().and_then(|transport| {
+            let transport = updates::HttpReleaseTransport::new().map(|transport| {
+                std::sync::Arc::new(transport) as std::sync::Arc<dyn updates::ReleaseTransport>
+            });
+            #[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+            let transport = transport.and_then(|_public_transport| {
+                native_updater_acceptance::transport(app.handle())
+            });
+            let update_service = transport.and_then(|transport| {
                 updates::UpdateService::new(
                     installed_distribution,
-                    std::sync::Arc::new(transport),
+                    transport,
                     std::sync::Arc::new(updates::SystemUpdateClock),
                     std::sync::Arc::new(updates::FileUpdatePersistence::new(update_state_path)),
                 )
@@ -164,6 +180,8 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             schedule_notifications::install_windows(app.handle());
             app.state::<AppState>().start_runtime(app.handle().clone());
             night_schedule::start(app.handle().clone());
+            #[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+            native_updater_acceptance::start(app.handle().clone());
             if ui_demo_enabled()
                 && let Some(window) = app.get_webview_window("main")
             {

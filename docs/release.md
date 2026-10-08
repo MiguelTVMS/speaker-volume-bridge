@@ -379,3 +379,9 @@ explicit unavailable summary; partial or invalid setup fails. Validation artifac
 are not selected for release upload. Do not publish an install-capable manifest or
 claim a successful native upgrade until acceptance passes. No catalog deployment
 is required. Future GitHub Release titles are exactly the version tag.
+
+The default-off updater acceptance input in **Verify macOS Signing** builds a
+controlled signed pair and runs the feature-gated native probe without publication.
+See the verification matrix for isolation requirements and evidence limits. The
+hosted runner's signing workflow uses a temporary updater key; no production
+updater credential setup is required for that probe.

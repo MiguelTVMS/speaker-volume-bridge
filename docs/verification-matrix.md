@@ -1223,8 +1223,8 @@ capability or merge as fully accepted native auto-update work on this evidence.
    inside the actual sandboxed old packaged app. Revalidate the selected release
    through the shared policy immediately before replacement. Observe the supported
    installer, graceful stop and relaunch. External `cp`, Finder replacement or a
-   helper outside the sandbox does not prove native updater compatibility. No
-   user-facing installation flow or such harness is shipped by this phase.
+   helper outside the sandbox does not prove native updater compatibility. A test-only feature now supplies that harness; no
+   user-facing installation flow is shipped by this phase.
 6. In the replacement app, confirm the running version is the newer one and the
    edition/identifier/settings container stayed the same. Compare all saved values,
    including Night schedule and updater preferences. Check Start at login status,
@@ -1248,7 +1248,7 @@ Unavailable here: a valid older signed baseline, signing/notarization access,
 actual sandboxed Tauri replacement, Applications permission/administrator paths,
 DMG/translocation failures, relaunch/settings-container continuity, login launch
 and real hardware synchronization after upgrade. No production updater plugin is
-installed, no native auto-install acceptance is claimed, and no release, website
+registered, no native auto-install acceptance is claimed, and no release, website
 deployment or Store submission was performed. See ADR 0023 for the no-go decision.
 
 Local checks for this change passed: workspace formatting, Clippy with warnings
@@ -1259,3 +1259,30 @@ The release-title regression failed against the former long-title behavior and
 passed with the version-only title. Initial loopback tests were denied by the
 execution sandbox and passed when rerun with loopback permission. Remote CI is
 separate evidence and must be checked on the PR.
+
+### Running the signed probe without publishing
+
+Dispatch **Verify macOS Signing** on the PR branch with `updater_acceptance=true`.
+The existing signing environment approval and credentials apply. This builds two
+signed/notarized/stapled application versions with the real sandbox and product
+identity, creates a verified updater payload using a temporary updater key, and
+runs the explicit probe in the hosted runner's disposable account under
+Applications. A native failure remains visible in the summary and retained
+sanitized result; it never becomes a successful upgrade assertion.
+
+The **macos-native-updater-acceptance** artifact contains the older and newer test
+packages and public payload verification material. Never install these in an
+account containing normal app data. They are test builds with a bundled fixture,
+not published releases. For manual acceptance, use a disposable account, extract
+the artifact into a working directory and set `SVB_DISPOSABLE_NATIVE_ACCOUNT=1`.
+Run `scripts/run-macos-updater-acceptance.py` with the older `.app`, a directory
+containing `manifest.json` and `payload.app.tar.gz`, an absent destination named
+`Speaker Volume Bridge.app` inside Applications, and a private result directory.
+The runner refuses an existing installation. The normal app identity and settings
+container are deliberately retained within that disposable account.
+
+Hosted evidence can establish replacement, relaunch, configuration and persisted
+update preferences. It cannot establish real speaker synchronization, an enabled
+login registration or a new login-session launch. Those checks and the destination
+matrix above remain required and must never be inferred from an empty-device
+runtime or a preserved Start at login preference set to false.

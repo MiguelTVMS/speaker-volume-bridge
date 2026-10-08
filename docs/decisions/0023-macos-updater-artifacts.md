@@ -33,7 +33,9 @@ archive contract; final extracted-bundle Apple acceptance must be tested nativel
 The offline verifier uses pinned minisign-verify 0.2.5, the signature library used
 by the inspected updater 2.10.0 source. This is an operator packaging tool and does
 not register an updater plugin, frontend permission or installation command.
-Cargo.lock contains no installed Tauri updater plugin. Tauri itself is 2.12.1.
+The normal build does not register an updater plugin. The opt-in
+`native-updater-acceptance` feature pins updater 2.10.0 for native tests only.
+Tauri itself is 2.12.1.
 
 The payload and its detached signature are mandatory. The audit descriptor binds
 the package version, direct edition, ARM64 target, filenames and digest, but is
@@ -73,3 +75,31 @@ policy revalidation before install, without custom policy or downgrade bypasses.
 
 See the [verification matrix](../verification-matrix.md#direct-macos-updater-artifacts)
 for exact acceptance steps and evidence boundaries.
+
+## Signed native acceptance probe
+
+The existing signing-verification workflow has an explicit, default-off updater
+acceptance input. It uses a disposable checkout to build the current version and
+one higher patch version, restoring the workspace manifests afterward without a
+commit, tag or release. Both packages retain the product identifier, production
+sandbox and real runtime; neither enables production install capability.
+
+The feature requires a signed bundled fixture and explicit command-line mode.
+It does not grant updater IPC permissions to the frontend. Transport for the
+shared update service is a controlled GitHub-release fixture; stable/preview
+selection, version precedence, generation invalidation and claim reauthorization
+still execute in the production UpdateService. The native plugin uses only a fixed
+loopback fixture endpoint and a temporary updater key. That test transport is
+compiled out of normal editions. Private key material is deleted before artifacts
+are retained; no production updater key or signing environment is changed.
+
+In a disposable native account, the runner refuses an existing Applications app
+and the seed mode refuses an existing configuration. It seeds non-default app,
+Night schedule and update preferences through their normal persistence adapters,
+launches the actual sandboxed installer, and accepts success only after relaunch
+reports the newer version with matching saved settings and update preferences.
+The signed bytes' bundle identity/version are rechecked before installation, and
+policy generation is claimed again after download. Failures are recorded as no-go
+results, not successful upgrades. A controlled test package is retained for manual
+native follow-up. Physical synchronization, enabled login-item/session launch and
+unsupported destinations remain separate acceptance requirements.

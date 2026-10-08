@@ -53,6 +53,10 @@ jobs:
               - 'docs/legacy-identifiers.json'
               - 'scripts/tests/test_distribution_packaging.py'
               - 'scripts/macos-updater-artifact.py'
+              - 'scripts/build-macos-updater-acceptance.sh'
+              - 'scripts/run-macos-updater-acceptance.py'
+              - 'scripts/tests/test_macos_native_acceptance.py'
+              - '.github/workflows/verify-macos-signing.yml'
               - 'scripts/tests/test_macos_updater_artifact.py'
               - 'crates/updater-artifact/**'
               - 'scripts/prepare-update-catalog.py'
@@ -124,6 +128,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -p test_rebrand_identity.py
       - run: python3 -m unittest discover -s scripts/tests -p test_distribution_packaging.py
       - run: python3 -m unittest discover -s scripts/tests -p test_macos_updater_artifact.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_macos_native_acceptance.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog_publication.py
       - run: python3 -m unittest discover -s scripts/tests -p test_catalog_delivery.py
       - run: python3 -m unittest discover -s scripts/tests -p test_signing_wait.py
@@ -283,3 +288,5 @@ jobs:
         env:
           UPDATER_SIGNATURE_INTEGRATION: '1'
         run: python3 -m unittest discover -s scripts/tests -p test_macos_updater_artifact.py
+      - run: cargo clippy --locked -p speaker-volume-bridge --all-targets --features native-updater-acceptance -- -D warnings
+      - run: cargo test --locked -p speaker-volume-bridge --features native-updater-acceptance

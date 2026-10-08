@@ -125,3 +125,9 @@ Packaging and signature checks alone do not prove replacement, preserved setting
 login registration or working synchronization after relaunch. Until those checks
 pass, the app retains its release-page action and manual installation guidance.
 Future release titles use only the version tag.
+
+An optional signing-verification run exercises a test-only native updater in a
+disposable account. Its test packages preserve the app's normal identity and must
+not be installed over a user's normal installation. A hosted check does not prove
+physical speaker operation or login-session behavior. Production builds keep the
+release-page action while this acceptance remains incomplete.

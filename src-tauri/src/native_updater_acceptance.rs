@@ -12,6 +12,17 @@ use tauri_plugin_updater::UpdaterExt;
 
 const LOOPBACK: &str = "http://127.0.0.1:8765";
 
+fn native_builder<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri_plugin_updater::UpdaterBuilder {
+    app.updater_builder()
+        // Pin the manifest key as well as the target reported by the plugin.
+        // Its default reported target is only the OS ("darwin").
+        .target("darwin-aarch64")
+        .no_proxy()
+        .timeout(Duration::from_secs(20))
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Spec {
@@ -272,10 +283,7 @@ async fn run(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
     if offer.available_version.as_deref() != Some(&spec.version) {
         return Err("Shared policy selected a different release".into());
     }
-    let update = app
-        .updater_builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(20))
+    let update = native_builder(app)
         .build()
         .map_err(|e| e.to_string())?
         .check()
@@ -349,6 +357,58 @@ mod tests {
         updates::{SystemUpdateClock, UpdatePersistence, UpdatePreferences, UpdateService},
     };
     use std::sync::Mutex;
+
+    #[tokio::test]
+    async fn native_probe_builder_selects_the_exact_manifest_target() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/manifest.json", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(&mut stream).read_line(&mut request).unwrap();
+            assert!(request.starts_with("GET /manifest.json "));
+            let body = serde_json::json!({
+                "version": "99.0.0",
+                "platforms": {"darwin-aarch64": {
+                    "url": "http://127.0.0.1:8765/payload.app.tar.gz",
+                    "signature": "fixture"
+                }}
+            })
+            .to_string();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({
+                "pubkey": "fixture", "dangerousInsecureTransportProtocol": true
+            }),
+        );
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .build(context)
+            .unwrap();
+        let update = native_builder(app.handle())
+            .endpoints(vec![endpoint.parse().unwrap()])
+            .unwrap()
+            .executable_path(
+                "/Applications/Speaker Volume Bridge.app/Contents/MacOS/speaker-volume-bridge",
+            )
+            .build()
+            .unwrap()
+            .check()
+            .await
+            .unwrap()
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(update.target, "darwin-aarch64");
+        assert_eq!(update.version, "99.0.0");
+        assert_eq!(
+            update.download_url.as_str(),
+            format!("{LOOPBACK}/payload.app.tar.gz")
+        );
+    }
 
     fn distribution() -> InstalledDistribution {
         InstalledDistribution {

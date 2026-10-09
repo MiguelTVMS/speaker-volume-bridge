@@ -1262,7 +1262,8 @@ separate evidence and must be checked on the PR.
 
 ### Running the signed probe without publishing
 
-Dispatch **Verify macOS Signing** on the PR branch with `updater_acceptance=true`.
+Dispatch **Verify macOS Signing** on current `develop` with `updater_acceptance=true`
+after the probe has merged, or on an explicitly permitted reviewed PR branch.
 The existing signing environment approval and credentials apply. This builds two
 signed/notarized/stapled application versions with the real sandbox and product
 identity, creates a verified updater payload using a temporary updater key, and
@@ -1286,3 +1287,78 @@ update preferences. It cannot establish real speaker synchronization, an enabled
 login registration or a new login-session launch. Those checks and the destination
 matrix above remain required and must never be inferred from an empty-device
 runtime or a preserved Start at login preference set to false.
+
+### Acceptance follow-up, 2026-10-09
+
+Current develop includes the merged artifact preparation and test-only native
+probe. Its PR CI passed packaging, release automation and macOS/Windows/Linux
+Rust checks; those results do not establish installed-host acceptance. Issue 165
+was reopened because native acceptance is still incomplete.
+
+The earlier feature-branch signing run failed before executing any steps because
+the signing environment did not permit that branch. A fresh verification run on
+develop with updater acceptance enabled cleared the existing required
+environment review and completed the signed acceptance package build. No
+environment protection was changed. The native probe returned failure; the
+workflow remained successful because its evidence-retention step deliberately
+continues after a failed probe. The step outcome and native result, rather than
+the overall workflow conclusion, determine acceptance. The retained summary
+reports a successful older-version baseline with matching app settings and update
+preferences, followed by a failed install attempt still running the older version.
+It contains no installed event or newer-version snapshot. Error text is omitted
+from the public summary, so it does not identify the failed operation or prove a
+universal sandbox replacement incompatibility.
+
+Downloaded older/newer test bundles independently passed strict Apple signature
+verification and stapled-ticket validation; the newer bundle passed Gatekeeper.
+The retained payload passed the offline updater-signature verifier. The actual
+updater tar archive was also extracted independently: its application passed
+strict signature, stapled-ticket and Gatekeeper checks after extraction. These Apple
+checks required execution outside the agent filesystem sandbox: restricted
+execution initially reported invalid signatures, while the same unchanged bytes
+passed unrestricted verification. No signing gate was bypassed and neither bundle
+was launched in the normal user account.
+
+| Check | Current result |
+| --- | --- |
+| Artifact preparation and real updater-signature tests | Passed: all nine tests with the pinned Tauri signer and offline verifier, including tampered bytes and wrong-key rejection; Apple approval commands remain fixture stubs |
+| Disposable runner safety and relaunch-result tests | Passed: four tests using mocked native commands |
+| Probe shared-policy regression tests | Passed: direct-target/version eligibility and stale policy-generation rejection through the shared service; no native installer execution |
+| Signed payload bundle version and identity regression | Passed: authenticated bundle metadata must match the selected release |
+| Local signing identity availability | Unavailable: zero valid identities |
+| Signed/notarized/stapled acceptance pair and authenticated updater payload | Passed in the signing workflow |
+| Older signed Applications app baseline and preferences | Passed on hosted runner: older version reported matching seeded app settings and persisted update preferences |
+| Signed older-to-newer sandboxed Applications replacement, relaunch, settings and update-policy continuity | Failed native probe while still running the older version; failure operation unavailable in retained summary; no newer-version snapshot |
+| Permission denial and administrator cancellation | Unavailable pending a disposable native account; signed packages are retained, but these paths are not exercised by the default hosted probe |
+| Read-only media and actual App Translocation | Unavailable pending a disposable native account and native destination checks; not inferred from filesystem modes |
+| Native release-page fallback after installation failure | Outstanding; shared-service fallback coverage is not native browser acceptance |
+| Enabled login registration and new login-session launch | Outstanding separately; preserved false preference is insufficient |
+| Real local/Sonos volume and mute synchronization after replacement | Outstanding separately; the hosted empty-device runtime is insufficient |
+
+Website documentation review: no website change is needed for this acceptance
+status update. User-visible update behavior and setup remain unchanged; the
+existing release-page fallback and withheld production installation capability
+remain the documented contract. Retain issue 165 open until its acceptance
+contract is satisfied or an explicit no-go disposition is agreed.
+
+### Probe target regression
+
+Inspection of the pinned updater found a deterministic probe defect: without an
+explicit target, the updater selects the `darwin-aarch64` manifest entry but
+reports `Update.target` as `darwin`. The probe subsequently requires
+`darwin-aarch64`, so a valid offer is rejected before download/installation.
+The shared probe builder now explicitly selects `darwin-aarch64`, binding both
+manifest selection and the reported target without relaxing edition, architecture,
+version, signature or shared-policy guards.
+
+`native_probe_builder_selects_the_exact_manifest_target` runs that same builder
+and the real pinned updater check against a temporary HTTP manifest fixture. It
+fails before the fix with reported target `darwin` and passes afterward. All four
+probe regressions pass. This test runs in the existing macOS acceptance-feature
+CI suite. It does not install an application. The signed run's redacted result
+does not prove it failed at this guard; a fresh signed run containing the fix is
+still required before claiming native replacement or relaunch success.
+
+Website documentation review for the fix: no update is needed because this changes
+only the opt-in test probe. Production update discovery, release-page opening and
+installation capability remain unchanged.

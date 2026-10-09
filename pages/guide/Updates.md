@@ -98,3 +98,12 @@ manual check. The new client discards old catalog offers and check freshness whi
 preserving release-policy and notification preferences. Store clients upgrade
 through their existing Store when that version becomes available. This readiness
 work does not publish that version or implement self-installation.
+
+## Direct macOS updater readiness
+
+The direct macOS edition continues to use **Open update page** and manual DMG
+installation. Updater archives are prepared separately for verification; their
+presence does not enable automatic installation or change release policy.
+Native replacement and preservation of settings, login behavior and speaker
+synchronization have not yet passed signed packaged-upgrade acceptance.
+Mac App Store editions continue to update through the Store.

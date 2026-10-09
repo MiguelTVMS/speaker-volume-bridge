@@ -439,6 +439,40 @@ jobs:
           name: macos-release
           path: speaker-volume-bridge-*-macos.dmg
           if-no-files-found: error
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+      - name: Prepare updater validation artifacts from the approved bundle
+        env:
+          RELEASE_VERSION: ${{ needs.prepare-version.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] && [ -z "$UPDATER_PUBLIC_KEY" ]; then
+            echo 'Updater artifacts unavailable: signing setup pending. Release-page fallback retained.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          test -n "$UPDATER_PUBLIC_KEY"
+          public_key="$RUNNER_TEMP/updater.pub"
+          trap 'rm -f "$public_key"' EXIT
+          printf '%s' "$UPDATER_PUBLIC_KEY" > "$public_key"
+          cargo build --locked --release -p speaker-volume-bridge-updater-artifact
+          python3 scripts/macos-updater-artifact.py \
+            'target/release/bundle/macos/Speaker Volume Bridge.app' \
+            "$RELEASE_VERSION" updater-validation --public-key "$public_key"
+      - uses: actions/upload-artifact@v7
+        if: ${{ hashFiles('updater-validation/*.updater.json') != '' }}
+        with:
+          name: macos-updater-validation
+          path: updater-validation/*
+          if-no-files-found: error
+          retention-days: 7
       - name: Remove temporary Apple credentials
         if: always()
         run: |
@@ -922,7 +956,7 @@ jobs:
             gh release upload "$RELEASE_TAG" "${release_assets[@]}" --clobber
           else
             gh release create "$RELEASE_TAG" "${release_assets[@]}" "${release_flags[@]}" \
-              --title "Speaker Volume Bridge $RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
               --notes "$release_intro" \
               --generate-notes
           fi

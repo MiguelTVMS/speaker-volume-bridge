@@ -31,3 +31,5 @@ This folder stores decision records. Keep one record per important design choice
 - [0021-github-release-updates](0021-github-release-updates.md)
 
 - [0022-release-workflow-inputs](0022-release-workflow-inputs.md)
+
+- [0023-macos-updater-artifacts](0023-macos-updater-artifacts.md)

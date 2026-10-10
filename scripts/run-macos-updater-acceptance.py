@@ -69,7 +69,7 @@ def public_report(report):
                 value=error.get(key)
                 if type(value) is int:
                     failure[key]=value
-            if error.get('nativeStage') in {'precondition','dispatch','receive','authorize','replace'}:
+            if error.get('nativeStage') in {'precondition','dispatch','receive','authorize','replace','recovery'}:
                 failure['nativeStage']=error['nativeStage']
             if error.get('scriptStage') in {'dispatch','receive','compile','execute','decode'}:
                 failure['scriptStage']=error['scriptStage']

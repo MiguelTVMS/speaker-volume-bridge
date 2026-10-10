@@ -537,6 +537,8 @@ impl Updater {
 
         let update = if should_update {
             Some(Update {
+                #[cfg(feature = "native-acceptance-diagnostics")]
+                acceptance_replacement: None,
                 run_on_main_thread: self.run_on_main_thread.clone(),
                 config: self.config.clone(),
                 on_before_exit: self.on_before_exit.clone(),
@@ -600,6 +602,8 @@ impl Updater {
 
 #[derive(Clone)]
 pub struct Update {
+    #[cfg(feature = "native-acceptance-diagnostics")]
+    acceptance_replacement: Option<crate::native_replacement::Start>,
     #[allow(dead_code)]
     run_on_main_thread: Arc<RunOnMainThread>,
     config: Config,
@@ -646,6 +650,18 @@ pub struct Update {
 impl Resource for Update {}
 
 impl Update {
+    /// Acceptance-only fault injection; installed production builds omit this API.
+    #[cfg(feature = "native-acceptance-diagnostics")]
+    #[doc(hidden)]
+    pub fn with_acceptance_replacement(mut self, start: crate::native_replacement::Start) -> Self {
+        self.acceptance_replacement = Some(start);
+        self.run_on_main_thread = Arc::new(Box::new(|task| {
+            task();
+            Ok(())
+        }));
+        self
+    }
+
     /// Downloads the updater package, verifies it then return it as bytes.
     ///
     /// Use [`Update::install`] to install it
@@ -1244,12 +1260,38 @@ impl Update {
         // The sandbox-compatible API must receive the existing destination intact.
         // Never pre-delete/pre-rename it or fall back to administrator shell execution.
         #[cfg(feature = "native-acceptance-diagnostics")]
-        return crate::native_replacement::replace_existing(
-            &self.extract_path,
-            tmp_extract_dir.path(),
-            |task| (self.run_on_main_thread)(task).map_err(|error| error.to_string()),
-            crate::native_replacement::start_native,
-        );
+        {
+            let start = self.acceptance_replacement.clone();
+            let result = crate::native_replacement::replace_existing(
+                &self.extract_path,
+                tmp_extract_dir.path(),
+                |task| (self.run_on_main_thread)(task).map_err(|error| error.to_string()),
+                move |destination, candidate, complete| {
+                    if let Some(start) = start {
+                        start(destination, candidate, complete);
+                    } else {
+                        crate::native_replacement::start_native(destination, candidate, complete);
+                    }
+                },
+            );
+            if matches!(
+                &result,
+                Err(Error::MacosReplacement {
+                    stage: "recovery",
+                    ..
+                })
+            ) {
+                // A recovery URL may point inside staging. Never delete the only old bundle.
+                let retained = tmp_extract_dir.keep();
+                return result.map_err(|error| Error::MacosReplacement {
+                    stage: "recovery",
+                    domain: String::new(),
+                    code: None,
+                    message: format!("{error}; staging retained at {}", retained.display()),
+                });
+            }
+            return result;
+        }
 
         #[cfg(not(feature = "native-acceptance-diagnostics"))]
         {

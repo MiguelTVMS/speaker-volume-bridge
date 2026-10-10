@@ -1496,3 +1496,19 @@ and cancelled authorization, read-only/translocated destinations, release-page
 fallback, and signed older-to-newer relaunch/settings/update-policy continuity.
 Login launch and real synchronization still need separate GUI/hardware evidence.
 Issue 165 stays open; production installation remains disabled.
+
+#### Replacement review regressions
+
+Preservation now runs through the real Update::install entry point, production
+archive extraction and native-adapter routing, injecting only the native operation
+and its main-thread dispatcher. Reintroducing a destination rename immediately
+before adapter dispatch fails denial/cancellation preservation. Restoring the
+routing passes. This supersedes the earlier helper-only preservation coverage.
+
+Partial-replacement fixtures relocate the original inside staging, then return a
+native failure. The shared recovery step restores it before returning the original
+replacement error. Disabling recovery fails the installed-byte assertion; restoring
+recovery passes. A denied recovery retains the relocated original and staging,
+reports the recovery stage, and keeps recovery paths/details private. It does not
+claim that the destination is preserved when recovery itself is denied. Actual OS
+permission and recovery behavior still require signed native acceptance.

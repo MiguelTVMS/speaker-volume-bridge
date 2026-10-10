@@ -494,9 +494,63 @@ mod tests {
     };
     use std::sync::Mutex;
 
-    #[test]
-    fn native_replacement_keeps_existing_app_on_denial_and_cancellation() {
-        use tauri_plugin_updater::{Error, native_replacement::replace_existing};
+    async fn fixture_native_update(destination: &std::path::Path) -> tauri_plugin_updater::Update {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/manifest.json", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&mut stream);
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+            let body = serde_json::json!({"version":"99.0.0","platforms":{"darwin-aarch64":{"url":"http://127.0.0.1:8765/payload.app.tar.gz","signature":"fixture"}}}).to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+        });
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({"pubkey":"fixture","dangerousInsecureTransportProtocol":true}),
+        );
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .build(context)
+            .unwrap();
+        let update = native_builder(app.handle())
+            .endpoints(vec![endpoint.parse().unwrap()])
+            .unwrap()
+            .executable_path(destination.join("Contents/MacOS/fixture"))
+            .build()
+            .unwrap()
+            .check()
+            .await
+            .unwrap()
+            .unwrap();
+        server.join().unwrap();
+        update
+    }
+
+    fn fixture_native_archive() -> Vec<u8> {
+        let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(gzip);
+        let mut header = tar::Header::new_gnu();
+        let bytes = b"new signed bytes";
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive
+            .append_data(&mut header, "Fixture.app/version", &bytes[..])
+            .unwrap();
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
+    #[tokio::test]
+    async fn native_replacement_keeps_existing_app_on_denial_and_cancellation() {
+        use tauri_plugin_updater::Error;
         for code in [3072, 513] {
             let root = tempfile::tempdir().unwrap();
             let destination = root.path().join("Old.app");
@@ -505,27 +559,27 @@ mod tests {
             std::fs::create_dir(&candidate).unwrap();
             std::fs::write(destination.join("version"), "old signed bytes").unwrap();
             std::fs::write(candidate.join("version"), "new signed bytes").unwrap();
-            let result = replace_existing(
-                &destination,
-                &candidate,
-                |task| {
-                    task();
-                    Ok(())
-                },
-                move |destination, candidate, complete| {
-                    assert!(
-                        destination.exists(),
-                        "existing bundle must reach native replacement intact"
-                    );
-                    assert!(candidate.exists());
-                    complete(Err(Error::MacosReplacement {
-                        stage: "authorize",
-                        domain: "NSCocoaErrorDomain".into(),
-                        code: Some(code),
-                        message: "fixture denial/cancellation".into(),
-                    }));
-                },
-            );
+            let update = fixture_native_update(&destination)
+                .await
+                .with_acceptance_replacement(std::sync::Arc::new(
+                    move |destination, candidate, complete| {
+                        assert!(
+                            destination.exists(),
+                            "existing bundle must reach native replacement intact"
+                        );
+                        assert_eq!(
+                            std::fs::read_to_string(candidate.join("version")).unwrap(),
+                            "new signed bytes"
+                        );
+                        complete(Err(Error::MacosReplacement {
+                            stage: "authorize",
+                            domain: "NSCocoaErrorDomain".into(),
+                            code: Some(code),
+                            message: "fixture denial/cancellation".into(),
+                        }));
+                    },
+                ));
+            let result = update.install(fixture_native_archive());
             let failure = updater_failure("install", &result.unwrap_err());
             assert_eq!(failure.evidence.native_code, Some(code));
             assert_eq!(failure.evidence.native_stage, Some("authorize"));
@@ -537,6 +591,66 @@ mod tests {
                 std::fs::read_to_string(candidate.join("version")).unwrap(),
                 "new signed bytes"
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn native_install_restores_relocated_original_and_retains_it_if_recovery_is_denied() {
+        use tauri_plugin_updater::{Error, native_replacement::recover_after_failure};
+        for denied in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let destination = root.path().join("Old.app");
+            std::fs::create_dir(&destination).unwrap();
+            std::fs::write(destination.join("version"), "old signed bytes").unwrap();
+            let recovery_location = std::sync::Arc::new(Mutex::new(None));
+            let captured = recovery_location.clone();
+            let update = fixture_native_update(&destination)
+                .await
+                .with_acceptance_replacement(std::sync::Arc::new(
+                    move |destination, candidate, complete| {
+                        let original = candidate.join("relocated-original.app");
+                        std::fs::rename(&destination, &original).unwrap();
+                        *captured.lock().unwrap() = Some(original.clone());
+                        let error = Error::MacosReplacement {
+                            stage: "replace",
+                            domain: "fixture".into(),
+                            code: Some(513),
+                            message: "partial native replacement".into(),
+                        };
+                        complete(Err(recover_after_failure(
+                            &destination,
+                            Some(&original),
+                            error,
+                            |original, destination| {
+                                if denied {
+                                    Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)
+                                        .into())
+                                } else {
+                                    std::fs::rename(original, destination).map_err(Into::into)
+                                }
+                            },
+                        )));
+                    },
+                ));
+            let error = update.install(fixture_native_archive()).unwrap_err();
+            let stage = updater_failure("install", &error).evidence.native_stage;
+            let original = recovery_location.lock().unwrap().clone().unwrap();
+            if denied {
+                assert_eq!(stage, Some("recovery"));
+                assert_eq!(
+                    std::fs::read_to_string(original.join("version")).unwrap(),
+                    "old signed bytes"
+                );
+                assert!(error.to_string().contains("staging retained"));
+                // The fixture explicitly removes retained staging after proving it survives install.
+                std::fs::remove_dir_all(original.parent().unwrap()).unwrap();
+            } else {
+                assert_eq!(stage, Some("replace"));
+                assert_eq!(
+                    std::fs::read_to_string(destination.join("version")).unwrap(),
+                    "old signed bytes"
+                );
+            }
         }
     }
 

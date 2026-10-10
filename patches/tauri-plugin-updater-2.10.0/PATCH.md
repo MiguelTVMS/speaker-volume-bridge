@@ -44,3 +44,9 @@ No entitlement is added: signed native acceptance requires Apple's grant and a
 matching direct-download profile. The shared replacement orchestration is covered
 in the normal macOS acceptance-feature CI tests; fixtures do not prove native
 permission UI or bundle replacement.
+
+Review follow-up: the adapter reads NSFileOriginalItemLocationKey and attempts to
+restore a relocated original before completing with an error. Failed recovery
+retains staging and the private recovery path. The default-off Update fixture hook
+injects only the native callback/dispatcher so regressions call Update::install and
+exercise extraction/routing. Normal acceptance runs have no injected hook.

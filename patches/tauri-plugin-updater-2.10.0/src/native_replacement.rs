@@ -3,7 +3,9 @@
 use crate::{Error, Result};
 use std::path::{Path, PathBuf};
 
-type Completion = Box<dyn FnOnce(Result<()>) + Send>;
+pub type Completion = Box<dyn FnOnce(Result<()>) + Send>;
+
+pub type Start = std::sync::Arc<dyn Fn(PathBuf, PathBuf, Completion) + Send + Sync>;
 
 fn failure(stage: &'static str, message: String) -> Error {
     Error::MacosReplacement {
@@ -53,6 +55,31 @@ pub fn replace_existing(
         .map_err(|error| failure("receive", error.to_string()))?
 }
 
+/// Restore Apple's relocated original before propagating the replacement failure.
+/// If restoration is denied, retain the recovery location in private diagnostics.
+pub fn recover_after_failure(
+    destination: &Path,
+    original: Option<&Path>,
+    error: Error,
+    restore: impl FnOnce(&Path, &Path) -> Result<()>,
+) -> Error {
+    if let Some(original) = original.filter(|original| *original != destination) {
+        if let Err(recovery) = restore(original, destination) {
+            return failure(
+                "recovery",
+                format!(
+                    "{error}; original retained at {}; recovery failed: {recovery}",
+                    original.display()
+                ),
+            );
+        }
+    }
+    if !destination.is_dir() {
+        return failure("recovery", format!("{error}; original destination unavailable after recovery; staging must be retained"));
+    }
+    error
+}
+
 #[cfg(target_os = "macos")]
 pub fn start_native(destination: PathBuf, candidate: PathBuf, complete: Completion) {
     use block2::RcBlock;
@@ -84,20 +111,38 @@ pub fn start_native(destination: PathBuf, candidate: PathBuf, complete: Completi
                     Err(native_error("authorize", error))
                 } else if let Some(authorization) = authorization.as_ref() {
                     let manager = NSFileManager::fileManagerWithAuthorization(authorization);
-                    let destination = NSURL::fileURLWithPath_isDirectory(
+                    let destination_url = NSURL::fileURLWithPath_isDirectory(
                         &NSString::from_str(&destination.to_string_lossy()),
                         true,
                     );
-                    let candidate = NSURL::fileURLWithPath_isDirectory(
+                    let candidate_url = NSURL::fileURLWithPath_isDirectory(
                         &NSString::from_str(&candidate.to_string_lossy()),
                         true,
                     );
-                    // Preserve the candidate's signed bundle metadata. Apple ignores
-                    // backup/options for an authorized manager; no shell fallback.
-                    manager.replaceItemAtURL_withItemAtURL_backupItemName_options_resultingItemURL_error(
-                    &destination, &candidate, None,
-                    NSFileManagerItemReplacementOptions::UsingNewMetadataOnly, None,
-                ).map_err(|error| native_error("replace", &error))
+                    match manager.replaceItemAtURL_withItemAtURL_backupItemName_options_resultingItemURL_error(
+                        &destination_url, &candidate_url, None,
+                        NSFileManagerItemReplacementOptions::UsingNewMetadataOnly, None,
+                    ) {
+                        Ok(()) => Ok(()),
+                        Err(error) => {
+                            let original = error.userInfo()
+                                .objectForKey(&NSString::from_str("NSFileOriginalItemLocationKey"))
+                                .and_then(|value| value.downcast::<NSURL>().ok())
+                                .and_then(|url| url.path())
+                                .map(|path| PathBuf::from(path.to_string()));
+                            Err(recover_after_failure(&destination, original.as_deref(), native_error("replace", &error), |original, destination| {
+                                if !destination.exists() {
+                                    // Restoration is an ordinary rename, never privilege escalation.
+                                    std::fs::rename(original, destination).map_err(Into::into)
+                                } else {
+                                    let original_url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(&original.to_string_lossy()), true);
+                                    manager.replaceItemAtURL_withItemAtURL_backupItemName_options_resultingItemURL_error(
+                                        &destination_url, &original_url, None, NSFileManagerItemReplacementOptions::UsingNewMetadataOnly, None,
+                                    ).map_err(|error| native_error("recovery", &error))
+                                }
+                            }))
+                        }
+                    }
                 } else {
                     Err(failure(
                         "authorize",

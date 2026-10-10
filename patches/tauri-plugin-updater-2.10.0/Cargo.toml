@@ -195,4 +195,4 @@ features = ["std", "NSWorkspace", "block2"]
 version = "0.3.2"
 optional = true
 default-features = false
-features = ["std", "NSFileManager", "NSString", "NSURL", "NSError"]
+features = ["std", "NSFileManager", "NSString", "NSURL", "NSError", "NSDictionary"]

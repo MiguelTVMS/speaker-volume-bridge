@@ -60,6 +60,8 @@ class NativeAcceptanceTests(unittest.TestCase):
         self.assertEqual(result['failure']['nativeCode'],3072)
         self.assertEqual(result['failure']['nativeStage'],'authorize')
         self.assertEqual(result['failure']['reason'],'native_replacement_failed')
+        error['nativeStage']='recovery'
+        self.assertEqual(runner.public_report(dict(stage='failed',error=error))['failure']['nativeStage'],'recovery')
         self.assertNotIn('private',json.dumps(result))
         error.update(nativeCode=True,nativeStage='injected stage')
         result=runner.public_report(dict(stage='failed',error=error))

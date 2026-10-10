@@ -202,3 +202,13 @@ full acceptance. Store editions continue to use Store delivery; production
 self-installation remains disabled and issue 165 remains open. Website review:
 no user-facing behavior changed; this adapter is test-only, so no website update
 is needed.
+
+Replacement failures now consume Apple's NSFileOriginalItemLocationKey recovery
+URL before reporting the failure. Restoration uses ordinary rename if the target
+is absent, or the existing authorized replacement manager if it remains present.
+No extra privilege is requested. If recovery fails or the destination is still
+absent, staging is retained and a distinct private recovery failure is reported.
+Tests exercise Update::install, extraction and routing for denied/cancelled
+operations and partial failures, including preservation of recovery bytes when
+restoration is denied. These tests replace the original helper-only assurance;
+actual native recovery remains unverified pending the signed acceptance gate.

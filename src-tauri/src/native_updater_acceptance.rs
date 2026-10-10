@@ -172,6 +172,24 @@ fn updater_failure(operation: &'static str, error: &tauri_plugin_updater::Error)
     use tauri_plugin_updater::Error;
     let (kind, os_code, http_status) = match error {
         Error::Io(error) => ("io", error.raw_os_error(), None),
+        Error::Network(message) => {
+            // Pinned updater 2.10.0 wraps download HTTP status in this fixed
+            // message instead of Reqwest. Export only the numeric status.
+            let status = message
+                .strip_prefix("Download request failed with status: ")
+                .and_then(|status| status.split_whitespace().next())
+                .and_then(|status| status.parse::<u16>().ok())
+                .filter(|status| (100..=599).contains(status));
+            (
+                if status.is_some() {
+                    "http"
+                } else {
+                    "transport"
+                },
+                None,
+                status,
+            )
+        }
         Error::Reqwest(error) => (
             if error.is_timeout() {
                 "timeout"
@@ -464,6 +482,58 @@ mod tests {
         let report = serde_json::to_value(error).unwrap();
         assert_eq!(report["ioKind"], "PermissionDenied");
         assert_eq!(report["reason"], "replacement_authorization_failed");
+    }
+
+    #[tokio::test]
+    async fn native_download_failure_preserves_http_status() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let endpoint = format!("{origin}/manifest.json");
+        let body = serde_json::json!({
+            "version": "99.0.0", "platforms": {"darwin-aarch64": {
+                "url": format!("{origin}/payload.app.tar.gz"), "signature": "fixture"
+            }}
+        })
+        .to_string();
+        let server = std::thread::spawn(move || {
+            for (status, body) in [("200 OK", body.as_str()), ("404 Not Found", "")] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(&mut stream).read_line(&mut request).unwrap();
+                assert!(request.starts_with("GET /"));
+                write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({
+                "pubkey": "fixture", "dangerousInsecureTransportProtocol": true
+            }),
+        );
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .build(context)
+            .unwrap();
+        let update = native_builder(app.handle())
+            .endpoints(vec![endpoint.parse().unwrap()])
+            .unwrap()
+            .executable_path(
+                "/Applications/Speaker Volume Bridge.app/Contents/MacOS/speaker-volume-bridge",
+            )
+            .build()
+            .unwrap()
+            .check()
+            .await
+            .unwrap()
+            .unwrap();
+        let error = update.download(|_, _| {}, || {}).await.unwrap_err();
+        server.join().unwrap();
+        let failure = serde_json::to_value(updater_failure("download", &error)).unwrap();
+        assert_eq!(failure["operation"], "download");
+        assert_eq!(failure["kind"], "http");
+        assert_eq!(failure["httpStatus"], 404);
     }
 
     #[tokio::test]

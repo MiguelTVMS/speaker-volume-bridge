@@ -1390,3 +1390,10 @@ replacement success is claimed yet. Issue 165 remains open.
 
 Website review: no change needed for test-only failure evidence. Production update
 behavior, sandbox protections and the release-page fallback remain unchanged.
+
+Codex review identified the pinned updater's special download HTTP-error wrapper.
+`native_download_failure_preserves_http_status` runs the shared probe builder,
+real manifest check and real payload request returning 404. Before the fix the
+error becomes a generic updater failure and loses the status; afterward the
+retained category is HTTP with status 404. The parser accepts only the pinned
+fixed prefix and a numeric HTTP code; arbitrary message text remains private.

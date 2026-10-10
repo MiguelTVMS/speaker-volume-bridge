@@ -1463,3 +1463,81 @@ requesting invalid-certificate or invalid-hostname acceptance before networking.
 A regression through the real probe builder fails with the former behavior and
 passes with rejection. Signing controls are unchanged; no security alert is
 suppressed or dismissed to permit merging.
+
+### Sandbox-compatible replacement adapter, 2026-10-10
+
+The preceding signed diagnostic run reached installation and returned AppleScript
+execution error -60005, errAuthorizationDenied. No newer-version snapshot was
+produced. Older-version settings and update preferences were retained; replacement,
+relaunch and post-upgrade continuity did not pass.
+
+Apple documents Authorization Services as unsupported inside App Sandbox. The
+acceptance-only installer now uses NSWorkspace ReplaceFile authorization and the
+FileManager created with it. It passes the existing destination intact, never
+pre-deletes or pre-renames it, and does not fall back to administrator shell
+execution. The original diagnostic fixture remains available for historical error
+capture, but the new acceptance replacement path does not call it.
+
+Automated shared-orchestration coverage exercises authorization denial and
+cancellation fixtures with existing bundle bytes unchanged, dispatch failure,
+missing destination and a successful completion callback. Reintroducing the old
+pre-authorization rename makes the existing-destination regression fail; removing
+it passes. These fixtures do not prove Cocoa replacement, OS permission dialogs,
+read-only mounts, translocation, relaunch or hardware synchronization. The runner
+retains only numeric native codes and fixed stages in public summaries; NSError
+domains and descriptions remain private.
+
+Native signed adapter acceptance is unavailable until Apple grants Privileged
+File Operations and a matching direct-download profile is available. No entitlement
+has been added and no signing protection changed. The request is prepared in
+[the draft](apple-privileged-file-operations-request.md), not submitted. After that
+prerequisite, rerun the existing acceptance matrix, including deliberately denied
+and cancelled authorization, read-only/translocated destinations, release-page
+fallback, and signed older-to-newer relaunch/settings/update-policy continuity.
+Login launch and real synchronization still need separate GUI/hardware evidence.
+Issue 165 stays open; production installation remains disabled.
+
+#### Replacement review regressions
+
+Preservation now runs through the real Update::install entry point, production
+archive extraction and native-adapter routing, injecting only the native operation
+and its main-thread dispatcher. Reintroducing a destination rename immediately
+before adapter dispatch fails denial/cancellation preservation. Restoring the
+routing passes. This supersedes the earlier helper-only preservation coverage.
+
+Partial-replacement fixtures relocate the original inside staging, then return a
+native failure. The shared recovery step restores it before returning the original
+replacement error. Disabling recovery fails the installed-byte assertion; restoring
+recovery passes. A denied recovery retains the relocated original and staging,
+reports the recovery stage, and keeps recovery paths/details private. It does not
+claim that the destination is preserved when recovery itself is denied. Actual OS
+permission and recovery behavior still require signed native acceptance.
+
+Missing-destination recovery also invokes the existing authorized replacement
+operation; it never substitutes an ordinary filesystem rename. The fixture asserts
+that this authorized operation is called even with no destination. Reintroducing
+an unprivileged absent-destination bypass fails that assertion. The fixture mocks
+the authorized operation and does not prove sandbox privileges or that macOS can
+restore a missing destination; native failure still retains staging for recovery.
+
+A real Foundation check on the development macOS host successfully replaced an
+absent destination with a relocated original bundle, verified the destination's
+original bytes and confirmed the recovery source was consumed. The production
+installer/recovery now share the exact Cocoa replacement call with the automated
+installer-entry regression; successful recovery uses FileManager itself rather
+than a rename substitute. This supersedes the mock-only success coverage above.
+The test uses an ordinary FileManager in disposable writable storage. It does not
+prove an authorized manager's sandbox permissions, system-version portability or
+signed installed-host recovery; those remain explicit native acceptance items.
+
+Recovery retention context preserves the recovery NSError domain/code rather than
+replacing it with an untyped error. The installer-entry reporting regression
+failed with a missing numeric nativeCode and passes retaining the fixture's code
+through both recovery and staging-retention wrappers. Public summaries retain the
+numeric code and fixed recovery stage; domain, recovery path and raw details stay
+private. The runner regression verifies recovery-code retention as well.
+
+The installer-entry regression also covers an authorized recovery callback that
+reports success while leaving the destination absent. The postcondition failure
+retains staging and the original native error code/domain. This sequence failed
+with the untyped postcondition error and passes with structured context retained.

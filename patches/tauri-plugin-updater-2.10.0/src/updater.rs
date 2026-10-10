@@ -537,6 +537,8 @@ impl Updater {
 
         let update = if should_update {
             Some(Update {
+                #[cfg(feature = "native-acceptance-diagnostics")]
+                acceptance_replacement: None,
                 run_on_main_thread: self.run_on_main_thread.clone(),
                 config: self.config.clone(),
                 on_before_exit: self.on_before_exit.clone(),
@@ -600,6 +602,8 @@ impl Updater {
 
 #[derive(Clone)]
 pub struct Update {
+    #[cfg(feature = "native-acceptance-diagnostics")]
+    acceptance_replacement: Option<crate::native_replacement::Start>,
     #[allow(dead_code)]
     run_on_main_thread: Arc<RunOnMainThread>,
     config: Config,
@@ -646,6 +650,18 @@ pub struct Update {
 impl Resource for Update {}
 
 impl Update {
+    /// Acceptance-only fault injection; installed production builds omit this API.
+    #[cfg(feature = "native-acceptance-diagnostics")]
+    #[doc(hidden)]
+    pub fn with_acceptance_replacement(mut self, start: crate::native_replacement::Start) -> Self {
+        self.acceptance_replacement = Some(start);
+        self.run_on_main_thread = Arc::new(Box::new(|task| {
+            task();
+            Ok(())
+        }));
+        self
+    }
+
     /// Downloads the updater package, verifies it then return it as bytes.
     ///
     /// Use [`Update::install`] to install it
@@ -1210,6 +1226,7 @@ impl Update {
         let mut extracted_files: Vec<PathBuf> = Vec::new();
 
         // Create temp directories for backup and extraction
+        #[cfg(not(feature = "native-acceptance-diagnostics"))]
         let tmp_backup_dir = tempfile::Builder::new()
             .prefix("tauri_current_app")
             .tempdir()?;
@@ -1240,79 +1257,105 @@ impl Update {
             extracted_files.push(extraction_path);
         }
 
-        // Try to move the current app to backup
-        let move_result = std::fs::rename(
-            &self.extract_path,
-            tmp_backup_dir.path().join("current_app"),
-        );
-        let need_authorization = if let Err(err) = move_result {
-            if err.kind() == std::io::ErrorKind::PermissionDenied {
-                true
-            } else {
-                std::fs::remove_dir_all(tmp_extract_dir.path()).ok();
-                return Err(err.into());
+        // The sandbox-compatible API must receive the existing destination intact.
+        // Never pre-delete/pre-rename it or fall back to administrator shell execution.
+        #[cfg(feature = "native-acceptance-diagnostics")]
+        {
+            let start = self.acceptance_replacement.clone();
+            let result = crate::native_replacement::replace_existing(
+                &self.extract_path,
+                tmp_extract_dir.path(),
+                |task| (self.run_on_main_thread)(task).map_err(|error| error.to_string()),
+                move |destination, candidate, complete| {
+                    if let Some(start) = start {
+                        start(destination, candidate, complete);
+                    } else {
+                        crate::native_replacement::start_native(destination, candidate, complete);
+                    }
+                },
+            );
+            if matches!(
+                &result,
+                Err(Error::MacosReplacement {
+                    stage: "recovery",
+                    ..
+                })
+            ) {
+                // A recovery URL may point inside staging. Never delete the only old bundle.
+                let retained = tmp_extract_dir.keep();
+                return result.map_err(|error| {
+                    crate::native_replacement::recovery_context(
+                        error,
+                        format!("staging retained at {}", retained.display()),
+                    )
+                });
             }
-        } else {
-            false
-        };
+            return result;
+        }
 
-        if need_authorization {
-            log::debug!("app installation needs admin privileges");
-            // Use AppleScript to perform moves with admin privileges
-            let apple_script = format!(
+        #[cfg(not(feature = "native-acceptance-diagnostics"))]
+        {
+            // Try to move the current app to backup
+            let move_result = std::fs::rename(
+                &self.extract_path,
+                tmp_backup_dir.path().join("current_app"),
+            );
+            let need_authorization = if let Err(err) = move_result {
+                if err.kind() == std::io::ErrorKind::PermissionDenied {
+                    true
+                } else {
+                    std::fs::remove_dir_all(tmp_extract_dir.path()).ok();
+                    return Err(err.into());
+                }
+            } else {
+                false
+            };
+
+            if need_authorization {
+                log::debug!("app installation needs admin privileges");
+                // Use AppleScript to perform moves with admin privileges
+                let apple_script = format!(
                 "do shell script \"rm -rf '{src}' && mv -f '{new}' '{src}'\" with administrator privileges",
                 src = self.extract_path.display(),
                 new = tmp_extract_dir.path().display()
             );
 
-            #[cfg(feature = "native-acceptance-diagnostics")]
-            {
-                let source = crate::native_diagnostics::authorization_script(&apple_script);
-                let result = crate::native_diagnostics::run_authorization(
-                    |task| (self.run_on_main_thread)(task).map_err(|error| error.to_string()),
-                    move || crate::native_diagnostics::execute_script(&source),
-                );
-                if result.is_err() {
-                    std::fs::remove_dir_all(tmp_extract_dir.path()).ok();
-                }
-                result?;
-            }
-            #[cfg(not(feature = "native-acceptance-diagnostics"))]
-            {
-                let (tx, rx) = std::sync::mpsc::channel();
-                let res = (self.run_on_main_thread)(Box::new(move || {
-                    let mut script = osakit::Script::new_from_source(
-                        osakit::Language::AppleScript,
-                        &apple_script,
-                    );
-                    script.compile().expect("invalid AppleScript");
-                    let r = script.execute();
-                    tx.send(r).unwrap();
-                }));
-                let result = rx.recv().unwrap();
+                {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let res = (self.run_on_main_thread)(Box::new(move || {
+                        let mut script = osakit::Script::new_from_source(
+                            osakit::Language::AppleScript,
+                            &apple_script,
+                        );
+                        script.compile().expect("invalid AppleScript");
+                        let r = script.execute();
+                        tx.send(r).unwrap();
+                    }));
+                    let result = rx.recv().unwrap();
 
-                if res.is_err() || result.is_err() {
-                    std::fs::remove_dir_all(tmp_extract_dir.path()).ok();
-                    return Err(Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::PermissionDenied,
-                        "Failed to move the new app into place",
-                    )));
+                    if res.is_err() || result.is_err() {
+                        std::fs::remove_dir_all(tmp_extract_dir.path()).ok();
+                        return Err(Error::Io(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "Failed to move the new app into place",
+                        )));
+                    }
                 }
+            } else {
+                // Remove existing directory if it exists
+                if self.extract_path.exists() {
+                    std::fs::remove_dir_all(&self.extract_path)?;
+                }
+                // Move the new app to the target path
+                std::fs::rename(tmp_extract_dir.path(), &self.extract_path)?;
             }
-        } else {
-            // Remove existing directory if it exists
-            if self.extract_path.exists() {
-                std::fs::remove_dir_all(&self.extract_path)?;
-            }
-            // Move the new app to the target path
-            std::fs::rename(tmp_extract_dir.path(), &self.extract_path)?;
+
+            let _ = std::process::Command::new("touch")
+                .arg(&self.extract_path)
+                .status();
+
+            Ok(())
         }
-
-        let _ = std::process::Command::new("touch")
-            .arg(&self.extract_path)
-            .status();
-
-        Ok(())
     }
 }
 

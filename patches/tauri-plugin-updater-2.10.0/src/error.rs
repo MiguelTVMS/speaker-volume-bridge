@@ -26,6 +26,15 @@ pub enum Error {
         code: Option<i64>,
         message: String,
     },
+    /// Test-only privileged file replacement evidence, with private NSError details.
+    #[cfg(feature = "native-acceptance-diagnostics")]
+    #[error("macOS replacement {stage}: {domain} {code:?}: {message}")]
+    MacosReplacement {
+        stage: &'static str,
+        domain: String,
+        code: Option<i64>,
+        message: String,
+    },
     /// Semver errors.
     #[error(transparent)]
     Semver(#[from] semver::Error),

@@ -410,3 +410,12 @@ remain validation artifacts retained in CI and never create installation actions
 GitHub release-page fallback, version/policy guards and Store delegation remain
 unchanged. Native sandboxed replacement acceptance is pending; see
 [ADR 0023](decisions/0023-macos-updater-artifacts.md).
+
+The default-off macOS native acceptance probe uses NSWorkspace ReplaceFile
+permission and an authorized FileManager for its test-only replacement adapter.
+The destination remains intact before authorization; no administrator shell
+fallback is used. This does not register a production installer. Apple's
+Privileged File Operations grant and a matching direct-download profile remain
+external prerequisites for signed acceptance. The Store edition continues to
+receive Store-managed updates. See ADR 0023 and the verification matrix for the
+explicit outstanding native outcomes.

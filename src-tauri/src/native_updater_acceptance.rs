@@ -145,9 +145,18 @@ struct ProbeFailure {
     io_kind: Option<Box<str>>,
     reason: Option<&'static str>,
     http_status: Option<u16>,
+    #[serde(flatten)]
+    evidence: Box<NativeEvidence>,
+    message: Box<str>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct NativeEvidence {
+    native_code: Option<i64>,
+    native_stage: Option<&'static str>,
     script_code: Option<i32>,
     script_stage: Option<&'static str>,
-    message: Box<str>,
 }
 
 impl From<String> for ProbeFailure {
@@ -159,8 +168,7 @@ impl From<String> for ProbeFailure {
             io_kind: None,
             reason: None,
             http_status: None,
-            script_code: None,
-            script_stage: None,
+            evidence: Box::default(),
             message: message.into_boxed_str(),
         }
     }
@@ -212,6 +220,10 @@ fn updater_failure(operation: &'static str, error: &tauri_plugin_updater::Error)
         | Error::SignatureUtf8(_)
         | Error::Serialization(_)
         | Error::InvalidUpdaterFormat => ("format", None, None),
+        Error::MacosReplacement {
+            stage: "authorize", ..
+        } => ("authentication", None, None),
+        Error::MacosReplacement { .. } => ("io", None, None),
         Error::MacosAuthorization { .. } | Error::AuthenticationFailed => {
             ("authentication", None, None)
         }
@@ -226,22 +238,33 @@ fn updater_failure(operation: &'static str, error: &tauri_plugin_updater::Error)
             _ => None,
         },
         reason: match error {
+            Error::MacosReplacement { .. } => Some("native_replacement_failed"),
             Error::MacosAuthorization { .. } => Some("replacement_authorization_failed"),
             Error::Io(error) if error.to_string() == "Failed to move the new app into place" => {
                 Some("replacement_authorization_failed")
             }
             _ => None,
         },
-        script_code: match error {
-            Error::MacosAuthorization { code, .. } => {
-                code.and_then(|code| i32::try_from(code).ok())
-            }
-            _ => None,
-        },
-        script_stage: match error {
-            Error::MacosAuthorization { stage, .. } => Some(*stage),
-            _ => None,
-        },
+        evidence: Box::new(NativeEvidence {
+            native_code: match error {
+                Error::MacosReplacement { code, .. } => *code,
+                _ => None,
+            },
+            native_stage: match error {
+                Error::MacosReplacement { stage, .. } => Some(*stage),
+                _ => None,
+            },
+            script_code: match error {
+                Error::MacosAuthorization { code, .. } => {
+                    code.and_then(|code| i32::try_from(code).ok())
+                }
+                _ => None,
+            },
+            script_stage: match error {
+                Error::MacosAuthorization { stage, .. } => Some(*stage),
+                _ => None,
+            },
+        }),
         http_status,
         message: error.to_string().into_boxed_str(),
     }
@@ -470,6 +493,267 @@ mod tests {
         updates::{SystemUpdateClock, UpdatePersistence, UpdatePreferences, UpdateService},
     };
     use std::sync::Mutex;
+
+    async fn fixture_native_update(destination: &std::path::Path) -> tauri_plugin_updater::Update {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/manifest.json", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&mut stream);
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+            let body = serde_json::json!({"version":"99.0.0","platforms":{"darwin-aarch64":{"url":"http://127.0.0.1:8765/payload.app.tar.gz","signature":"fixture"}}}).to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+        });
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({"pubkey":"fixture","dangerousInsecureTransportProtocol":true}),
+        );
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .build(context)
+            .unwrap();
+        let update = native_builder(app.handle())
+            .endpoints(vec![endpoint.parse().unwrap()])
+            .unwrap()
+            .executable_path(destination.join("Contents/MacOS/fixture"))
+            .build()
+            .unwrap()
+            .check()
+            .await
+            .unwrap()
+            .unwrap();
+        server.join().unwrap();
+        update
+    }
+
+    fn fixture_native_archive() -> Vec<u8> {
+        let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(gzip);
+        let mut header = tar::Header::new_gnu();
+        let bytes = b"new signed bytes";
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive
+            .append_data(&mut header, "Fixture.app/version", &bytes[..])
+            .unwrap();
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
+    #[tokio::test]
+    async fn native_replacement_keeps_existing_app_on_denial_and_cancellation() {
+        use tauri_plugin_updater::Error;
+        for code in [3072, 513] {
+            let root = tempfile::tempdir().unwrap();
+            let destination = root.path().join("Old.app");
+            let candidate = root.path().join("New.app");
+            std::fs::create_dir(&destination).unwrap();
+            std::fs::create_dir(&candidate).unwrap();
+            std::fs::write(destination.join("version"), "old signed bytes").unwrap();
+            std::fs::write(candidate.join("version"), "new signed bytes").unwrap();
+            let update = fixture_native_update(&destination)
+                .await
+                .with_acceptance_replacement(std::sync::Arc::new(
+                    move |destination, candidate, complete| {
+                        assert!(
+                            destination.exists(),
+                            "existing bundle must reach native replacement intact"
+                        );
+                        assert_eq!(
+                            std::fs::read_to_string(candidate.join("version")).unwrap(),
+                            "new signed bytes"
+                        );
+                        complete(Err(Error::MacosReplacement {
+                            stage: "authorize",
+                            domain: "NSCocoaErrorDomain".into(),
+                            code: Some(code),
+                            message: "fixture denial/cancellation".into(),
+                        }));
+                    },
+                ));
+            let result = update.install(fixture_native_archive());
+            let failure = updater_failure("install", &result.unwrap_err());
+            assert_eq!(failure.evidence.native_code, Some(code));
+            assert_eq!(failure.evidence.native_stage, Some("authorize"));
+            assert_eq!(
+                std::fs::read_to_string(destination.join("version")).unwrap(),
+                "old signed bytes"
+            );
+            assert_eq!(
+                std::fs::read_to_string(candidate.join("version")).unwrap(),
+                "new signed bytes"
+            );
+        }
+    }
+
+    fn fixture_cocoa_restore(
+        original: &std::path::Path,
+        destination: &std::path::Path,
+    ) -> tauri_plugin_updater::Result<()> {
+        use objc2_foundation::{NSFileManager, NSString, NSURL};
+        use tauri_plugin_updater::Error;
+        let original = NSURL::fileURLWithPath_isDirectory(
+            &NSString::from_str(original.to_str().unwrap()),
+            true,
+        );
+        let destination = NSURL::fileURLWithPath_isDirectory(
+            &NSString::from_str(destination.to_str().unwrap()),
+            true,
+        );
+        tauri_plugin_updater::native_replacement::replace_item(
+            &NSFileManager::defaultManager(),
+            &destination,
+            &original,
+        )
+        .map_err(|error| Error::MacosReplacement {
+            stage: "recovery",
+            domain: error.domain().to_string(),
+            code: Some(error.code() as i64),
+            message: format!("{error:?}"),
+        })
+    }
+
+    #[tokio::test]
+    async fn native_install_restores_relocated_original_and_retains_it_if_recovery_is_denied() {
+        use tauri_plugin_updater::{Error, native_replacement::recover_after_failure};
+        for mode in [0, 1, 2] {
+            let denied = mode == 1;
+            let missing_after_success = mode == 2;
+            let root = tempfile::tempdir().unwrap();
+            let destination = root.path().join("Old.app");
+            std::fs::create_dir(&destination).unwrap();
+            std::fs::write(destination.join("version"), "old signed bytes").unwrap();
+            let recovery_location = std::sync::Arc::new(Mutex::new(None));
+            let captured = recovery_location.clone();
+            let authorized_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let observed_calls = authorized_calls.clone();
+            let update = fixture_native_update(&destination)
+                .await
+                .with_acceptance_replacement(std::sync::Arc::new(
+                    move |destination, candidate, complete| {
+                        let original = candidate.join("relocated-original.app");
+                        std::fs::rename(&destination, &original).unwrap();
+                        *captured.lock().unwrap() = Some(original.clone());
+                        let error = Error::MacosReplacement {
+                            stage: "replace",
+                            domain: "fixture".into(),
+                            code: Some(513),
+                            message: "partial native replacement".into(),
+                        };
+                        complete(Err(recover_after_failure(
+                            &destination,
+                            Some(&original),
+                            error,
+                            |original, destination| {
+                                // Mock the already-authorized manager. A missing destination
+                                // must still invoke this privileged operation, never bypass it.
+                                assert!(!destination.exists());
+                                observed_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                if missing_after_success {
+                                    Ok(())
+                                } else if denied {
+                                    Err(Error::MacosReplacement {
+                                        stage: "recovery",
+                                        domain: "NSCocoaErrorDomain".into(),
+                                        code: Some(513),
+                                        message: "fixture authorized recovery denial".into(),
+                                    })
+                                } else {
+                                    fixture_cocoa_restore(original, destination)
+                                }
+                            },
+                        )));
+                    },
+                ));
+            let error = update.install(fixture_native_archive()).unwrap_err();
+            assert_eq!(
+                authorized_calls.load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
+            let stage = updater_failure("install", &error).evidence.native_stage;
+            let original = recovery_location.lock().unwrap().clone().unwrap();
+            if denied || missing_after_success {
+                assert_eq!(stage, Some("recovery"));
+                let report = serde_json::to_value(updater_failure("install", &error)).unwrap();
+                assert_eq!(report["nativeCode"], 513);
+                match &error {
+                    Error::MacosReplacement { domain, .. } => {
+                        assert_eq!(
+                            domain,
+                            if denied {
+                                "NSCocoaErrorDomain"
+                            } else {
+                                "fixture"
+                            }
+                        );
+                    }
+                    _ => panic!("lost native recovery error"),
+                }
+                assert_eq!(
+                    std::fs::read_to_string(original.join("version")).unwrap(),
+                    "old signed bytes"
+                );
+                assert!(error.to_string().contains("staging retained"));
+                // The fixture explicitly removes retained staging after proving it survives install.
+                std::fs::remove_dir_all(original.parent().unwrap()).unwrap();
+            } else {
+                assert_eq!(stage, Some("replace"));
+                assert_eq!(
+                    std::fs::read_to_string(destination.join("version")).unwrap(),
+                    "old signed bytes"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_replacement_dispatch_failure_and_success_are_preserved() {
+        use tauri_plugin_updater::native_replacement::replace_existing;
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("Old.app");
+        let candidate = root.path().join("New.app");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::create_dir(&candidate).unwrap();
+        let error = replace_existing(
+            &destination,
+            &candidate,
+            |_| Err("fixture dispatch".into()),
+            |_, _, _| panic!("must not authorize after dispatch failure"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            updater_failure("install", &error).evidence.native_stage,
+            Some("dispatch")
+        );
+        replace_existing(
+            &destination,
+            &candidate,
+            |task| {
+                task();
+                Ok(())
+            },
+            |_, _, complete| complete(Ok(())),
+        )
+        .unwrap();
+        let missing = root.path().join("missing.app");
+        assert!(
+            replace_existing(
+                &missing,
+                &candidate,
+                |_| panic!("must validate before dispatch"),
+                |_, _, _| unreachable!()
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn native_builder_rejects_tls_validation_bypasses() {

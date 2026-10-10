@@ -65,15 +65,17 @@ def public_report(report):
         kinds={'probe','io','timeout','connect','http','transport','signature','format','authentication','updater'}
         if error.get('operation') in operations and error.get('kind') in kinds:
             failure={key:error[key] for key in ('operation','kind')}
-            for key in ('osCode','httpStatus','scriptCode'):
+            for key in ('osCode','httpStatus','scriptCode','nativeCode'):
                 value=error.get(key)
                 if type(value) is int:
                     failure[key]=value
+            if error.get('nativeStage') in {'precondition','dispatch','receive','authorize','replace','recovery'}:
+                failure['nativeStage']=error['nativeStage']
             if error.get('scriptStage') in {'dispatch','receive','compile','execute','decode'}:
                 failure['scriptStage']=error['scriptStage']
             if error.get('ioKind') in {'PermissionDenied','NotFound','AlreadyExists','InvalidData','InvalidInput','TimedOut','Interrupted','UnexpectedEof','WriteZero','Other','ReadOnlyFilesystem','CrossesDevices','StorageFull','NotADirectory','IsADirectory','DirectoryNotEmpty','Unsupported','Uncategorized'}:
                 failure['ioKind']=error['ioKind']
-            if error.get('reason') == 'replacement_authorization_failed':
+            if error.get('reason') in {'replacement_authorization_failed','native_replacement_failed'}:
                 failure['reason']=error['reason']
             sanitized['failure']=failure
     return sanitized

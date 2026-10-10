@@ -594,6 +594,33 @@ mod tests {
         }
     }
 
+    fn fixture_cocoa_restore(
+        original: &std::path::Path,
+        destination: &std::path::Path,
+    ) -> tauri_plugin_updater::Result<()> {
+        use objc2_foundation::{NSFileManager, NSString, NSURL};
+        use tauri_plugin_updater::Error;
+        let original = NSURL::fileURLWithPath_isDirectory(
+            &NSString::from_str(original.to_str().unwrap()),
+            true,
+        );
+        let destination = NSURL::fileURLWithPath_isDirectory(
+            &NSString::from_str(destination.to_str().unwrap()),
+            true,
+        );
+        tauri_plugin_updater::native_replacement::replace_item(
+            &NSFileManager::defaultManager(),
+            &destination,
+            &original,
+        )
+        .map_err(|error| Error::MacosReplacement {
+            stage: "recovery",
+            domain: error.domain().to_string(),
+            code: Some(error.code() as i64),
+            message: format!("{error:?}"),
+        })
+    }
+
     #[tokio::test]
     async fn native_install_restores_relocated_original_and_retains_it_if_recovery_is_denied() {
         use tauri_plugin_updater::{Error, native_replacement::recover_after_failure};
@@ -640,28 +667,7 @@ mod tests {
                                         message: "fixture authorized recovery denial".into(),
                                     })
                                 } else {
-                                    use objc2_foundation::{NSFileManager, NSString, NSURL};
-                                    let original = NSURL::fileURLWithPath_isDirectory(
-                                        &NSString::from_str(original.to_str().unwrap()),
-                                        true,
-                                    );
-                                    let destination = NSURL::fileURLWithPath_isDirectory(
-                                        &NSString::from_str(destination.to_str().unwrap()),
-                                        true,
-                                    );
-                                    tauri_plugin_updater::native_replacement::replace_item(
-                                        &NSFileManager::defaultManager(),
-                                        &destination,
-                                        &original,
-                                    )
-                                    .map_err(|error| {
-                                        Error::MacosReplacement {
-                                            stage: "recovery",
-                                            domain: error.domain().to_string(),
-                                            code: Some(error.code() as i64),
-                                            message: format!("{error:?}"),
-                                        }
-                                    })
+                                    fixture_cocoa_restore(original, destination)
                                 }
                             },
                         )));

@@ -13,7 +13,7 @@ ui-demo = []
 ui-windows = ["ui-demo"]
 ui-macos = ["ui-demo"]
 ui-ubuntu = ["ui-demo"]
-native-updater-acceptance = ["dep:tauri-plugin-updater", "dep:flate2", "dep:tar", "dep:plist"]
+native-updater-acceptance = ["dep:tauri-plugin-updater", "tauri-plugin-updater/native-acceptance-diagnostics", "dep:flate2", "dep:tar", "dep:plist"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -69,3 +69,8 @@ futures-util = "0.3"
 
 [lints]
 workspace = true
+
+[[example]]
+name = "native-script-diagnostics"
+path = "examples/native-script-diagnostics.rs"
+required-features = ["native-updater-acceptance"]

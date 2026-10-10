@@ -40,6 +40,18 @@ class NativeAcceptanceTests(unittest.TestCase):
             self.assertEqual(summary[-1]['failure'],dict(operation='install',kind='io',osCode=1,ioKind='PermissionDenied'))
             self.assertNotIn('private installation path',json.dumps(summary))
 
+    def test_script_code_survives_native_runner_without_private_message(self):
+        error=dict(operation='install',kind='authentication',scriptCode=-1743,
+                   scriptStage='execute',message='private AppleScript diagnostic')
+        result=runner.public_report(dict(stage='failed',error=error))
+        self.assertEqual(result['failure']['scriptCode'],-1743)
+        self.assertEqual(result['failure']['scriptStage'],'execute')
+        self.assertNotIn('private',json.dumps(result))
+        error.update(scriptCode=True,scriptStage='private injected stage')
+        result=runner.public_report(dict(stage='failed',error=error))
+        self.assertNotIn('scriptCode',result['failure'])
+        self.assertNotIn('scriptStage',result['failure'])
+
     def test_runner_refuses_existing_app_and_requires_disposable_account(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

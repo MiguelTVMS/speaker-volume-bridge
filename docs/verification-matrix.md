@@ -1328,8 +1328,8 @@ was launched in the normal user account.
 | Local signing identity availability | Unavailable: zero valid identities |
 | Signed/notarized/stapled acceptance pair and authenticated updater payload | Passed in the signing workflow |
 | Older signed Applications app baseline and preferences | Passed on hosted runner: older version reported matching seeded app settings and persisted update preferences |
-| Signed older-to-newer sandboxed Applications replacement, relaunch, settings and update-policy continuity | Failed native probe while still running the older version; failure operation unavailable in retained summary; no newer-version snapshot |
-| Permission denial and administrator cancellation | Unavailable pending a disposable native account; signed packages are retained, but these paths are not exercised by the default hosted probe |
+| Signed older-to-newer sandboxed Applications replacement, relaunch, settings and update-policy continuity | Failed during native installation: permission denial followed by failed administrator fallback; older version retained; no newer-version snapshot |
+| Permission denial and administrator cancellation | Replacement permission denial observed on hosted runner; deliberate administrator cancellation remains unavailable pending a disposable native GUI account |
 | Read-only media and actual App Translocation | Unavailable pending a disposable native account and native destination checks; not inferred from filesystem modes |
 | Native release-page fallback after installation failure | Outstanding; shared-service fallback coverage is not native browser acceptance |
 | Enabled login registration and new login-session launch | Outstanding separately; preserved false preference is insufficient |
@@ -1397,3 +1397,69 @@ real manifest check and real payload request returning 404. Before the fix the
 error becomes a generic updater failure and loses the status; afterward the
 retained category is HTTP with status 404. The parser accepts only the pinned
 fixed prefix and a numeric HTTP code; arbitrary message text remains private.
+
+### Typed signed replacement result, 2026-10-10
+
+The approved run containing the diagnostic fix passed signed package preparation
+and the older-version baseline. The native installation failed with operation
+`install`, category `io`, I/O kind `PermissionDenied`, and fixed reason
+`replacement_authorization_failed`. Both settings-preservation fields remain true
+on the older version after failure. No installed event or newer-version snapshot
+exists, so replacement, relaunch and post-upgrade preservation remain failed or
+unverified. The overall workflow success is evidence retention, not acceptance.
+
+Inspection of the pinned updater's macOS installation entry point maps this exact
+reason to its custom error after the old-app backup rename returns permission
+denied and the AppleScript administrator fallback fails. Download, updater
+signature verification and authenticated archive validation precede this call and
+completed. The plugin replaces the underlying script error with a generic I/O
+error without a numeric OS code. Therefore the retained evidence cannot distinguish
+sandbox rejection from unavailable interactive authorization on the hosted runner;
+it does not prove that a different native replacement mechanism is impossible.
+
+The existing failing-before/passing-after runner regression now retains the
+observed failure category safely. It repairs diagnostics, not the installer's
+authorization mechanism. No installer fix or successful native upgrade is claimed.
+The next native investigation requires a disposable GUI session capable of
+observing authorization and cancellation, or a narrowly scoped upstream diagnostic
+change retaining the underlying script error. Repeating this same hosted probe
+without either change cannot establish the missing cause. Do not change signing
+protections, disable the sandbox, or replace the app externally to obtain a pass.
+
+Permission denial during replacement is now observed; deliberate administrator
+cancellation remains unavailable. Read-only/translocated destinations, native
+release-page fallback, login-session launch and real synchronization remain
+unverified separately. Issue 165 remains open. Website review: no update needed
+because this records test evidence without changing product behavior or setup.
+
+
+### Acceptance-only underlying AppleScript diagnostic
+
+The pinned updater is locally patched behind the default-off acceptance feature
+at the point where it masked administrator AppleScript errors. The existing
+replacement command and privileges are unchanged. A try/on-error wrapper retains
+the native script error number and message; compilation and main-thread dispatch
+failures are distinguished from script execution failures. Raw messages remain
+private, while only the integer script code and a fixed stage enter retained
+public evidence. This is diagnostic capture, not an authorization bypass or an
+installer cause fix.
+
+The shared installer-orchestration regression failed with the former generic
+permission-denied result and passes retaining the script code/message. The runner
+regression likewise failed before numeric-code retention and passes afterward,
+including rejection of injected stages and boolean codes. A real main-thread
+osakit fixture raises a known script error and verifies the wrapper retains its
+number and message. Restoring the original error masking makes this real-script
+fixture fail; restoring the diagnostic makes it pass. Normal macOS CI executes it
+without privileged operations.
+Signed acceptance still requires the protected-branch diagnostic build and its
+existing signing review. Native cause and replacement acceptance remain pending;
+issue 165 stays open. Website review: no update needed for test-only diagnostics.
+
+
+Vendored-source security analysis identified upstream optional TLS-validation
+bypasses. The local patch removes all four bypass calls and rejects configuration
+requesting invalid-certificate or invalid-hostname acceptance before networking.
+A regression through the real probe builder fails with the former behavior and
+passes with rejection. Signing controls are unchanged; no security alert is
+suppressed or dismissed to permit merging.

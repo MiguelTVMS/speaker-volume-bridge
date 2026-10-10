@@ -94,6 +94,7 @@ jobs:
               - 'rust-toolchain.toml'
               - '.github/workflows/**'
               - 'crates/**'
+              - 'patches/**'
               - 'src-tauri/**'
               - 'scripts/*windows*.ps1'
               - 'scripts/build-msix*.ps1'
@@ -290,3 +291,4 @@ jobs:
         run: python3 -m unittest discover -s scripts/tests -p test_macos_updater_artifact.py
       - run: cargo clippy --locked -p speaker-volume-bridge --all-targets --features native-updater-acceptance -- -D warnings
       - run: cargo test --locked -p speaker-volume-bridge --features native-updater-acceptance
+      - run: cargo run --locked -p speaker-volume-bridge --features native-updater-acceptance --example native-script-diagnostics

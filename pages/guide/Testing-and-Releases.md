@@ -55,7 +55,7 @@ Record only non-sensitive model, operating-system, firmware, and pass/fail infor
 
 ## Release flow
 
-The Release workflow runs from `develop`, increments the single Cargo workspace version, validates that exact commit, builds Windows x64/ARM64 installers, an Apple Silicon macOS DMG, and Ubuntu x64/ARM64 Debian packages, creates the annotated version tag, and publishes GitHub release assets. With Stable enabled, Push MS Store submits the Microsoft Store package and Push Apple Store builds the signed package and uploads it to App Store Connect. Both uploads require successful GitHub Release publication first and their existing approvals. Apple upload does not submit the build for review or establish public Store availability.
+The Release workflow runs from `develop`, increments the single Cargo workspace version, validates that exact commit, builds Windows x64/ARM64 installers, an Apple Silicon macOS DMG, and Ubuntu x64/ARM64 Debian packages, creates the annotated version tag, and publishes GitHub release assets. With Stable enabled, Push MS Store submits the Microsoft Store package and Push Apple Store builds the signed package and uploads it to App Store Connect. Both uploads require successful GitHub Release publication first and their existing approvals. Apple upload does not submit the build for review or establish public Store availability. Select **Manually release this version** in App Store Connect before submitting for review, so approval does not automatically publish the app.
 
 Release channels are:
 

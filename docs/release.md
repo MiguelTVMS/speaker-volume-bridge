@@ -72,7 +72,9 @@ independently imports its Apple Distribution and Mac Installer
 Distribution identities, embeds the Mac App Store provisioning profile, verifies
 the sandbox entitlements and profile, then produces a signed upload `.pkg`. After successful GitHub Release publication,
 the upload job validates and delivers it to App Store Connect; review and public
-Store availability remain separate steps.
+Store availability remain separate steps. Select **Manually release this version**
+in App Store Connect before submitting for review. CI uploads the package only;
+it does not submit for review, change the release mode, or publish the Store app.
 Each Windows architecture uploads its compiled output for two independent
 packaging jobs. One produces the clean Microsoft Store MSIX payload while the
 other applies Tauri's NSIS-specific metadata to produce the direct-download

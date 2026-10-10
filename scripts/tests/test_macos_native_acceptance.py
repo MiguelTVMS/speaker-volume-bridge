@@ -52,6 +52,20 @@ class NativeAcceptanceTests(unittest.TestCase):
         self.assertNotIn('scriptCode',result['failure'])
         self.assertNotIn('scriptStage',result['failure'])
 
+    def test_native_replacement_error_is_retained_without_private_details(self):
+        error=dict(operation='install',kind='authentication',nativeCode=3072,
+                   nativeStage='authorize',reason='native_replacement_failed',
+                   message='private domain and diagnostic')
+        result=runner.public_report(dict(stage='failed',error=error))
+        self.assertEqual(result['failure']['nativeCode'],3072)
+        self.assertEqual(result['failure']['nativeStage'],'authorize')
+        self.assertEqual(result['failure']['reason'],'native_replacement_failed')
+        self.assertNotIn('private',json.dumps(result))
+        error.update(nativeCode=True,nativeStage='injected stage')
+        result=runner.public_report(dict(stage='failed',error=error))
+        self.assertNotIn('nativeCode',result['failure'])
+        self.assertNotIn('nativeStage',result['failure'])
+
     def test_runner_refuses_existing_app_and_requires_disposable_account(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

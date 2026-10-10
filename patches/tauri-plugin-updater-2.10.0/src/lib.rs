@@ -23,6 +23,9 @@ use tauri::{
 #[cfg(feature = "native-acceptance-diagnostics")]
 #[doc(hidden)]
 pub mod native_diagnostics;
+#[cfg(feature = "native-acceptance-diagnostics")]
+#[doc(hidden)]
+pub mod native_replacement;
 
 mod commands;
 mod config;

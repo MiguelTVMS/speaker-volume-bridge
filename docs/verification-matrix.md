@@ -1463,3 +1463,36 @@ requesting invalid-certificate or invalid-hostname acceptance before networking.
 A regression through the real probe builder fails with the former behavior and
 passes with rejection. Signing controls are unchanged; no security alert is
 suppressed or dismissed to permit merging.
+
+### Sandbox-compatible replacement adapter, 2026-10-10
+
+The preceding signed diagnostic run reached installation and returned AppleScript
+execution error -60005, errAuthorizationDenied. No newer-version snapshot was
+produced. Older-version settings and update preferences were retained; replacement,
+relaunch and post-upgrade continuity did not pass.
+
+Apple documents Authorization Services as unsupported inside App Sandbox. The
+acceptance-only installer now uses NSWorkspace ReplaceFile authorization and the
+FileManager created with it. It passes the existing destination intact, never
+pre-deletes or pre-renames it, and does not fall back to administrator shell
+execution. The original diagnostic fixture remains available for historical error
+capture, but the new acceptance replacement path does not call it.
+
+Automated shared-orchestration coverage exercises authorization denial and
+cancellation fixtures with existing bundle bytes unchanged, dispatch failure,
+missing destination and a successful completion callback. Reintroducing the old
+pre-authorization rename makes the existing-destination regression fail; removing
+it passes. These fixtures do not prove Cocoa replacement, OS permission dialogs,
+read-only mounts, translocation, relaunch or hardware synchronization. The runner
+retains only numeric native codes and fixed stages in public summaries; NSError
+domains and descriptions remain private.
+
+Native signed adapter acceptance is unavailable until Apple grants Privileged
+File Operations and a matching direct-download profile is available. No entitlement
+has been added and no signing protection changed. The request is prepared in
+[the draft](apple-privileged-file-operations-request.md), not submitted. After that
+prerequisite, rerun the existing acceptance matrix, including deliberately denied
+and cancelled authorization, read-only/translocated destinations, release-page
+fallback, and signed older-to-newer relaunch/settings/update-policy continuity.
+Login launch and real synchronization still need separate GUI/hardware evidence.
+Issue 165 stays open; production installation remains disabled.

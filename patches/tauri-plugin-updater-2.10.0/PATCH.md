@@ -2,7 +2,7 @@
 
 Source: crates.io tauri-plugin-updater 2.10.0. Upstream license files are retained.
 Only Cargo.toml, src/lib.rs, src/error.rs and src/updater.rs differ from the
-published crate; src/native_diagnostics.rs is added. Other bundled source,
+published crate; src/native_diagnostics.rs and src/native_replacement.rs are added. Other bundled source,
 permissions, build script and JavaScript are unchanged.
 
 The default-off `native-acceptance-diagnostics` feature is enabled only by the
@@ -32,3 +32,15 @@ rejects either insecure TLS configuration flag at UpdaterBuilder::build, before
 networking. The production-builder regression fails with upstream acceptance of
 the flags and passes with rejection. Loopback-only acceptance transport remains
 separately configured; no TLS validation is bypassed.
+
+
+The acceptance installer now calls native_replacement instead of the AppleScript
+fallback. NSWorkspace ReplaceFile authorization creates an authorized FileManager
+for replacement of the existing destination. No destination rename/deletion occurs
+before authorization and no shell fallback exists on this feature path. The old
+AppleScript fixture remains only for diagnostic regression history. NSError domain
+and message remain private; numeric codes and fixed native stages are reported.
+No entitlement is added: signed native acceptance requires Apple's grant and a
+matching direct-download profile. The shared replacement orchestration is covered
+in the normal macOS acceptance-feature CI tests; fixtures do not prove native
+permission UI or bundle replacement.

@@ -181,3 +181,24 @@ requesting invalid-certificate or invalid-hostname acceptance before networking.
 A regression through the real probe builder fails with the former behavior and
 passes with rejection. Signing controls are unchanged; no security alert is
 suppressed or dismissed to permit merging.
+
+## Sandbox-compatible acceptance adapter
+
+The signed diagnostic captured errAuthorizationDenied (-60005). Apple's
+[Authorization Services documentation](https://developer.apple.com/documentation/security/authorization-services)
+excludes that privilege mechanism from App Sandbox. The default-off acceptance
+adapter instead requests NSWorkspace ReplaceFile authorization and uses the
+corresponding authorized FileManager. No pre-delete, pre-rename or privileged shell
+fallback is used in this path. Native NSError evidence stays private except numeric
+codes and fixed stages. Shared-orchestration fixtures cover retention on denial
+and cancellation, missing destinations, dispatch errors and success callbacks.
+
+Apple's [Privileged File Operations entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.security.privileged-file-operations)
+is a prerequisite, not an approval implied by successful compilation or Store
+review. The [request draft](../apple-privileged-file-operations-request.md) is not
+submitted. No entitlement/profile/protection changes are made here. Signed native
+replacement, relaunch and preservation remain unavailable pending the grant and
+full acceptance. Store editions continue to use Store delivery; production
+self-installation remains disabled and issue 165 remains open. Website review:
+no user-facing behavior changed; this adapter is test-only, so no website update
+is needed.

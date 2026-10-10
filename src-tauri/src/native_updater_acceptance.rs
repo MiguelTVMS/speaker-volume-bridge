@@ -145,9 +145,18 @@ struct ProbeFailure {
     io_kind: Option<Box<str>>,
     reason: Option<&'static str>,
     http_status: Option<u16>,
+    #[serde(flatten)]
+    evidence: Box<NativeEvidence>,
+    message: Box<str>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct NativeEvidence {
+    native_code: Option<i64>,
+    native_stage: Option<&'static str>,
     script_code: Option<i32>,
     script_stage: Option<&'static str>,
-    message: Box<str>,
 }
 
 impl From<String> for ProbeFailure {
@@ -159,8 +168,7 @@ impl From<String> for ProbeFailure {
             io_kind: None,
             reason: None,
             http_status: None,
-            script_code: None,
-            script_stage: None,
+            evidence: Box::default(),
             message: message.into_boxed_str(),
         }
     }
@@ -212,6 +220,10 @@ fn updater_failure(operation: &'static str, error: &tauri_plugin_updater::Error)
         | Error::SignatureUtf8(_)
         | Error::Serialization(_)
         | Error::InvalidUpdaterFormat => ("format", None, None),
+        Error::MacosReplacement {
+            stage: "authorize", ..
+        } => ("authentication", None, None),
+        Error::MacosReplacement { .. } => ("io", None, None),
         Error::MacosAuthorization { .. } | Error::AuthenticationFailed => {
             ("authentication", None, None)
         }
@@ -226,22 +238,33 @@ fn updater_failure(operation: &'static str, error: &tauri_plugin_updater::Error)
             _ => None,
         },
         reason: match error {
+            Error::MacosReplacement { .. } => Some("native_replacement_failed"),
             Error::MacosAuthorization { .. } => Some("replacement_authorization_failed"),
             Error::Io(error) if error.to_string() == "Failed to move the new app into place" => {
                 Some("replacement_authorization_failed")
             }
             _ => None,
         },
-        script_code: match error {
-            Error::MacosAuthorization { code, .. } => {
-                code.and_then(|code| i32::try_from(code).ok())
-            }
-            _ => None,
-        },
-        script_stage: match error {
-            Error::MacosAuthorization { stage, .. } => Some(*stage),
-            _ => None,
-        },
+        evidence: Box::new(NativeEvidence {
+            native_code: match error {
+                Error::MacosReplacement { code, .. } => *code,
+                _ => None,
+            },
+            native_stage: match error {
+                Error::MacosReplacement { stage, .. } => Some(*stage),
+                _ => None,
+            },
+            script_code: match error {
+                Error::MacosAuthorization { code, .. } => {
+                    code.and_then(|code| i32::try_from(code).ok())
+                }
+                _ => None,
+            },
+            script_stage: match error {
+                Error::MacosAuthorization { stage, .. } => Some(*stage),
+                _ => None,
+            },
+        }),
         http_status,
         message: error.to_string().into_boxed_str(),
     }
@@ -470,6 +493,93 @@ mod tests {
         updates::{SystemUpdateClock, UpdatePersistence, UpdatePreferences, UpdateService},
     };
     use std::sync::Mutex;
+
+    #[test]
+    fn native_replacement_keeps_existing_app_on_denial_and_cancellation() {
+        use tauri_plugin_updater::{Error, native_replacement::replace_existing};
+        for code in [3072, 513] {
+            let root = tempfile::tempdir().unwrap();
+            let destination = root.path().join("Old.app");
+            let candidate = root.path().join("New.app");
+            std::fs::create_dir(&destination).unwrap();
+            std::fs::create_dir(&candidate).unwrap();
+            std::fs::write(destination.join("version"), "old signed bytes").unwrap();
+            std::fs::write(candidate.join("version"), "new signed bytes").unwrap();
+            let result = replace_existing(
+                &destination,
+                &candidate,
+                |task| {
+                    task();
+                    Ok(())
+                },
+                move |destination, candidate, complete| {
+                    assert!(
+                        destination.exists(),
+                        "existing bundle must reach native replacement intact"
+                    );
+                    assert!(candidate.exists());
+                    complete(Err(Error::MacosReplacement {
+                        stage: "authorize",
+                        domain: "NSCocoaErrorDomain".into(),
+                        code: Some(code),
+                        message: "fixture denial/cancellation".into(),
+                    }));
+                },
+            );
+            let failure = updater_failure("install", &result.unwrap_err());
+            assert_eq!(failure.evidence.native_code, Some(code));
+            assert_eq!(failure.evidence.native_stage, Some("authorize"));
+            assert_eq!(
+                std::fs::read_to_string(destination.join("version")).unwrap(),
+                "old signed bytes"
+            );
+            assert_eq!(
+                std::fs::read_to_string(candidate.join("version")).unwrap(),
+                "new signed bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn native_replacement_dispatch_failure_and_success_are_preserved() {
+        use tauri_plugin_updater::native_replacement::replace_existing;
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("Old.app");
+        let candidate = root.path().join("New.app");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::create_dir(&candidate).unwrap();
+        let error = replace_existing(
+            &destination,
+            &candidate,
+            |_| Err("fixture dispatch".into()),
+            |_, _, _| panic!("must not authorize after dispatch failure"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            updater_failure("install", &error).evidence.native_stage,
+            Some("dispatch")
+        );
+        replace_existing(
+            &destination,
+            &candidate,
+            |task| {
+                task();
+                Ok(())
+            },
+            |_, _, complete| complete(Ok(())),
+        )
+        .unwrap();
+        let missing = root.path().join("missing.app");
+        assert!(
+            replace_existing(
+                &missing,
+                &candidate,
+                |_| panic!("must validate before dispatch"),
+                |_, _, _| unreachable!()
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn native_builder_rejects_tls_validation_bypasses() {

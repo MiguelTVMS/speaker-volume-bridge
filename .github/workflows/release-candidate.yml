@@ -1005,6 +1005,7 @@ jobs:
     secrets: inherit
 
   publish-apple-store:
+    # Upload only. App Review submission and manual release remain operator actions.
     name: Upload stable package to App Store Connect
     if: ${{ !cancelled() && inputs.stable && inputs.push_apple_store && needs.prepare-version.result == 'success' && needs.macos-app-store.result == 'success' && needs.publish-release.result == 'success' }}
     needs: [prepare-version, macos-app-store, publish-release]
@@ -1039,3 +1040,4 @@ jobs:
           pkgutil --check-signature "${packages[0]}"
           xcrun altool --validate-app -f "${packages[0]}" -t macos --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
           xcrun altool --upload-app -f "${packages[0]}" -t macos --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
+          echo 'Apple package uploaded only. Select Manually release this version in App Store Connect before submitting for review. Approval must not automatically publish the app.' >> "$GITHUB_STEP_SUMMARY"

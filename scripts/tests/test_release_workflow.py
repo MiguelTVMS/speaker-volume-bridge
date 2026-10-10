@@ -194,11 +194,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
                     tool.write_text(code)
                     tool.chmod(0o755)
                 result = subprocess.run(['bash', '-e', '-c', script], cwd=workspace, capture_output=True,
-                    env=dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'], RUNNER_TEMP=directory, APPLE_API_KEY='fixture', APPLE_API_ISSUER='fixture', APPLE_API_PRIVATE_KEY='fixture', REJECT_VALIDATION=str(rejected).lower()))
+                    env=dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'], RUNNER_TEMP=directory, GITHUB_STEP_SUMMARY=str(workspace / 'summary'), APPLE_API_KEY='fixture', APPLE_API_ISSUER='fixture', APPLE_API_PRIVATE_KEY='fixture', REJECT_VALIDATION=str(rejected).lower()))
                 self.assertEqual(result.returncode == 0, not rejected)
                 calls = (workspace / 'calls').read_text()
                 self.assertIn('--validate-app', calls)
                 self.assertEqual('--upload-app' in calls, not rejected)
+                if not rejected:
+                    self.assertIn('Manually release this version', (workspace / 'summary').read_text())
                 self.assertFalse((workspace / 'apple-store-private-keys').exists())
 
     def test_draft_release_flags_and_downstream_publication_gates(self):

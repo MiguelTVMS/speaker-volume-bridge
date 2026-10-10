@@ -70,7 +70,9 @@ pub fn start_native(destination: PathBuf, candidate: PathBuf, complete: Completi
             stage,
             domain: error.domain().to_string(),
             code: Some(error.code() as i64),
-            message: error.localizedDescription().to_string(),
+            // NSError debug description includes its userInfo/underlying error evidence.
+            // This text stays in the private probe report, never the public summary.
+            message: format!("{error:?}"),
         }
     }
     let complete = Mutex::new(Some(complete));

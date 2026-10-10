@@ -629,8 +629,12 @@ mod tests {
                                 assert!(!destination.exists());
                                 observed_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                 if denied {
-                                    Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)
-                                        .into())
+                                    Err(Error::MacosReplacement {
+                                        stage: "recovery",
+                                        domain: "NSCocoaErrorDomain".into(),
+                                        code: Some(513),
+                                        message: "fixture authorized recovery denial".into(),
+                                    })
                                 } else {
                                     use objc2_foundation::{NSFileManager, NSString, NSURL};
                                     let original = NSURL::fileURLWithPath_isDirectory(
@@ -668,6 +672,14 @@ mod tests {
             let original = recovery_location.lock().unwrap().clone().unwrap();
             if denied {
                 assert_eq!(stage, Some("recovery"));
+                let report = serde_json::to_value(updater_failure("install", &error)).unwrap();
+                assert_eq!(report["nativeCode"], 513);
+                match &error {
+                    Error::MacosReplacement { domain, .. } => {
+                        assert_eq!(domain, "NSCocoaErrorDomain");
+                    }
+                    _ => panic!("lost native recovery error"),
+                }
                 assert_eq!(
                     std::fs::read_to_string(original.join("version")).unwrap(),
                     "old signed bytes"

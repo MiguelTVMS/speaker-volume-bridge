@@ -1283,11 +1283,11 @@ impl Update {
             ) {
                 // A recovery URL may point inside staging. Never delete the only old bundle.
                 let retained = tmp_extract_dir.keep();
-                return result.map_err(|error| Error::MacosReplacement {
-                    stage: "recovery",
-                    domain: String::new(),
-                    code: None,
-                    message: format!("{error}; staging retained at {}", retained.display()),
+                return result.map_err(|error| {
+                    crate::native_replacement::recovery_context(
+                        error,
+                        format!("staging retained at {}", retained.display()),
+                    )
                 });
             }
             return result;

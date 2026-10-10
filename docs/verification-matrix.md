@@ -1529,3 +1529,10 @@ than a rename substitute. This supersedes the mock-only success coverage above.
 The test uses an ordinary FileManager in disposable writable storage. It does not
 prove an authorized manager's sandbox permissions, system-version portability or
 signed installed-host recovery; those remain explicit native acceptance items.
+
+Recovery retention context preserves the recovery NSError domain/code rather than
+replacing it with an untyped error. The installer-entry reporting regression
+failed with a missing numeric nativeCode and passes retaining the fixture's code
+through both recovery and staging-retention wrappers. Public summaries retain the
+numeric code and fixed recovery stage; domain, recovery path and raw details stay
+private. The runner regression verifies recovery-code retention as well.

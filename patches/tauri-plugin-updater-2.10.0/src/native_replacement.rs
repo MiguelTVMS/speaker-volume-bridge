@@ -55,6 +55,30 @@ pub fn replace_existing(
         .map_err(|error| failure("receive", error.to_string()))?
 }
 
+/// Add private retention context without discarding the native recovery evidence.
+pub fn recovery_context(error: Error, context: String) -> Error {
+    match error {
+        Error::MacosReplacement {
+            domain,
+            code,
+            message,
+            ..
+        } => Error::MacosReplacement {
+            stage: "recovery",
+            domain,
+            code,
+            message: format!("{message}; {context}"),
+        },
+        Error::Io(error) => Error::MacosReplacement {
+            stage: "recovery",
+            domain: "NSPOSIXErrorDomain".into(),
+            code: error.raw_os_error().map(i64::from),
+            message: format!("{error}; {context}"),
+        },
+        other => failure("recovery", format!("{other}; {context}")),
+    }
+}
+
 /// Restore Apple's relocated original before propagating the replacement failure.
 /// If restoration is denied, retain the recovery location in private diagnostics.
 pub fn recover_after_failure(
@@ -65,10 +89,10 @@ pub fn recover_after_failure(
 ) -> Error {
     if let Some(original) = original.filter(|original| *original != destination) {
         if let Err(recovery) = authorized_restore(original, destination) {
-            return failure(
-                "recovery",
+            return recovery_context(
+                recovery,
                 format!(
-                    "{error}; original retained at {}; recovery failed: {recovery}",
+                    "{error}; original retained at {}; recovery failed",
                     original.display()
                 ),
             );

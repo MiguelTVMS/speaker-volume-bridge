@@ -1397,3 +1397,27 @@ real manifest check and real payload request returning 404. Before the fix the
 error becomes a generic updater failure and loses the status; afterward the
 retained category is HTTP with status 404. The parser accepts only the pinned
 fixed prefix and a numeric HTTP code; arbitrary message text remains private.
+
+
+### Acceptance-only underlying AppleScript diagnostic
+
+The pinned updater is locally patched behind the default-off acceptance feature
+at the point where it masked administrator AppleScript errors. The existing
+replacement command and privileges are unchanged. A try/on-error wrapper retains
+the native script error number and message; compilation and main-thread dispatch
+failures are distinguished from script execution failures. Raw messages remain
+private, while only the integer script code and a fixed stage enter retained
+public evidence. This is diagnostic capture, not an authorization bypass or an
+installer cause fix.
+
+The shared installer-orchestration regression failed with the former generic
+permission-denied result and passes retaining the script code/message. The runner
+regression likewise failed before numeric-code retention and passes afterward,
+including rejection of injected stages and boolean codes. A real main-thread
+osakit fixture raises a known script error and verifies the wrapper retains its
+number and message. Restoring the original error masking makes this real-script
+fixture fail; restoring the diagnostic makes it pass. Normal macOS CI executes it
+without privileged operations.
+Signed acceptance still requires the protected-branch diagnostic build and its
+existing signing review. Native cause and replacement acceptance remain pending;
+issue 165 stays open. Website review: no update needed for test-only diagnostics.

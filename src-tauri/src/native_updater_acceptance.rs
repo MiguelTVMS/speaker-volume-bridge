@@ -142,10 +142,12 @@ struct ProbeFailure {
     operation: &'static str,
     kind: &'static str,
     os_code: Option<i32>,
-    io_kind: Option<String>,
+    io_kind: Option<Box<str>>,
     reason: Option<&'static str>,
     http_status: Option<u16>,
-    message: String,
+    script_code: Option<i32>,
+    script_stage: Option<&'static str>,
+    message: Box<str>,
 }
 
 impl From<String> for ProbeFailure {
@@ -157,7 +159,9 @@ impl From<String> for ProbeFailure {
             io_kind: None,
             reason: None,
             http_status: None,
-            message,
+            script_code: None,
+            script_stage: None,
+            message: message.into_boxed_str(),
         }
     }
 }
@@ -208,7 +212,9 @@ fn updater_failure(operation: &'static str, error: &tauri_plugin_updater::Error)
         | Error::SignatureUtf8(_)
         | Error::Serialization(_)
         | Error::InvalidUpdaterFormat => ("format", None, None),
-        Error::AuthenticationFailed => ("authentication", None, None),
+        Error::MacosAuthorization { .. } | Error::AuthenticationFailed => {
+            ("authentication", None, None)
+        }
         _ => ("updater", None, None),
     };
     ProbeFailure {
@@ -216,17 +222,28 @@ fn updater_failure(operation: &'static str, error: &tauri_plugin_updater::Error)
         kind,
         os_code,
         io_kind: match error {
-            Error::Io(error) => Some(format!("{:?}", error.kind())),
+            Error::Io(error) => Some(format!("{:?}", error.kind()).into_boxed_str()),
             _ => None,
         },
         reason: match error {
+            Error::MacosAuthorization { .. } => Some("replacement_authorization_failed"),
             Error::Io(error) if error.to_string() == "Failed to move the new app into place" => {
                 Some("replacement_authorization_failed")
             }
             _ => None,
         },
+        script_code: match error {
+            Error::MacosAuthorization { code, .. } => {
+                code.and_then(|code| i32::try_from(code).ok())
+            }
+            _ => None,
+        },
+        script_stage: match error {
+            Error::MacosAuthorization { stage, .. } => Some(*stage),
+            _ => None,
+        },
         http_status,
-        message: error.to_string(),
+        message: error.to_string().into_boxed_str(),
     }
 }
 
@@ -453,6 +470,75 @@ mod tests {
         updates::{SystemUpdateClock, UpdatePersistence, UpdatePreferences, UpdateService},
     };
     use std::sync::Mutex;
+
+    #[test]
+    fn native_authorization_orchestration_handles_success_dispatch_and_compile_errors() {
+        use tauri_plugin_updater::native_diagnostics::{authorization_script, run_authorization};
+        assert!(
+            run_authorization(
+                |task| {
+                    task();
+                    Ok(())
+                },
+                || Ok(serde_json::json!([true, 0, ""]))
+            )
+            .is_ok()
+        );
+        let error = run_authorization(
+            |_| Err("private dispatch failure".into()),
+            || panic!("must not execute after dispatch failure"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            serde_json::to_value(updater_failure("install", &error)).unwrap()["scriptStage"],
+            "dispatch"
+        );
+        let error = run_authorization(
+            |task| {
+                task();
+                Ok(())
+            },
+            || Err(("compile", "private compilation failure".into())),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("private compilation failure"));
+        let source = authorization_script("do shell script \"true\" with administrator privileges");
+        assert!(source.contains("on error nativeMessage number nativeNumber"));
+        assert!(source.contains("do shell script \"true\" with administrator privileges"));
+    }
+
+    #[test]
+    fn native_installer_authorization_preserves_underlying_script_error() {
+        let error = tauri_plugin_updater::native_diagnostics::run_authorization(
+            |task| {
+                task();
+                Ok(())
+            },
+            || {
+                Ok(serde_json::json!([
+                    false,
+                    -1743,
+                    "private native script message"
+                ]))
+            },
+        )
+        .unwrap_err();
+        let report = serde_json::to_value(updater_failure("install", &error)).unwrap();
+        assert_eq!(report["scriptCode"], -1743);
+        assert_eq!(report["scriptStage"], "execute");
+        match error {
+            tauri_plugin_updater::Error::MacosAuthorization {
+                stage,
+                code,
+                message,
+            } => {
+                assert_eq!(stage, "execute");
+                assert_eq!(code, Some(-1743));
+                assert_eq!(message, "private native script message");
+            }
+            other => panic!("lost underlying script error: {other}"),
+        }
+    }
 
     #[test]
     fn native_io_failure_keeps_operation_and_system_code() {

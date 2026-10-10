@@ -99,7 +99,10 @@ pub fn recover_after_failure(
         }
     }
     if !destination.is_dir() {
-        return failure("recovery", format!("{error}; original destination unavailable after recovery; staging must be retained"));
+        return recovery_context(
+            error,
+            "original destination unavailable after recovery; staging must be retained".into(),
+        );
     }
     error
 }

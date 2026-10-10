@@ -1536,3 +1536,8 @@ failed with a missing numeric nativeCode and passes retaining the fixture's code
 through both recovery and staging-retention wrappers. Public summaries retain the
 numeric code and fixed recovery stage; domain, recovery path and raw details stay
 private. The runner regression verifies recovery-code retention as well.
+
+The installer-entry regression also covers an authorized recovery callback that
+reports success while leaving the destination absent. The postcondition failure
+retains staging and the original native error code/domain. This sequence failed
+with the untyped postcondition error and passes with structured context retained.

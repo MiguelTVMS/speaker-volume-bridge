@@ -597,7 +597,9 @@ mod tests {
     #[tokio::test]
     async fn native_install_restores_relocated_original_and_retains_it_if_recovery_is_denied() {
         use tauri_plugin_updater::{Error, native_replacement::recover_after_failure};
-        for denied in [false, true] {
+        for mode in [0, 1, 2] {
+            let denied = mode == 1;
+            let missing_after_success = mode == 2;
             let root = tempfile::tempdir().unwrap();
             let destination = root.path().join("Old.app");
             std::fs::create_dir(&destination).unwrap();
@@ -628,7 +630,9 @@ mod tests {
                                 // must still invoke this privileged operation, never bypass it.
                                 assert!(!destination.exists());
                                 observed_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                                if denied {
+                                if missing_after_success {
+                                    Ok(())
+                                } else if denied {
                                     Err(Error::MacosReplacement {
                                         stage: "recovery",
                                         domain: "NSCocoaErrorDomain".into(),
@@ -670,13 +674,20 @@ mod tests {
             );
             let stage = updater_failure("install", &error).evidence.native_stage;
             let original = recovery_location.lock().unwrap().clone().unwrap();
-            if denied {
+            if denied || missing_after_success {
                 assert_eq!(stage, Some("recovery"));
                 let report = serde_json::to_value(updater_failure("install", &error)).unwrap();
                 assert_eq!(report["nativeCode"], 513);
                 match &error {
                     Error::MacosReplacement { domain, .. } => {
-                        assert_eq!(domain, "NSCocoaErrorDomain");
+                        assert_eq!(
+                            domain,
+                            if denied {
+                                "NSCocoaErrorDomain"
+                            } else {
+                                "fixture"
+                            }
+                        );
                     }
                     _ => panic!("lost native recovery error"),
                 }

@@ -1328,8 +1328,8 @@ was launched in the normal user account.
 | Local signing identity availability | Unavailable: zero valid identities |
 | Signed/notarized/stapled acceptance pair and authenticated updater payload | Passed in the signing workflow |
 | Older signed Applications app baseline and preferences | Passed on hosted runner: older version reported matching seeded app settings and persisted update preferences |
-| Signed older-to-newer sandboxed Applications replacement, relaunch, settings and update-policy continuity | Failed native probe while still running the older version; failure operation unavailable in retained summary; no newer-version snapshot |
-| Permission denial and administrator cancellation | Unavailable pending a disposable native account; signed packages are retained, but these paths are not exercised by the default hosted probe |
+| Signed older-to-newer sandboxed Applications replacement, relaunch, settings and update-policy continuity | Failed during native installation: permission denial followed by failed administrator fallback; older version retained; no newer-version snapshot |
+| Permission denial and administrator cancellation | Replacement permission denial observed on hosted runner; deliberate administrator cancellation remains unavailable pending a disposable native GUI account |
 | Read-only media and actual App Translocation | Unavailable pending a disposable native account and native destination checks; not inferred from filesystem modes |
 | Native release-page fallback after installation failure | Outstanding; shared-service fallback coverage is not native browser acceptance |
 | Enabled login registration and new login-session launch | Outstanding separately; preserved false preference is insufficient |
@@ -1397,6 +1397,40 @@ real manifest check and real payload request returning 404. Before the fix the
 error becomes a generic updater failure and loses the status; afterward the
 retained category is HTTP with status 404. The parser accepts only the pinned
 fixed prefix and a numeric HTTP code; arbitrary message text remains private.
+
+### Typed signed replacement result, 2026-10-10
+
+The approved run containing the diagnostic fix passed signed package preparation
+and the older-version baseline. The native installation failed with operation
+`install`, category `io`, I/O kind `PermissionDenied`, and fixed reason
+`replacement_authorization_failed`. Both settings-preservation fields remain true
+on the older version after failure. No installed event or newer-version snapshot
+exists, so replacement, relaunch and post-upgrade preservation remain failed or
+unverified. The overall workflow success is evidence retention, not acceptance.
+
+Inspection of the pinned updater's macOS installation entry point maps this exact
+reason to its custom error after the old-app backup rename returns permission
+denied and the AppleScript administrator fallback fails. Download, updater
+signature verification and authenticated archive validation precede this call and
+completed. The plugin replaces the underlying script error with a generic I/O
+error without a numeric OS code. Therefore the retained evidence cannot distinguish
+sandbox rejection from unavailable interactive authorization on the hosted runner;
+it does not prove that a different native replacement mechanism is impossible.
+
+The existing failing-before/passing-after runner regression now retains the
+observed failure category safely. It repairs diagnostics, not the installer's
+authorization mechanism. No installer fix or successful native upgrade is claimed.
+The next native investigation requires a disposable GUI session capable of
+observing authorization and cancellation, or a narrowly scoped upstream diagnostic
+change retaining the underlying script error. Repeating this same hosted probe
+without either change cannot establish the missing cause. Do not change signing
+protections, disable the sandbox, or replace the app externally to obtain a pass.
+
+Permission denial during replacement is now observed; deliberate administrator
+cancellation remains unavailable. Read-only/translocated destinations, native
+release-page fallback, login-session launch and real synchronization remain
+unverified separately. Issue 165 remains open. Website review: no update needed
+because this records test evidence without changing product behavior or setup.
 
 
 ### Acceptance-only underlying AppleScript diagnostic

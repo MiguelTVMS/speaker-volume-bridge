@@ -139,6 +139,17 @@ error. A runner regression demonstrates error-context loss before the evidence
 fix and safe retention afterward. Another signed probe is required to identify
 and address the native cause; production installation remains a no-go.
 
+The approved diagnostic run now identifies installation I/O permission denial
+after the pinned updater's backup rename and administrator fallback both fail.
+Signed packaging, download verification and authenticated archive checks complete
+before this failure. The pinned plugin discards the underlying AppleScript error,
+so sandbox rejection and unavailable hosted interactive authorization cannot yet
+be distinguished. Settings and update preferences remain intact in the older
+version; there is no newer-version relaunch evidence. Diagnostic regression
+coverage is not an installer fix. Preserve the no-go and keep issue 165 open until
+a supported replacement mechanism passes the native contract. See the verification
+matrix's typed signed replacement result for the remaining evidence boundary.
+
 
 ### Acceptance-only underlying AppleScript diagnostic
 

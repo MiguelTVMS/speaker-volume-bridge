@@ -604,6 +604,8 @@ mod tests {
             std::fs::write(destination.join("version"), "old signed bytes").unwrap();
             let recovery_location = std::sync::Arc::new(Mutex::new(None));
             let captured = recovery_location.clone();
+            let authorized_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let observed_calls = authorized_calls.clone();
             let update = fixture_native_update(&destination)
                 .await
                 .with_acceptance_replacement(std::sync::Arc::new(
@@ -622,6 +624,10 @@ mod tests {
                             Some(&original),
                             error,
                             |original, destination| {
+                                // Mock the already-authorized manager. A missing destination
+                                // must still invoke this privileged operation, never bypass it.
+                                assert!(!destination.exists());
+                                observed_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                 if denied {
                                     Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)
                                         .into())
@@ -633,6 +639,10 @@ mod tests {
                     },
                 ));
             let error = update.install(fixture_native_archive()).unwrap_err();
+            assert_eq!(
+                authorized_calls.load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
             let stage = updater_failure("install", &error).evidence.native_stage;
             let original = recovery_location.lock().unwrap().clone().unwrap();
             if denied {

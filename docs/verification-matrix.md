@@ -1512,3 +1512,10 @@ recovery passes. A denied recovery retains the relocated original and staging,
 reports the recovery stage, and keeps recovery paths/details private. It does not
 claim that the destination is preserved when recovery itself is denied. Actual OS
 permission and recovery behavior still require signed native acceptance.
+
+Missing-destination recovery also invokes the existing authorized replacement
+operation; it never substitutes an ordinary filesystem rename. The fixture asserts
+that this authorized operation is called even with no destination. Reintroducing
+an unprivileged absent-destination bypass fails that assertion. The fixture mocks
+the authorized operation and does not prove sandbox privileges or that macOS can
+restore a missing destination; native failure still retains staging for recovery.

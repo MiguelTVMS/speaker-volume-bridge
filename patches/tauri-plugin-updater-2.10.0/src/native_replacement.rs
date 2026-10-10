@@ -61,10 +61,10 @@ pub fn recover_after_failure(
     destination: &Path,
     original: Option<&Path>,
     error: Error,
-    restore: impl FnOnce(&Path, &Path) -> Result<()>,
+    authorized_restore: impl FnOnce(&Path, &Path) -> Result<()>,
 ) -> Error {
     if let Some(original) = original.filter(|original| *original != destination) {
-        if let Err(recovery) = restore(original, destination) {
+        if let Err(recovery) = authorized_restore(original, destination) {
             return failure(
                 "recovery",
                 format!(
@@ -130,16 +130,13 @@ pub fn start_native(destination: PathBuf, candidate: PathBuf, complete: Completi
                                 .and_then(|value| value.downcast::<NSURL>().ok())
                                 .and_then(|url| url.path())
                                 .map(|path| PathBuf::from(path.to_string()));
-                            Err(recover_after_failure(&destination, original.as_deref(), native_error("replace", &error), |original, destination| {
-                                if !destination.exists() {
-                                    // Restoration is an ordinary rename, never privilege escalation.
-                                    std::fs::rename(original, destination).map_err(Into::into)
-                                } else {
-                                    let original_url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(&original.to_string_lossy()), true);
-                                    manager.replaceItemAtURL_withItemAtURL_backupItemName_options_resultingItemURL_error(
-                                        &destination_url, &original_url, None, NSFileManagerItemReplacementOptions::UsingNewMetadataOnly, None,
-                                    ).map_err(|error| native_error("recovery", &error))
-                                }
+                            Err(recover_after_failure(&destination, original.as_deref(), native_error("replace", &error), |original, _destination| {
+                                // Use the same authorized manager even when the destination
+                                // disappeared. Never fall back to an unprivileged move.
+                                let original_url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(&original.to_string_lossy()), true);
+                                manager.replaceItemAtURL_withItemAtURL_backupItemName_options_resultingItemURL_error(
+                                    &destination_url, &original_url, None, NSFileManagerItemReplacementOptions::UsingNewMetadataOnly, None,
+                                ).map_err(|error| native_error("recovery", &error))
                             }))
                         }
                     }

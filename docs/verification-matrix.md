@@ -1362,3 +1362,38 @@ still required before claiming native replacement or relaunch success.
 Website documentation review for the fix: no update is needed because this changes
 only the opt-in test probe. Production update discovery, release-page opening and
 installation capability remain unchanged.
+
+### Failure investigation, 2026-10-10
+
+The approved signing rerun containing the explicit-target fix again passed signed
+package preparation but failed native acceptance. The retained summary reports
+the older-version baseline and matching app/update preferences, then failure on
+the older version, with no installed event or newer-version snapshot. Therefore
+the target fix alone did not establish native installation feasibility.
+
+The retained artifact discarded the actual error. The probe now reports structured
+failure evidence for updater build, check, download and installation operations:
+the error category and, where available, the numeric OS or HTTP status code.
+Full native messages remain in the disposable account's private result only.
+The runner exports only allowlisted operation/category values and integer codes,
+and prints those safe fields in its job output. It never exports arbitrary native
+message text, paths or request details. Errors from older probe builds remain
+unrecoverable from their sanitized artifacts.
+
+The runner regression enters its normal baseline/install sequence, injects a
+typed installation I/O failure and verifies a failed result, private error detail
+retention and public operation/OS-code retention without private text. It fails
+against the former error-stripping implementation and passes after the fix, in
+the normal CI suite. This repairs evidence capture; the actual native installer
+cause still requires a signed run containing the change. No native cause fix or
+replacement success is claimed yet. Issue 165 remains open.
+
+Website review: no change needed for test-only failure evidence. Production update
+behavior, sandbox protections and the release-page fallback remain unchanged.
+
+Codex review identified the pinned updater's special download HTTP-error wrapper.
+`native_download_failure_preserves_http_status` runs the shared probe builder,
+real manifest check and real payload request returning 404. Before the fix the
+error becomes a generic updater failure and loses the status; afterward the
+retained category is HTTP with status 404. The parser accepts only the pinned
+fixed prefix and a numeric HTTP code; arbitrary message text remains private.

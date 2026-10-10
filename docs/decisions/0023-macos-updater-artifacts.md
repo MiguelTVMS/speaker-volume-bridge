@@ -130,3 +130,11 @@ conflicts with the probe's exact-target guard even after selecting the ARM64 ass
 A real updater-check regression through the shared probe builder fails with the
 default target and passes with explicit selection. This repairs test-only target
 wiring; signed replacement acceptance still requires rerunning the fixed probe.
+
+The signed rerun with explicit target selection still failed native acceptance.
+Failure reporting now preserves typed updater operation/category and numeric
+system/status codes in sanitized evidence. Arbitrary native error messages remain
+private to the disposable account. The former summaries cannot recover the actual
+error. A runner regression demonstrates error-context loss before the evidence
+fix and safe retention afterward. Another signed probe is required to identify
+and address the native cause; production installation remains a no-go.

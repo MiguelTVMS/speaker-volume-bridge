@@ -55,6 +55,28 @@ def wait_result(server, stages, timeout=90):
     raise TimeoutError('Native acceptance did not report a result')
 
 
+def public_report(report):
+    sanitized={key:value for key,value in report.items() if key not in ('error','failure')}
+    error=report.get('error')
+    if isinstance(error,dict):
+        # Only typed operation/category and numeric system codes may leave the
+        # disposable account. Never retain arbitrary native messages or paths.
+        operations={'precondition','build','check','download','install'}
+        kinds={'probe','io','timeout','connect','http','transport','signature','format','authentication','updater'}
+        if error.get('operation') in operations and error.get('kind') in kinds:
+            failure={key:error[key] for key in ('operation','kind')}
+            for key in ('osCode','httpStatus'):
+                value=error.get(key)
+                if type(value) is int:
+                    failure[key]=value
+            if error.get('ioKind') in {'PermissionDenied','NotFound','AlreadyExists','InvalidData','InvalidInput','TimedOut','Interrupted','UnexpectedEof','WriteZero','Other','ReadOnlyFilesystem','CrossesDevices','StorageFull','NotADirectory','IsADirectory','DirectoryNotEmpty','Unsupported','Uncategorized'}:
+                failure['ioKind']=error['ioKind']
+            if error.get('reason') == 'replacement_authorization_failed':
+                failure['reason']=error['reason']
+            sanitized['failure']=failure
+    return sanitized
+
+
 def run(old_app, candidate, destination, output):
     # This runner is intentionally explicit about isolation before opening the app.
     if os.environ.get('SVB_DISPOSABLE_NATIVE_ACCOUNT') != '1':
@@ -99,8 +121,11 @@ def run(old_app, candidate, destination, output):
         return False
     finally:
         (output/'native-result.json').write_text(json.dumps(reports, indent=2)+'\n')
-        sanitized=[{key:value for key,value in report.items() if key!='error'} for report in reports]
+        sanitized=[public_report(report) for report in reports]
         (output/'native-summary.json').write_text(json.dumps(sanitized,indent=2)+'\n')
+        for report in sanitized:
+            if 'failure' in report:
+                print('Native failure: '+json.dumps(report['failure'],sort_keys=True))
         server.shutdown()
         server.server_close()
         # The probe app must be closed before removing the disposable installation.

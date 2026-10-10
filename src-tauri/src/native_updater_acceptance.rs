@@ -138,6 +138,82 @@ fn validate_payload(bytes: &[u8], version: &str, identifier: &str) -> Result<(),
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ProbeFailure {
+    operation: &'static str,
+    kind: &'static str,
+    os_code: Option<i32>,
+    io_kind: Option<String>,
+    reason: Option<&'static str>,
+    http_status: Option<u16>,
+    message: String,
+}
+
+impl From<String> for ProbeFailure {
+    fn from(message: String) -> Self {
+        Self {
+            operation: "precondition",
+            kind: "probe",
+            os_code: None,
+            io_kind: None,
+            reason: None,
+            http_status: None,
+            message,
+        }
+    }
+}
+
+impl From<&str> for ProbeFailure {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
+fn updater_failure(operation: &'static str, error: &tauri_plugin_updater::Error) -> ProbeFailure {
+    use tauri_plugin_updater::Error;
+    let (kind, os_code, http_status) = match error {
+        Error::Io(error) => ("io", error.raw_os_error(), None),
+        Error::Reqwest(error) => (
+            if error.is_timeout() {
+                "timeout"
+            } else if error.is_connect() {
+                "connect"
+            } else if error.status().is_some() {
+                "http"
+            } else {
+                "transport"
+            },
+            None,
+            error.status().map(|status| status.as_u16()),
+        ),
+        Error::Minisign(_) => ("signature", None, None),
+        Error::Base64(_)
+        | Error::SignatureUtf8(_)
+        | Error::Serialization(_)
+        | Error::InvalidUpdaterFormat => ("format", None, None),
+        Error::AuthenticationFailed => ("authentication", None, None),
+        _ => ("updater", None, None),
+    };
+    ProbeFailure {
+        operation,
+        kind,
+        os_code,
+        io_kind: match error {
+            Error::Io(error) => Some(format!("{:?}", error.kind())),
+            _ => None,
+        },
+        reason: match error {
+            Error::Io(error) if error.to_string() == "Failed to move the new app into place" => {
+                Some("replacement_authorization_failed")
+            }
+            _ => None,
+        },
+        http_status,
+        message: error.to_string(),
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Report {
     stage: String,
     version: String,
@@ -145,10 +221,10 @@ struct Report {
     update_preferences_preserved: bool,
     runtime_status: String,
     login_preference: bool,
-    error: Option<String>,
+    error: Option<ProbeFailure>,
 }
 
-async fn report(app: &tauri::AppHandle, phase: &str, error: Option<String>) {
+async fn report(app: &tauri::AppHandle, phase: &str, error: Option<ProbeFailure>) {
     let state = app.state::<AppState>();
     let configuration = state.store.load_or_default().ok();
     let baseline = state
@@ -250,14 +326,14 @@ async fn seed(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-async fn run(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
+async fn run(app: &tauri::AppHandle, mode: &str) -> Result<(), ProbeFailure> {
     let state = app.state::<AppState>();
     let baseline = state
         .store
         .path()
         .with_file_name("native-updater-acceptance-baseline.json");
     if mode == "seed" {
-        return seed(app).await;
+        return seed(app).await.map_err(Into::into);
     }
     if !baseline.exists() {
         return Err("Acceptance requires a seeded disposable container".into());
@@ -285,10 +361,10 @@ async fn run(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
     }
     let update = native_builder(app)
         .build()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| updater_failure("build", &e))?
         .check()
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| updater_failure("check", &e))?
         .ok_or("No native update")?;
     if update.version != spec.version
         || update.target != "darwin-aarch64"
@@ -299,7 +375,7 @@ async fn run(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
     let bytes = update
         .download(|_, _| {}, || {})
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| updater_failure("download", &e))?;
     validate_payload(&bytes, &spec.version, &app.config().identifier)?;
     service
         .claim_offer_generation(&spec.version, &action.url, offer.generation)
@@ -318,7 +394,9 @@ async fn run(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
         state.stop_runtime();
     }
     // This is the pinned plugin's actual installer inside the signed sandboxed app.
-    let result = update.install(&bytes).map_err(|e| e.to_string());
+    let result = update
+        .install(&bytes)
+        .map_err(|e| updater_failure("install", &e));
     service.finish_open();
     result?;
     report(app, "installed", None).await;
@@ -357,6 +435,36 @@ mod tests {
         updates::{SystemUpdateClock, UpdatePersistence, UpdatePreferences, UpdateService},
     };
     use std::sync::Mutex;
+
+    #[test]
+    fn native_io_failure_keeps_operation_and_system_code() {
+        let error = updater_failure("install", &std::io::Error::from_raw_os_error(1).into());
+        let report = serde_json::to_value(error).unwrap();
+        assert_eq!(report["operation"], "install");
+        assert_eq!(report["kind"], "io");
+        assert_eq!(report["osCode"], 1);
+        assert_eq!(report["ioKind"], "PermissionDenied");
+        assert!(
+            report["message"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty())
+        );
+    }
+
+    #[test]
+    fn native_authorization_failure_has_a_safe_exact_reason() {
+        let error = updater_failure(
+            "install",
+            &std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Failed to move the new app into place",
+            )
+            .into(),
+        );
+        let report = serde_json::to_value(error).unwrap();
+        assert_eq!(report["ioKind"], "PermissionDenied");
+        assert_eq!(report["reason"], "replacement_authorization_failed");
+    }
 
     #[tokio::test]
     async fn native_probe_builder_selects_the_exact_manifest_target() {

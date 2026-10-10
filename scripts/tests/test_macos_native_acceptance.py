@@ -25,6 +25,21 @@ class Server:
 
 
 class NativeAcceptanceTests(unittest.TestCase):
+    def test_native_failure_preserves_operation_and_os_error_without_private_detail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            replies=[dict(stage='baseline',version='1.8.2',settingsPreserved=True),
+                dict(stage='failed',version='1.8.2',settingsPreserved=True,error={
+                    'message':'private installation path and diagnostics',
+                    'operation':'install','kind':'io','osCode':1,'ioKind':'PermissionDenied'})]
+            with patch.dict(os.environ,SVB_DISPOSABLE_NATIVE_ACCOUNT='1'), patch.object(runner,'FixtureServer',Server), patch.object(runner,'launch'), patch.object(runner,'wait_result',side_effect=replies), patch.object(runner.time,'sleep'), patch.object(runner.subprocess,'run',return_value=subprocess.CompletedProcess([],0)):
+                self.assertFalse(runner.run(root/'old.app',root,root/'Applications'/runner.APP,root/'result'))
+            private=json.loads((root/'result/native-result.json').read_text())
+            summary=json.loads((root/'result/native-summary.json').read_text())
+            self.assertIn('private installation path',private[-1]['error']['message'])
+            self.assertEqual(summary[-1]['failure'],dict(operation='install',kind='io',osCode=1,ioKind='PermissionDenied'))
+            self.assertNotIn('private installation path',json.dumps(summary))
+
     def test_runner_refuses_existing_app_and_requires_disposable_account(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

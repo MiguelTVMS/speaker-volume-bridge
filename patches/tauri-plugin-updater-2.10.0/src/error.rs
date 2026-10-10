@@ -12,6 +12,9 @@ pub enum Error {
     /// Endpoints are not sent.
     #[error("Updater does not have any endpoints set.")]
     EmptyEndpoints,
+    /// This local patch never permits disabling TLS validation.
+    #[error("Updater TLS certificate and hostname validation must remain enabled")]
+    InvalidTlsConfiguration,
     /// IO errors.
     #[error(transparent)]
     Io(#[from] std::io::Error),

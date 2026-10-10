@@ -162,3 +162,11 @@ without privileged operations.
 Signed acceptance still requires the protected-branch diagnostic build and its
 existing signing review. Native cause and replacement acceptance remain pending;
 issue 165 stays open. Website review: no update needed for test-only diagnostics.
+
+
+Vendored-source security analysis identified upstream optional TLS-validation
+bypasses. The local patch removes all four bypass calls and rejects configuration
+requesting invalid-certificate or invalid-hostname acceptance before networking.
+A regression through the real probe builder fails with the former behavior and
+passes with rejection. Signing controls are unchanged; no security alert is
+suppressed or dismissed to permit merging.

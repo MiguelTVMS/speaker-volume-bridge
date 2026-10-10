@@ -25,3 +25,10 @@ without requesting privileges or changing any files. CI runs it on macOS.
 This patch diagnoses the pinned installer; it is not replacement acceptance or a
 new production installation mechanism. Remove it after upstream provides equivalent
 error evidence or a separately accepted replacement approach supersedes the probe.
+
+Security review of the vendored source exposed four upstream opt-out calls for
+TLS certificate/hostname validation. This local patch removes those calls and
+rejects either insecure TLS configuration flag at UpdaterBuilder::build, before
+networking. The production-builder regression fails with upstream acceptance of
+the flags and passes with rejection. Loopback-only acceptance transport remains
+separately configured; no TLS validation is bypassed.

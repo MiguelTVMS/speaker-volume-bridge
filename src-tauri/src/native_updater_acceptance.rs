@@ -472,6 +472,37 @@ mod tests {
     use std::sync::Mutex;
 
     #[test]
+    fn native_builder_rejects_tls_validation_bypasses() {
+        for flag in [
+            "dangerousAcceptInvalidCerts",
+            "dangerousAcceptInvalidHostnames",
+        ] {
+            let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+            let mut config = serde_json::json!({"pubkey": "fixture"});
+            config[flag] = serde_json::Value::Bool(true);
+            context
+                .config_mut()
+                .plugins
+                .0
+                .insert("updater".into(), config);
+            let app = tauri::test::mock_builder()
+                .plugin(tauri_plugin_updater::Builder::new().build())
+                .build(context)
+                .unwrap();
+            let result = native_builder(app.handle())
+                .endpoints(vec![
+                    "https://example.invalid/manifest.json".parse().unwrap(),
+                ])
+                .unwrap()
+                .build();
+            assert!(
+                result.is_err(),
+                "must reject TLS bypass configuration: {flag}"
+            );
+        }
+    }
+
+    #[test]
     fn native_authorization_orchestration_handles_success_dispatch_and_compile_errors() {
         use tauri_plugin_updater::native_diagnostics::{authorization_script, run_authorization};
         assert!(

@@ -304,6 +304,12 @@ impl UpdaterBuilder {
     }
 
     pub fn build(self) -> Result<Updater> {
+        if self.config.dangerous_accept_invalid_certs
+            || self.config.dangerous_accept_invalid_hostnames
+        {
+            return Err(Error::InvalidTlsConfiguration);
+        }
+
         let endpoints = self
             .endpoints
             .unwrap_or_else(|| self.config.endpoints.clone());
@@ -449,12 +455,6 @@ impl Updater {
             }
 
             let mut request = ClientBuilder::new().user_agent(UPDATER_USER_AGENT);
-            if self.config.dangerous_accept_invalid_certs {
-                request = request.danger_accept_invalid_certs(true);
-            }
-            if self.config.dangerous_accept_invalid_hostnames {
-                request = request.danger_accept_invalid_hostnames(true);
-            }
             if let Some(timeout) = self.timeout {
                 request = request.timeout(timeout);
             }
@@ -661,12 +661,6 @@ impl Update {
         }
 
         let mut request = ClientBuilder::new().user_agent(UPDATER_USER_AGENT);
-        if self.config.dangerous_accept_invalid_certs {
-            request = request.danger_accept_invalid_certs(true);
-        }
-        if self.config.dangerous_accept_invalid_hostnames {
-            request = request.danger_accept_invalid_hostnames(true);
-        }
         if let Some(timeout) = self.timeout {
             request = request.timeout(timeout);
         }

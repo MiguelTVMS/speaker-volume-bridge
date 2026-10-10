@@ -1,6 +1,6 @@
 # 0023: Direct macOS updater artifacts with native acceptance withheld
 
-Status: Artifact preparation implemented; native installation acceptance pending.
+Status: Artifact preparation verified; native probe failed; installation acceptance incomplete.
 
 ## Reconcile issue 165 with current discovery
 
@@ -103,3 +103,30 @@ policy generation is claimed again after download. Failures are recorded as no-g
 results, not successful upgrades. A controlled test package is retained for manual
 native follow-up. Physical synchronization, enabled login-item/session launch and
 unsupported destinations remain separate acceptance requirements.
+
+## Signed acceptance follow-up, 2026-10-09
+
+The approved verification run on develop built the signed/notarized/stapled older
+and newer test packages and authenticated payload. The older Applications app
+reported a successful baseline with matching seeded settings and persisted update
+preferences. The install attempt then reported failure while still running the
+older version; no installed event or newer-version snapshot was retained.
+The overall workflow succeeded because native failure is allowed for evidence
+retention. That workflow conclusion does not establish replacement acceptance.
+
+Independent downloaded-bundle Apple verification and offline payload-signature
+verification passed. The app extracted from the actual updater archive also passed
+strict Apple signature, stapled-ticket and Gatekeeper checks. The sanitized native summary does not retain the failure
+operation, so this result does not yet distinguish a transport, policy or native
+replacement failure. Preserve the no-go for production installation and the
+release-page fallback. Permission/cancellation, read-only/translocated destinations,
+login-session launch and real synchronization remain incomplete and require a
+disposable native account. Issue 165 remains open. See the verification matrix
+for the precise passed, failed and unavailable outcomes.
+
+The native probe explicitly selects the `darwin-aarch64` updater manifest target.
+Pinned updater 2.10.0 otherwise reports only `darwin` in `Update.target`, which
+conflicts with the probe's exact-target guard even after selecting the ARM64 asset.
+A real updater-check regression through the shared probe builder fails with the
+default target and passes with explicit selection. This repairs test-only target
+wiring; signed replacement acceptance still requires rerunning the fixed probe.

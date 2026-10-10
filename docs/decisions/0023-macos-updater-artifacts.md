@@ -212,3 +212,10 @@ Tests exercise Update::install, extraction and routing for denied/cancelled
 operations and partial failures, including preservation of recovery bytes when
 restoration is denied. These tests replace the original helper-only assurance;
 actual native recovery remains unverified pending the signed acceptance gate.
+
+The claim that Foundation replacement necessarily rejects an absent destination
+was contradicted by a real local Cocoa fixture: the original bundle was restored
+and its source consumed. The installer-entry recovery regression now invokes the
+same Cocoa replacement function as the native adapter, not a rename substitute.
+This validates local filesystem semantics only; authorized sandbox recovery still
+requires the signed installed-host acceptance matrix.

@@ -632,7 +632,28 @@ mod tests {
                                     Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)
                                         .into())
                                 } else {
-                                    std::fs::rename(original, destination).map_err(Into::into)
+                                    use objc2_foundation::{NSFileManager, NSString, NSURL};
+                                    let original = NSURL::fileURLWithPath_isDirectory(
+                                        &NSString::from_str(original.to_str().unwrap()),
+                                        true,
+                                    );
+                                    let destination = NSURL::fileURLWithPath_isDirectory(
+                                        &NSString::from_str(destination.to_str().unwrap()),
+                                        true,
+                                    );
+                                    tauri_plugin_updater::native_replacement::replace_item(
+                                        &NSFileManager::defaultManager(),
+                                        &destination,
+                                        &original,
+                                    )
+                                    .map_err(|error| {
+                                        Error::MacosReplacement {
+                                            stage: "recovery",
+                                            domain: error.domain().to_string(),
+                                            code: Some(error.code() as i64),
+                                            message: format!("{error:?}"),
+                                        }
+                                    })
                                 }
                             },
                         )));

@@ -80,6 +80,23 @@ pub fn recover_after_failure(
     error
 }
 
+/// The exact Cocoa operation used for installation and recovery. Exposed only by
+/// the acceptance feature so native regressions do not substitute filesystem moves.
+#[cfg(target_os = "macos")]
+pub fn replace_item(
+    manager: &objc2_foundation::NSFileManager,
+    destination: &objc2_foundation::NSURL,
+    candidate: &objc2_foundation::NSURL,
+) -> std::result::Result<(), objc2::rc::Retained<objc2_foundation::NSError>> {
+    manager.replaceItemAtURL_withItemAtURL_backupItemName_options_resultingItemURL_error(
+        destination,
+        candidate,
+        None,
+        objc2_foundation::NSFileManagerItemReplacementOptions::UsingNewMetadataOnly,
+        None,
+    )
+}
+
 #[cfg(target_os = "macos")]
 pub fn start_native(destination: PathBuf, candidate: PathBuf, complete: Completion) {
     use block2::RcBlock;
@@ -87,9 +104,7 @@ pub fn start_native(destination: PathBuf, candidate: PathBuf, complete: Completi
         NSFileManagerNSWorkspaceAuthorization, NSWorkspace, NSWorkspaceAuthorization,
         NSWorkspaceAuthorizationType,
     };
-    use objc2_foundation::{
-        NSError, NSFileManager, NSFileManagerItemReplacementOptions, NSString, NSURL,
-    };
+    use objc2_foundation::{NSError, NSFileManager, NSString, NSURL};
     use std::sync::Mutex;
 
     fn native_error(stage: &'static str, error: &NSError) -> Error {
@@ -119,25 +134,30 @@ pub fn start_native(destination: PathBuf, candidate: PathBuf, complete: Completi
                         &NSString::from_str(&candidate.to_string_lossy()),
                         true,
                     );
-                    match manager.replaceItemAtURL_withItemAtURL_backupItemName_options_resultingItemURL_error(
-                        &destination_url, &candidate_url, None,
-                        NSFileManagerItemReplacementOptions::UsingNewMetadataOnly, None,
-                    ) {
+                    match replace_item(&manager, &destination_url, &candidate_url) {
                         Ok(()) => Ok(()),
                         Err(error) => {
-                            let original = error.userInfo()
+                            let original = error
+                                .userInfo()
                                 .objectForKey(&NSString::from_str("NSFileOriginalItemLocationKey"))
                                 .and_then(|value| value.downcast::<NSURL>().ok())
                                 .and_then(|url| url.path())
                                 .map(|path| PathBuf::from(path.to_string()));
-                            Err(recover_after_failure(&destination, original.as_deref(), native_error("replace", &error), |original, _destination| {
-                                // Use the same authorized manager even when the destination
-                                // disappeared. Never fall back to an unprivileged move.
-                                let original_url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(&original.to_string_lossy()), true);
-                                manager.replaceItemAtURL_withItemAtURL_backupItemName_options_resultingItemURL_error(
-                                    &destination_url, &original_url, None, NSFileManagerItemReplacementOptions::UsingNewMetadataOnly, None,
-                                ).map_err(|error| native_error("recovery", &error))
-                            }))
+                            Err(recover_after_failure(
+                                &destination,
+                                original.as_deref(),
+                                native_error("replace", &error),
+                                |original, _destination| {
+                                    // Use the same authorized manager even when the destination
+                                    // disappeared. Never fall back to an unprivileged move.
+                                    let original_url = NSURL::fileURLWithPath_isDirectory(
+                                        &NSString::from_str(&original.to_string_lossy()),
+                                        true,
+                                    );
+                                    replace_item(&manager, &destination_url, &original_url)
+                                        .map_err(|error| native_error("recovery", &error))
+                                },
+                            ))
                         }
                     }
                 } else {

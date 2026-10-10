@@ -1519,3 +1519,13 @@ that this authorized operation is called even with no destination. Reintroducing
 an unprivileged absent-destination bypass fails that assertion. The fixture mocks
 the authorized operation and does not prove sandbox privileges or that macOS can
 restore a missing destination; native failure still retains staging for recovery.
+
+A real Foundation check on the development macOS host successfully replaced an
+absent destination with a relocated original bundle, verified the destination's
+original bytes and confirmed the recovery source was consumed. The production
+installer/recovery now share the exact Cocoa replacement call with the automated
+installer-entry regression; successful recovery uses FileManager itself rather
+than a rename substitute. This supersedes the mock-only success coverage above.
+The test uses an ordinary FileManager in disposable writable storage. It does not
+prove an authorized manager's sandbox permissions, system-version portability or
+signed installed-host recovery; those remain explicit native acceptance items.

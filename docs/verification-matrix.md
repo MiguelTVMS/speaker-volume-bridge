@@ -1,5 +1,47 @@
 # Hardware verification matrix
 
+## macOS native acceptance follow-up, 2026-10-12
+
+The isolated ARM64 acceptance bundle uses the current production code with an
+older compiled version (1.7.0), a separate application identity and Settings
+visible at startup. It queries actual public GitHub Releases and uses the real
+native notification and default-browser adapters. No demo, injected release
+transport or self-update acceptance feature is enabled. The production workspace
+version is unchanged. The installed application is not replaced.
+
+The prior hidden-window inspection timeout was avoided by making Settings visible
+in this acceptance bundle's build configuration. This is an acceptance setup
+change, not a production startup change. A linker-only executable signature did
+not bind the bundle identity and notification authorization returned an error.
+Ad-hoc signing the complete isolated bundle with its own identity and relaunching
+allowed macOS authorization. This does not establish Developer ID, notarization,
+Gatekeeper installation or App Store receipt acceptance.
+
+| Native check | Result |
+| --- | --- |
+| Settings inspection | Passed with visible-window acceptance configuration |
+| Automatic startup delay | Fresh isolated state: first persisted attempt observed 30.1 seconds after the native process appeared; actual public check succeeded |
+| Installed edition/version and application architecture | Direct macOS and compiled 1.7.0 displayed; ARM64 executable verified |
+| Stable discovery | Actual public release 1.8.0 offered |
+| Include prereleases | Policy change cleared the previous offer, checked again and offered actual public prerelease 1.8.2 |
+| Open release | Native action opened the exact offered 1.8.0 GitHub release page in the system default browser |
+| Download update | Native action opened a browser download; the downloaded macOS DMG matched the published 1.8.0 asset digest; no installation or execution |
+| OS notification denial | Explicitly disabled only the acceptance app in macOS notification settings; manual discovery still returned an actionable 1.8.2 offer; restored permission afterward |
+| Notification authorization/submission | macOS granted authorization and accepted the native notification request without error; this alone does not establish visible presentation or activation |
+| Later | Disabled the current prompt while preserving both release actions |
+| Full restart | Restored Include prereleases, cached 1.8.2 offer and enabled notification preference; persisted notified-version identities retained |
+| Native notification deduplication | Fresh startup, repeated manual check and full process restart produced one successful native submission for the same stable version |
+| Visible notification and activation | Still outstanding; system notification surface cannot yet be inspected reliably by the current computer-use tool |
+| Tray menu and reopening Settings | Still outstanding; menu-bar surface inspection times out |
+
+The browser download completed before cancellation was possible; it remains an
+inert downloaded file. Browser inspection of internal download pages is blocked
+by tool policy, so verification used the downloaded file's provenance and digest.
+No system-wide notification, screen-sharing or security setting was changed.
+Physical speaker synchronization, sleep/wake, installed Store editions and native
+Windows/Linux acceptance remain unverified. Required cross-platform acceptance
+still prevents closure of #161, #162, #163 and #178.
+
 ## Notification readiness follow-up, 2026-10-11
 
 Current `develop` already supplies installed-distribution resolution, anonymous

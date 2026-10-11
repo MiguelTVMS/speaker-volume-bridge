@@ -1,5 +1,104 @@
 # Hardware verification matrix
 
+## Notification readiness follow-up, 2026-10-11
+
+Current `develop` already supplies installed-distribution resolution, anonymous
+GitHub discovery, Store delegation, notification adapters, policy generation
+guards and manual installer/release links. This follow-up addresses the remaining
+reproducible gaps rather than replacing those implementations. Self-update work
+and historical catalog delivery are excluded.
+
+### Automated regressions
+
+Each reported failure below was reproduced before its fix and passed afterward:
+
+- Production startup orchestration: a wake during the injected startup timer
+  caused a request before thirty seconds. Wake now shares the startup gate.
+  The same scheduler test runs through exhausted retries and verifies no new cycle.
+- Production wake/check orchestration and restart: wake bypassed five-minute and
+  longer backoff. A target-scoped persisted failure count now governs all automatic
+  triggers, with one-, five- and thirty-minute retries followed by daily checks.
+  Manual recovery remains usable. Success and policy/source changes reset the budget.
+  A separate restarted production-worker regression covers one and two persisted
+  failures. It reproduced extra delays from the worker's independent retry loop;
+  the worker now polls the shared due state once per minute, without adding another
+  backoff sequence. Both restarted cases retry at the persisted five-/thirty-minute
+  boundary in the injected timer test. Native polling can add up to one minute.
+- Production service restart: Stable restored a cached action pointing at another
+  release or the obsolete guide. Both policies now require the exact release page;
+  a rejected cache invalidates freshness as well as the action.
+- Production policy/check orchestration: failure to persist the attempted check
+  after a policy change left Checking indefinitely. It now returns Unavailable
+  without a request and permits a successful explicit retry after storage recovers.
+- Runtime resolver and startup resolver: foreign-platform package metadata and
+  unsupported application architectures were enrolled. Foreign metadata now yields
+  unknown; direct macOS Intel and unknown architectures cannot check or select policy.
+- Production frontend: a rejected policy write before backend generation advance
+  left Check for updates permanently Checking. The UI now rereads backend identity;
+  the next check restores its saved policy and actionable offer.
+- Production status formatter: a manual refresh failure with an existing offer
+  hid its error. It now shows the last-known offer, failure and retry guidance.
+
+Normal workspace CI runs the Rust regressions; normal frontend CI runs the
+formatter and browser regression. Shared existing tests continue to cover release
+ordering, exact assets, no downgrades, obsolete responses, duplicate opening,
+notification deduplication, permission denial and Store exclusion. Injected clocks,
+transports, notification sinks and browser IPC do not establish native OS behavior.
+
+### Verification boundaries
+
+| Check | Evidence / remaining limitation |
+| --- | --- |
+| Rust formatting, strict workspace Clippy and workspace tests | Passed locally |
+| Frontend formatting, lint, unit tests, typecheck/build and browser suite | Passed locally; sample-data policy failure and explicit retry also inspected in the local browser |
+| Website, release/package fixtures and macOS packaging configuration | Passed locally; generated website metadata is a prerequisite |
+| Real macOS ARM64 bundle | Unsigned optimized bundle built; bundled version and direct-edition metadata verified; isolated process launched and was stopped after inspection failed |
+| Native macOS Settings, tray, policy/restart and wake acceptance for this follow-up | Unavailable: native UI control timed out on the isolated tray-only app; no new UI acceptance claimed |
+| Native newer offer, notification permission/delivery/activation and both default-browser actions | Outstanding; mocked orchestration and browser IPC do not establish delivery or native opening |
+| Signed/notarized direct macOS and Mac App Store receipt/Store action | Unavailable accepted installed candidates; unsigned metadata does not prove signed provenance or Store acceptance |
+| Windows x64/ARM64 direct and Microsoft Store | Unavailable Windows desktop and installed candidates for this run |
+| Debian x64/ARM64 | Unavailable Linux desktop and installed candidates for this run |
+| Real speaker synchronization during native update interactions | Not exercised; no real speaker selected in the isolated acceptance app |
+
+The isolated bundle uses a separate application identity and does not replace the
+installed app. It does not run the native self-update acceptance feature. Existing
+native results elsewhere in this matrix remain historical evidence, not verification
+of this follow-up. Release publication, installation and Store approval are separate.
+
+### Manual reproduction still required
+
+1. On each available recognized installed direct edition, start with automatic
+   checks enabled, wake before thirty seconds and confirm no early request. After
+   the delay, verify a single check and no interruption of speaker synchronization.
+2. With discovery offline, verify three delayed retries and daily cooldown. Wake
+   and restart during each delay; neither may issue an early request. Use Check
+   for updates after restoring connectivity and verify successful recovery.
+3. Use an older recognized app and a newer compatible public release. Deny native
+   notification permission, check manually and verify the in-app offer remains
+   usable. Enable permission deliberately, obtain a new eligible notice, activate
+   it and verify current Updates state. Test Later and full restart deduplication.
+4. Verify Download update opens the exact official installer for the offered
+   version/edition/application architecture and Open release opens that release's
+   page. Cancel any browser download. Expire or change the rendered offer before
+   activation; rejection must refresh status and leave Check for updates usable.
+   A failed browser opening must remain retryable. No app-managed install occurs.
+5. Repeat rapid policy changes with a request pending and automatic checks off.
+   Verify old responses/actions cannot restore another policy's offer. Simulate a
+   preference-storage failure, recover storage and check again without reopening
+   Settings. Verify manual errors alongside retained offers.
+6. For both Store editions, follow the existing Store acceptance steps below:
+   no direct discovery, channel selector or release action on startup, wake,
+   manual tray interaction or restart; verify the native Store destination.
+
+### Issue acceptance
+
+None of #161, #162, #163 or #178 qualifies for closure on this evidence. #161 still
+needs signed/installed provenance and available platform acceptance; #162 needs
+native startup/wake/restart acceptance; #163 needs native tray, notifications and
+browser/Store actions; #178 needs installed cross-platform policy acceptance.
+Implementation and automated checks are review-ready while these native checks
+remain explicitly outstanding. Epic #159 remains open; #212 is unchanged.
+
 ## Notify and browser download acceptance
 
 Browser regressions exercise a native update-status event while an active keyboard

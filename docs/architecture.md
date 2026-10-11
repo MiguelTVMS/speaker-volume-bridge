@@ -179,6 +179,13 @@ bounded backoff. Wake and clock changes cannot bypass the attempt guard. Release
 requests never use the Sonos adapter and contain no speaker/configuration data or
 persistent installation identifier.
 
+Wake shares the scheduler's startup gate and persisted target-scoped retry budget.
+Three retries use one-, five- and thirty-minute delays; exhausted failures wait a
+day, including after restart. Manual checks remain available subject to transport
+rate limits. Both policies restore only exact-release cached links. Persistence
+failures expose retryable update state without stopping synchronization. The
+frontend recovers the backend generation after a failed policy save. See ADR 0021.
+
 Settings refreshes are asynchronous and guarded against edits and pending writes.
 Speech Enhancement chooses the same model-appropriate EQ for reads and writes;
 see [ADR 0009](decisions/0009-sonos-speaker-controls.md).

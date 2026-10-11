@@ -49,6 +49,19 @@ test('cached offers remain visible but require a fresh check before opening', ()
   assert.match(text, /Check again/);
 });
 
+test('a failed manual refresh reports the failure beside the retained offer', () => {
+  const text = updateStateText(
+    status('update_available', {
+      availableVersion: '2.0.0',
+      checkFailed: true,
+      message: 'Network unavailable.',
+    }),
+  );
+  assert.match(text, /Network unavailable/);
+  assert.match(text, /last successful check/);
+  assert.match(text, /Check again/);
+});
+
 test('release dropdown exposes Stable only and Include prereleases with persisted keys', () => {
   const markup = releasePolicyControl(
     status('idle', { prereleaseSupported: true, policy: 'stable' }),

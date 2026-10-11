@@ -61,14 +61,17 @@ impl InstalledDistribution {
             architecture,
             channel: ReleaseChannel::Stable,
             published_classification: None,
-            check_supported: matches!(
-                edition,
-                DistributionEdition::DirectMacos
-                    | DistributionEdition::DirectWindows
-                    | DistributionEdition::MicrosoftStore
-                    | DistributionEdition::MacAppStore
-                    | DistributionEdition::Debian
-            ),
+            check_supported: match edition {
+                DistributionEdition::DirectMacos => {
+                    architecture == ApplicationArchitecture::Aarch64
+                }
+                DistributionEdition::DirectWindows | DistributionEdition::Debian => matches!(
+                    architecture,
+                    ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+                ),
+                DistributionEdition::MicrosoftStore | DistributionEdition::MacAppStore => true,
+                _ => false,
+            },
             direct_install_supported: false,
         }
     }
@@ -76,14 +79,14 @@ impl InstalledDistribution {
     pub fn prerelease_supported(&self) -> bool {
         self.check_supported
             && matches!(
-                self.edition,
-                DistributionEdition::DirectMacos
-                    | DistributionEdition::DirectWindows
-                    | DistributionEdition::Debian
-            )
-            && matches!(
-                self.architecture,
-                ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+                (self.edition, self.architecture),
+                (
+                    DistributionEdition::DirectMacos,
+                    ApplicationArchitecture::Aarch64
+                ) | (
+                    DistributionEdition::DirectWindows | DistributionEdition::Debian,
+                    ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+                )
             )
     }
     pub const fn edition_key(&self) -> &'static str {
@@ -160,7 +163,16 @@ impl InstalledDistributionResolver {
     pub fn from_runtime(resource_dir: &Path, development: bool) -> Self {
         let provenance = fs::read(resource_dir.join("distribution.json"))
             .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+            .and_then(|bytes| serde_json::from_slice::<PackageProvenance>(&bytes).ok())
+            .filter(|value| match value.edition {
+                ProvenanceEdition::DirectMacos | ProvenanceEdition::MacAppStore => {
+                    cfg!(target_os = "macos")
+                }
+                ProvenanceEdition::DirectWindows | ProvenanceEdition::MicrosoftStore => {
+                    cfg!(windows)
+                }
+                ProvenanceEdition::Debian => cfg!(target_os = "linux"),
+            });
         Self {
             provenance,
             evidence: platform_evidence(resource_dir),
@@ -484,6 +496,59 @@ mod tests {
             ApplicationArchitecture::X86_64,
         );
         assert_eq!(result.architecture, ApplicationArchitecture::X86_64);
+    }
+
+    #[test]
+    fn runtime_resolver_rejects_foreign_platform_provenance() {
+        let resources = tempfile::tempdir().unwrap();
+        let edition = if cfg!(target_os = "macos") {
+            "direct_windows"
+        } else {
+            "direct_macos"
+        };
+        fs::write(
+            resources.path().join("distribution.json"),
+            format!(
+                r#"{{"schemaVersion":1,"edition":"{edition}","publisher":"{OFFICIAL_PUBLISHER}"}}"#
+            ),
+        )
+        .unwrap();
+        let resolver = InstalledDistributionResolver::from_runtime(resources.path(), false);
+        let installed = resolve_at_startup(&resolver);
+        assert_eq!(installed.edition, DistributionEdition::Unknown);
+        assert!(!installed.check_supported);
+    }
+
+    #[test]
+    fn startup_resolver_excludes_unsupported_application_architectures() {
+        for (edition, architecture) in [
+            (
+                ProvenanceEdition::DirectMacos,
+                ApplicationArchitecture::X86_64,
+            ),
+            (
+                ProvenanceEdition::DirectMacos,
+                ApplicationArchitecture::Unknown,
+            ),
+            (
+                ProvenanceEdition::DirectWindows,
+                ApplicationArchitecture::Unknown,
+            ),
+            (ProvenanceEdition::Debian, ApplicationArchitecture::Unknown),
+        ] {
+            let resolver = InstalledDistributionResolver::from_evidence(
+                Some(edition),
+                PlatformEvidence {
+                    official_debian_package: true,
+                    ..PlatformEvidence::default()
+                },
+                false,
+                architecture,
+            );
+            let installed = resolve_at_startup(&resolver);
+            assert!(!installed.check_supported);
+            assert!(!installed.prerelease_supported());
+        }
     }
 
     #[test]

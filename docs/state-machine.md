@@ -78,6 +78,13 @@ only matching responses can commit or notify. Source migration invalidates forme
 catalog offers/freshness. Shutdown cancels the worker and pending requests;
 duplicate starts do not create another checker. See ADR 0021.
 
+Automatic triggers remain gated during the startup delay and after shutdown.
+Target-scoped failure state survives restart and enforces three retries before
+daily recovery checks. Failed attempt persistence transitions Checking to
+Unavailable without issuing a request; an explicit retry can recover. Cached
+actions for a different release invalidate the offer and freshness under both
+policies. Unsupported application architectures cannot enter direct discovery.
+
 ## Upgrading from the former app
 
 Users quit and remove the former app before using the renamed app. The shell

@@ -66,10 +66,17 @@ The Updates page shows the installed version and distribution, last successful
 check and every checker state. An available offer remains discoverable after
 Later or notification denial. The persisted Update notifications switch suppresses
 native update notices independently from automatic checks; enabling it is the
-only update flow that may request OS permission. Open update page is enabled only for the exact
+only update flow that may request OS permission. Open release is enabled only for the exact
 validated offer; the shell rechecks version and URL immediately before invoking
 the operating system's default HTTPS handler. No browser opens at startup and no
-package is downloaded or installed.
+package is downloaded or installed automatically.
+
+For a fresh compatible offer, Download update opens the selected installer asset
+in the default browser. The user completes installation manually. Open release
+remains available for release notes or download trouble. The sidebar shows an
+available-version notice independently of OS notification permission. Later hides
+that notice but keeps both actions on Updates. Downloads use the same policy,
+version, edition, architecture and freshness guards as release-page actions.
 
 ## Synchronization strategy
 
@@ -241,7 +248,7 @@ even with automatic checks disabled. Obsolete responses cannot restore old offer
 Returning to Stable only waits for a strictly newer GA version without downgrading.
 
 Notifications leave the current Settings page unchanged. Activating an update
-notification or choosing the tray check action opens Updates. Open update page
+notification or choosing the tray check action opens Updates. Open release
 revalidates and opens the exact project release page; it never installs a package.
 Previous-source cache freshness is discarded during source migration. Unavailable
 or rate-limited responses are never described as up to date. See ADR 0021.

@@ -17,12 +17,15 @@ const backend = createDemoBackend({
   policyDelay: Number(params.get('policyDelay') ?? 0),
   hour12: new URLSearchParams(location.search).get('hour12') === 'false' ? false : null,
 });
-mockIPC((command, args) => {
-  if (command === 'ui_demo_enabled') return true;
-  if (command === 'ui_demo_platform') return new URLSearchParams(location.search).get('ui');
-  if (command === 'plugin:app|version') return 'Preview';
-  return backend(command, args as Record<string, unknown>);
-});
+mockIPC(
+  (command, args) => {
+    if (command === 'ui_demo_enabled') return true;
+    if (command === 'ui_demo_platform') return new URLSearchParams(location.search).get('ui');
+    if (command === 'plugin:app|version') return 'Preview';
+    return backend(command, args as Record<string, unknown>);
+  },
+  { shouldMockEvents: true },
+);
 const { settingsReady } = await import('./bootstrap');
 await settingsReady;
 

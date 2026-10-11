@@ -144,6 +144,8 @@ The settings form shares behavior across platforms while selecting separate
 macOS, Windows, and Linux presentation styles in the frontend. See
 [ADR 0012](decisions/0012-platform-settings-presentation.md).
 macOS dropdown sizing runs after saved selections are restored during form mounting.
+Updates metadata uses flat rows inside its settings group across all platforms,
+without a second nested card (ADR 0012).
 
 Windows uses a dedicated, scoped stylesheet and platform window configuration
 for its resizable Windows 11 Settings presentation. OS-specific presentation
@@ -378,6 +380,15 @@ schema v1/v2 catalog contract in ADR 0019 is historical and retained only for
 test fixtures and manual tooling. New builds use the Releases API contract below.
 
 ## Release update discovery
+
+Fresh compatible offers expose both a release-page action and a browser installer
+download action. The backend derives the package URL from the validated release
+and installed target, and authorizes the download through the same generation and
+freshness gate as release-page opening. No renderer-supplied download URL is used.
+The rendered download button captures its offer version and generation, so deferred
+form rendering cannot substitute a newer offer at click time. Rejected downloads
+refresh through the shared manual-check path before showing fallback guidance.
+An in-app availability notice complements native notifications. See ADR 0021.
 
 The Tauri shell reads the public GitHub Releases API anonymously. Stable only
 filters out prereleases; Include prereleases selects across GA and previews.

@@ -62,6 +62,12 @@ regression coverage, and the limitations of value-based origin detection.
 
 ## Update checks
 
+Download update is an explicit browser action on a fresh update_available offer,
+not an installing state. It shares the release-page generation/freshness gate and
+opening guard. Policy changes clear eligibility immediately. Later dismisses the
+in-app notice without removing either action. Store-managed and unsupported
+editions cannot claim a direct download.
+
 The update state is independent of synchronization: idle, checking, up_to_date,
 update_available, unavailable or unsupported. Only complete public release
 metadata with a compatible official asset can produce an offer. Stable only

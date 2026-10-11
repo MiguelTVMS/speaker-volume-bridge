@@ -10,10 +10,28 @@ The app never downloads or installs a package itself.
 
 ## Updates page
 
+Version information appears together above the release policy. On Windows, this
+uses a single Settings-style card with plain rows, without nested boxes.
+
+When a newer compatible release is available, **Download update** opens its installer
+download in your default browser. macOS receives the DMG; Windows and Debian receive
+the package matching the installed application's architecture. Complete installation
+manually after downloading. The app does not quit, run the installer or replace
+itself. **Open release** remains available for release notes and download help.
+The selected Stable only or Include prereleases policy still controls the offer.
+
+A version-available notice also appears in the Settings sidebar, including when
+native notifications are disabled or denied. Click it to open Updates. **Later**
+hides the notice for this session but leaves the download available on Updates.
+An expired offer requires another check before downloading. Store installations
+continue to use their Store action instead of a direct download.
+If a download cannot be opened, the app refreshes the offer. Open release remains
+available when the refreshed offer is valid; otherwise use Check for updates to retry.
+
 Open **Updates** in Settings to see the installed version and recognized
 distribution, the last successful check, and the current checker state. Choose
 **Check for updates** for a manual check. When a verified update is available,
-**Open update page** opens its validated HTTPS release page in the
+**Open release** opens its validated HTTPS release page in the
 default browser.
 
 An available update remains visible after choosing **Later** or denying an
@@ -63,7 +81,7 @@ Changing policy saves it for restart and checks once even with automatic checks
 off. Previous links disappear immediately; errors leave Check for updates
 available. Automatic-check, notification and speaker preferences are preserved.
 Returning to Stable only waits for a strictly newer GA release without downgrading.
-Equal-version promotion does not reinstall a preview. Open update page opens the
+Equal-version promotion does not reinstall a preview. Open release opens the
 specific release's page. A release offered under both policies notifies once.
 
 ## Availability and rate limits
@@ -101,7 +119,7 @@ work does not publish that version or implement self-installation.
 
 ## Direct macOS updater readiness
 
-The direct macOS edition continues to use **Open update page** and manual DMG
+The direct macOS edition continues to use **Open release** and manual DMG
 installation. Updater archives are prepared separately for verification; their
 presence does not enable automatic installation or change release policy.
 Native replacement and preservation of settings, login behavior and speaker

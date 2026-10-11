@@ -35,7 +35,7 @@
 }
 [data-platform='windows'] h1 .sonos-name {
   font-size: 12px;
-  letter-spacing: 2px;
+  letter-spacing: 0;
   color: var(--secondary-text);
 }
 [data-platform='windows'] .status {
@@ -143,6 +143,28 @@
   align-items: center;
   gap: 20px;
 }
+/* One metadata card, with plain rows rather than cards inside a card. */
+[data-platform='windows'] .settings-group[data-update] > .status-list {
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
+}
+/* Supporting text belongs to the setting/action immediately above it. */
+[data-platform='windows'] .settings-group[data-update] > :has(+ .setting-note) {
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+}
+[data-platform='windows'] .settings-group[data-update] > .setting-note {
+  min-height: 0;
+  margin-top: -4px;
+  padding-top: 0;
+  border-top: 0;
+  border-radius: 0 0 4px 4px;
+}
+[data-platform='windows'] .settings-group[data-update] > .update-actions {
+  justify-content: flex-end;
+  align-items: center;
+}
 [data-platform='windows'] .schedule-status-label {
   font-size: 14px;
   font-weight: 400;
@@ -229,6 +251,23 @@
   background: var(--surface-strong);
   color: var(--text);
   font-weight: 400;
+}
+[data-platform='windows'] button:not(.page-button, .schedule-cell, .secondary, .danger) {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--accent-text) 8%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--accent-text) 35%, transparent);
+  border-radius: 4px;
+  font-weight: 400;
+}
+[data-platform='windows'] button:not(.page-button, .schedule-cell, .secondary, .danger):active {
+  background: color-mix(in srgb, var(--accent), var(--surface) 20%);
+  border-color: transparent;
+}
+[data-platform='windows'] button:not(.page-button, .schedule-cell, .secondary, .danger):disabled {
+  background: var(--control);
+  color: var(--secondary-text);
+  border-color: transparent;
+  cursor: default;
 }
 [data-platform='windows'] button.danger {
   color: var(--danger);

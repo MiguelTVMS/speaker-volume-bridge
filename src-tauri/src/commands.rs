@@ -105,6 +105,25 @@ pub fn open_update_store(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
+pub fn open_update_download(
+    version: String,
+    generation: u64,
+    app: AppHandle,
+) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let action = manager
+        .service()
+        .claim_download_generation(&version, generation)
+        .map_err(|_| "That download offer changed. Check again before downloading.".to_owned())?;
+    let result = open_url_with_system(&action.url);
+    manager.service().finish_open();
+    result
+}
+
+#[tauri::command]
 pub fn open_project_repository() -> Result<(), String> {
     open_url_with_system(PROJECT_REPOSITORY_URL)
 }

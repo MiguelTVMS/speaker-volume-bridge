@@ -1,5 +1,49 @@
 # Hardware verification matrix
 
+## Notify and browser download acceptance
+
+Browser regressions exercise a native update-status event while an active keyboard
+slider gesture defers the production render path. Download submits the displayed
+offer, and ending the gesture allows the newer status to render. A second regression
+disables automatic checks, advances the clock beyond one day, rejects the download,
+returns a stale refreshed offer and verifies both actions disappear until an explicit
+successful check. Both regressions failed before the fixes and pass afterward.
+Event delivery and command responses are simulated; native browser opening remains
+subject to the packaged acceptance below.
+
+Download update and Open release share one action row, with Open release on the
+right. Browser coverage checks their relative layout and that Open release invokes
+the existing guarded opener with the exact selected GitHub release page.
+
+Shared service tests cover newest stable/preview selection, exact macOS ARM64,
+Windows x64/ARM64 and Debian x64/ARM64 installer URLs, notification deduplication,
+Later, restart restoration, stale offers, duplicate clicks and policy-generation
+invalidation. Missing or foreign package metadata cannot produce a download.
+The download command accepts version/generation only and reuses the release-page
+claim gate. Browser tests cover the in-app notice, explicit download IPC,
+manual-install guidance, Later retaining the download, channel-change clearing,
+and Store exclusion. Browser IPC is simulated and opens no actual download.
+
+Native follow-up: use an older recognized installed build containing this change
+with a newer published compatible package. Check both release policies; activate
+a native update notification and confirm Updates opens. Deny notification permission
+and confirm the sidebar notice remains available. Click Download update and verify
+the default browser receives the exact edition/architecture/version installer.
+Cancel the browser download and verify synchronization remains active. Test the
+release-page fallback, Later, restart, expired offers and rapid channel switches.
+Repeat for macOS, Windows and Debian; verify Store builds offer only their Store.
+The application must never quit or install the downloaded package automatically.
+OS notification presentation, browser download handling and package installation
+are separate native acceptance, not established by mocked IPC or service tests.
+
+Local validation for this change: workspace formatting, strict Clippy and workspace
+tests passed; frontend unit tests, typecheck/build, lint/format and browser tests
+passed. Website build metadata was generated locally and all website tests passed.
+The macOS-styled browser preview was inspected with sample data. A separate sidebar
+notice initially overflowed short Windows windows; the existing viewport regression
+caught it. The notice now fits inside the existing Updates navigation button.
+Packaged OS notification and browser-download acceptance remains outstanding.
+
 ## Phase-one update catalog recovery
 
 - Automated production-orchestration coverage: `UpdateService::new` revalidates

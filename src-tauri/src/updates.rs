@@ -65,6 +65,7 @@ pub struct UpdateStatus {
     pub edition: String,
     pub last_successful_check: Option<u64>,
     pub action: Option<OpenUrlAction>,
+    pub download_action: Option<OpenUrlAction>,
     pub message: Option<String>,
     pub automatic_checks: bool,
     pub update_notifications: bool,
@@ -617,6 +618,17 @@ impl UpdateService {
                 || status.last_successful_check.is_none_or(|last| {
                     self.clock.now().saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()
                 }));
+        status.download_action =
+            if status.phase == UpdatePhase::UpdateAvailable && !status.offer_stale {
+                status.available_version.as_deref().and_then(|version| {
+                    let action = status.action.as_ref()?;
+                    (action.url == release_page(version))
+                        .then(|| self.download_action(version).ok())
+                        .flatten()
+                })
+            } else {
+                None
+            };
         Ok(status)
     }
     pub fn preferences(&self) -> Result<UpdatePreferences, UpdateError> {
@@ -753,6 +765,28 @@ impl UpdateService {
     }
     pub fn finish_open(&self) {
         self.opening.store(false, Ordering::SeqCst);
+    }
+    fn download_action(&self, version: &str) -> Result<OpenUrlAction, UpdateError> {
+        let parsed = Version::parse(version).map_err(|_| UpdateError::State)?;
+        if parsed.to_string() != version || !self.distribution.check_supported {
+            return Err(UpdateError::State);
+        }
+        let name = release_asset_name(&self.distribution).ok_or(UpdateError::State)?;
+        OpenUrlAction {
+            kind: "open_url".into(),
+            url: format!("https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v{version}/{name}"),
+        }
+        .validate()
+    }
+    /// The renderer supplies only an offer identity, never a download destination.
+    pub fn claim_download_generation(
+        &self,
+        version: &str,
+        generation: u64,
+    ) -> Result<OpenUrlAction, UpdateError> {
+        let download = self.download_action(version)?;
+        self.claim_offer_generation(version, &release_page(version), generation)?;
+        Ok(download)
     }
     pub fn automatic_due(&self) -> bool {
         let Ok(preferences) = self.preferences.lock() else {
@@ -1468,6 +1502,12 @@ mod tests {
             assert!(!service.automatic_due());
             assert_eq!(manual.phase, UpdatePhase::StoreManaged);
             assert!(manual.action.is_none());
+            assert!(manual.download_action.is_none());
+            assert!(
+                service
+                    .claim_download_generation("2.0.0", manual.generation)
+                    .is_err()
+            );
             assert!(manual.available_version.is_none());
             assert!(manual.last_successful_check.is_none());
             assert!(service.set_policy(UpdatePolicy::Prereleases).is_err());
@@ -2281,6 +2321,161 @@ mod tests {
             "assets": [{"name": "speaker-volume-bridge-macos.dmg", "state": "uploaded", "size": 100,
                 "browser_download_url": format!("https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v{version}/speaker-volume-bridge-macos.dmg")}]
         })
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)] // Keep the full selection/restart/action sequence together for each package target.
+    async fn download_offers_select_exact_packages_and_keep_notification_and_page_actions() {
+        for (edition, architecture, asset) in [
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::Aarch64,
+                "speaker-volume-bridge-macos.dmg",
+            ),
+            (
+                DistributionEdition::DirectWindows,
+                ApplicationArchitecture::X86_64,
+                "speaker-volume-bridge-windows-x64-unsigned.exe",
+            ),
+            (
+                DistributionEdition::DirectWindows,
+                ApplicationArchitecture::Aarch64,
+                "speaker-volume-bridge-windows-arm64-unsigned.exe",
+            ),
+            (
+                DistributionEdition::Debian,
+                ApplicationArchitecture::X86_64,
+                "speaker-volume-bridge-linux-x64.deb",
+            ),
+            (
+                DistributionEdition::Debian,
+                ApplicationArchitecture::Aarch64,
+                "speaker-volume-bridge-linux-arm64.deb",
+            ),
+        ] {
+            let mut installed = distribution();
+            installed.edition = edition;
+            installed.architecture = architecture;
+            let release = |version, preview| {
+                let mut release = public_release(version, preview);
+                release["assets"][0]["name"] = asset.into();
+                release["assets"][0]["browser_download_url"] = format!("https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v{version}/{asset}").into();
+                release
+            };
+            let transport = Arc::new(FakeTransport {
+                result: Mutex::new(Ok(serde_json::to_vec(&vec![
+                    release("2.1.0", true),
+                    release("2.0.0", false),
+                ])
+                .unwrap())),
+                calls: AtomicUsize::new(0),
+            });
+            let persistence = Arc::new(MemoryPersistence::default());
+            let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+            let client = UpdateService::new(
+                installed.clone(),
+                transport.clone(),
+                clock.clone(),
+                persistence.clone(),
+            )
+            .unwrap();
+            let status = client.check(true).await;
+            assert_eq!(status.available_version.as_deref(), Some("2.0.0"));
+            let url = format!(
+                "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v2.0.0/{asset}"
+            );
+            assert_eq!(status.download_action.as_ref().unwrap().url, url);
+            assert!(client.claim_notification(&status).unwrap());
+            assert!(!client.claim_notification(&status).unwrap());
+            client.dismiss("2.0.0").unwrap();
+            assert!(client.status().unwrap().download_action.is_some());
+            assert!(
+                client
+                    .claim_download_generation("2.1.0", status.generation)
+                    .is_err()
+            );
+            assert_eq!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .unwrap()
+                    .url,
+                url
+            );
+            assert!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .is_err()
+            );
+            client.finish_open();
+            let restored =
+                UpdateService::new(installed, transport, clock.clone(), persistence).unwrap();
+            assert_eq!(restored.status().unwrap().download_action.unwrap().url, url);
+            assert!(
+                !restored
+                    .claim_notification(&restored.status().unwrap())
+                    .unwrap()
+            );
+            clock
+                .0
+                .store(100 + SUCCESS_INTERVAL.as_secs(), Ordering::Relaxed);
+            assert!(client.status().unwrap().download_action.is_none());
+            assert!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .is_err()
+            );
+            client.set_policy(UpdatePolicy::Prereleases).unwrap();
+            assert!(client.status().unwrap().download_action.is_none());
+            assert!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .is_err()
+            );
+            let preview = client.check(true).await;
+            assert_eq!(preview.available_version.as_deref(), Some("2.1.0"));
+            assert_eq!(
+                client
+                    .claim_download_generation("2.1.0", preview.generation)
+                    .unwrap()
+                    .url,
+                preview.download_action.unwrap().url
+            );
+            client.finish_open();
+            assert_eq!(
+                client
+                    .claim_offer_generation("2.1.0", &release_page("2.1.0"), preview.generation)
+                    .unwrap()
+                    .url,
+                release_page("2.1.0")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_or_foreign_assets_never_offer_downloads() {
+        for assets in [
+            serde_json::json!([]),
+            serde_json::json!([{
+                "name": "speaker-volume-bridge-macos.dmg", "size": 100, "state": "uploaded",
+                "browser_download_url": "https://example.com/foreign.dmg"
+            }]),
+        ] {
+            let mut release = public_release("2.0.0", false);
+            release["assets"] = assets;
+            let (client, _) = service(
+                serde_json::to_vec(&vec![release]).unwrap(),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                Arc::new(MemoryPersistence::default()),
+            );
+            let status = client.check(true).await;
+            assert_eq!(status.phase, UpdatePhase::Unavailable);
+            assert!(status.download_action.is_none());
+            assert!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .is_err()
+            );
+        }
     }
 
     #[tokio::test]

@@ -17,6 +17,7 @@ export type UpdateStatus = {
   edition: string;
   lastSuccessfulCheck: number | null;
   action: { type: 'open_url'; url: string } | null;
+  downloadAction?: { type: 'open_url'; url: string } | null;
   message: string | null;
   automaticChecks: boolean;
   updateNotifications: boolean;

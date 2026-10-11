@@ -61,7 +61,24 @@ export function createDemoBackend(
     lastSuccessfulCheck: storeManaged ? null : 1791108000,
     action: storeManaged
       ? null
-      : { type: 'open_url', url: 'https://svb.miguel.ms/guide/Upgrading.html' },
+      : {
+          type: 'open_url',
+          url: 'https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0',
+        },
+    downloadAction: ['direct_macos', 'direct_windows', 'debian'].includes(
+      options.edition ?? 'direct_macos',
+    )
+      ? {
+          type: 'open_url',
+          url:
+            'https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v1.8.0/' +
+            (options.edition === 'direct_windows'
+              ? 'speaker-volume-bridge-windows-x64-unsigned.exe'
+              : options.edition === 'debian'
+                ? 'speaker-volume-bridge-linux-x64.deb'
+                : 'speaker-volume-bridge-macos.dmg'),
+        }
+      : null,
     message: null,
     automaticChecks: !storeManaged,
     updateNotifications: true,
@@ -138,6 +155,7 @@ export function createDemoBackend(
         return updateStatus.updateNotifications;
       case 'open_update_store':
       case 'open_update_page':
+      case 'open_update_download':
       case 'open_project_repository':
         return;
       case 'get_snapshot':

@@ -93,6 +93,7 @@ select {
 }
 h1 {
   display: grid;
+  width: max-content;
   gap: 1px;
   font-size: 17px;
   letter-spacing: -0.25px;
@@ -101,6 +102,13 @@ h1 {
 h1 .sonos-name {
   font-size: 15px;
   letter-spacing: 1.8px;
+}
+[data-platform] h1 .sonos-name {
+  width: max-content;
+  letter-spacing: 0;
+}
+h1 > span:last-child {
+  width: max-content;
 }
 .status {
   margin-top: 4px;
@@ -374,6 +382,24 @@ button.icon-button {
   margin: 0;
   font-weight: 500;
   text-align: right;
+}
+/* Metadata belongs to the Updates group, not another card inside it. */
+[data-platform] .settings-group[data-update] > .status-list {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  gap: 0;
+}
+[data-platform] .settings-group[data-update] > .status-list > div {
+  min-height: 0;
+  padding: 11px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+[data-platform] .settings-group[data-update] > .status-list > div + div {
+  border-top: 1px solid var(--separator);
 }
 .technical-details {
   color: var(--secondary-text);

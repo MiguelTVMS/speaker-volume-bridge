@@ -883,9 +883,12 @@ async function setUpdatePolicy(policy: 'stable' | 'prereleases'): Promise<void> 
     const result = await invoke<UpdateStatus>('set_update_policy', { policy });
     if (request === updatePolicyRequest) updateStatus = result;
   } catch (error) {
+    // A failed write may leave the backend on its previous generation. Recover
+    // its authoritative identity so a subsequent check is not discarded forever.
+    const current = await invoke<UpdateStatus>('get_update_status').catch(() => null);
     if (request === updatePolicyRequest) {
       updateStatus = {
-        ...updateStatus,
+        ...(current ?? updateStatus),
         phase: 'unavailable',
         message: `${String(error)}. Check again to retry.`,
       };

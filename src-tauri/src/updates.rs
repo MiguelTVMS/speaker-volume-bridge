@@ -113,6 +113,8 @@ pub struct UpdatePreferences {
     pub update_notifications: bool,
     pub last_successful_check: Option<u64>,
     pub last_attempted_check: Option<u64>,
+    pub consecutive_failures: u8,
+    pub attempt_target: Option<CachedTarget>,
     pub last_notified_target: Option<String>,
     pub notified_targets: Vec<String>,
     pub cached_offer: Option<CachedOffer>,
@@ -150,6 +152,8 @@ impl Default for UpdatePreferences {
             update_notifications: true,
             last_successful_check: None,
             last_attempted_check: None,
+            consecutive_failures: 0,
+            attempt_target: None,
             last_notified_target: None,
             notified_targets: Vec::new(),
             cached_offer: None,
@@ -498,6 +502,7 @@ pub struct UpdateService {
     in_flight: AsyncMutex<()>,
     request_sequence: AtomicU64,
     completed_generation: AtomicU64,
+    automatic_ready: AtomicBool,
 }
 
 impl UpdateService {
@@ -508,11 +513,22 @@ impl UpdateService {
         persistence: Arc<dyn UpdatePersistence>,
     ) -> Result<Self, UpdateError> {
         let mut preferences = persistence.load(distribution.check_supported)?;
+        if preferences
+            .attempt_target
+            .as_ref()
+            .is_some_and(|target| target != &policy_target(&distribution, preferences.policy))
+        {
+            preferences.last_attempted_check = None;
+            preferences.consecutive_failures = 0;
+            preferences.attempt_target = None;
+        }
         if preferences.update_source.as_deref() != Some("github_releases_v1") {
             preferences.cached_offer = None;
             preferences.freshness_target = None;
             preferences.last_successful_check = None;
             preferences.last_attempted_check = None;
+            preferences.consecutive_failures = 0;
+            preferences.attempt_target = None;
             preferences.stable_source_available = None;
             preferences.preview_source_available = None;
             preferences.update_source = Some("github_releases_v1".into());
@@ -543,6 +559,7 @@ impl UpdateService {
             && !cached_offer_valid_for_policy(offer, &distribution, preferences.policy)
         {
             preferences.cached_offer = None;
+            preferences.freshness_target = None;
             persistence.save(&preferences)?;
         }
         let phase = if store_url(distribution.edition).is_some() {
@@ -590,6 +607,7 @@ impl UpdateService {
             in_flight: AsyncMutex::new(()),
             request_sequence: AtomicU64::new(0),
             completed_generation: AtomicU64::new(0),
+            automatic_ready: AtomicBool::new(true),
         })
     }
     pub fn store_action(&self) -> Result<&'static str, UpdateError> {
@@ -648,6 +666,8 @@ impl UpdateService {
         next.cached_offer = None;
         next.last_successful_check = None;
         next.last_attempted_check = None;
+        next.consecutive_failures = 0;
+        next.attempt_target = None;
         next.freshness_target = None;
         self.persistence.save(&next)?;
         *preferences = next;
@@ -789,16 +809,27 @@ impl UpdateService {
         Ok(download)
     }
     pub fn automatic_due(&self) -> bool {
+        if !self.automatic_ready.load(Ordering::SeqCst) {
+            return false;
+        }
         let Ok(preferences) = self.preferences.lock() else {
             return false;
         };
         let now = self.clock.now();
+        // Every automatic trigger, including wake and restart, shares this budget.
+        // After three retries, wait a day; explicit manual checks remain available.
+        let retry_delay = match preferences.consecutive_failures {
+            0 | 1 => 60,
+            2 => 300,
+            3 => 1800,
+            _ => SUCCESS_INTERVAL.as_secs(),
+        };
         store_url(self.distribution.edition).is_none()
             && self.distribution.check_supported
             && preferences.automatic_checks
             && preferences
                 .last_attempted_check
-                .is_none_or(|last| now.saturating_sub(last) >= 60)
+                .is_none_or(|last| now.saturating_sub(last) >= retry_delay)
             && (preferences.freshness_target.as_ref()
                 != Some(&policy_target(&self.distribution, preferences.policy))
                 || preferences
@@ -823,7 +854,17 @@ impl UpdateService {
             return self.status().unwrap_or_default();
         }
         let now = self.clock.now();
-        if self.begin_check(observed.generation, now).is_err() {
+        if let Err(error) = self.begin_check(observed.generation, now) {
+            if let Ok(preferences) = self.preferences.lock()
+                && preferences.generation == observed.generation
+                && let Ok(mut status) = self.status.lock()
+            {
+                if status.phase != UpdatePhase::UpdateAvailable {
+                    status.phase = UpdatePhase::Unavailable;
+                }
+                status.check_failed = true;
+                status.message = manual.then(|| error.to_string());
+            }
             return self.status().unwrap_or_default();
         }
         let result = self
@@ -853,6 +894,7 @@ impl UpdateService {
         let status = match result {
             Ok(mut status) => {
                 {
+                    preferences.consecutive_failures = 0;
                     preferences.last_successful_check = Some(now);
                     preferences.cached_offer = status
                         .available_version
@@ -871,6 +913,8 @@ impl UpdateService {
                 status
             }
             Err(error) => {
+                preferences.consecutive_failures =
+                    preferences.consecutive_failures.saturating_add(1);
                 let mut cached = self
                     .status
                     .lock()
@@ -896,8 +940,11 @@ impl UpdateService {
         if preferences.generation != generation {
             return Err(UpdateError::State);
         }
-        preferences.last_attempted_check = Some(now);
-        self.persistence.save(&preferences)?;
+        let mut next = preferences.clone();
+        next.last_attempted_check = Some(now);
+        next.attempt_target = Some(policy_target(&self.distribution, next.policy));
+        self.persistence.save(&next)?;
+        *preferences = next;
         let mut checking = self.status.lock().map_err(|_| UpdateError::State)?.clone();
         checking.phase = if checking.available_version.is_some() {
             UpdatePhase::UpdateAvailable
@@ -1216,7 +1263,7 @@ fn cached_offer_valid_for_policy(
         }
         && (policy == UpdatePolicy::Prereleases || available.pre.is_empty())
         && offer.action.clone().validate().is_ok()
-        && (policy == UpdatePolicy::Stable || offer.action.url == release_page(&offer.version))
+        && offer.action.url == release_page(&offer.version)
 }
 
 const fn edition_name(edition: DistributionEdition) -> &'static str {
@@ -1277,11 +1324,16 @@ impl UpdateManager {
         if task.is_some() {
             return;
         }
+        self.service.automatic_ready.store(false, Ordering::SeqCst);
         let service = Arc::clone(&self.service);
         let app_handle = app.clone();
         let stopped = Arc::clone(&self.stopped);
         *task = Some(tauri::async_runtime::spawn(async move {
             sleep(Duration::from_secs(30)).await;
+            if stopped.load(Ordering::SeqCst) {
+                return;
+            }
+            service.automatic_ready.store(true, Ordering::SeqCst);
             #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with pinned Rust.
             let backoff = [
                 Duration::from_secs(60),
@@ -1373,6 +1425,7 @@ impl Drop for UpdateManager {
         // Abort is cooperative; a currently polling ready timer must also see
         // shutdown before it can begin another catalog request.
         self.stopped.store(true, Ordering::SeqCst);
+        self.service.automatic_ready.store(false, Ordering::SeqCst);
         if let Ok(mut task) = self.task.lock()
             && let Some(task) = task.take()
         {
@@ -1438,7 +1491,7 @@ mod tests {
         }
     }
     fn catalog(version: &str) -> Vec<u8> {
-        format!(r#"{{"schemaVersion":1,"generatedAt":"2026-10-04T00:00:00Z","entries":[{{"edition":"direct_macos","channel":"stable","os":"macos","architecture":"aarch64","version":"{version}","publishedAt":"2026-10-04T00:00:00Z","releaseNotes":"Notes","action":{{"type":"open_url","url":"https://svb.miguel.ms/guide/Upgrading.html"}}}}]}}"#).into_bytes()
+        format!(r#"{{"schemaVersion":1,"generatedAt":"2026-10-04T00:00:00Z","entries":[{{"edition":"direct_macos","channel":"stable","os":"macos","architecture":"aarch64","version":"{version}","publishedAt":"2026-10-04T00:00:00Z","releaseNotes":"Notes","action":{{"type":"open_url","url":"https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{version}"}}}}]}}"#).into_bytes()
     }
     fn service(
         bytes: Vec<u8>,
@@ -1556,6 +1609,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_attempt_persistence_after_policy_change_is_visible_and_retryable() {
+        struct FalliblePersistence {
+            memory: MemoryPersistence,
+            fail: AtomicBool,
+        }
+        impl UpdatePersistence for FalliblePersistence {
+            fn load(&self, automatic: bool) -> Result<UpdatePreferences, UpdateError> {
+                self.memory.load(automatic)
+            }
+            fn save(&self, preferences: &UpdatePreferences) -> Result<(), UpdateError> {
+                if self.fail.load(Ordering::SeqCst) {
+                    return Err(UpdateError::State);
+                }
+                self.memory.save(preferences)
+            }
+        }
+        let persistence = Arc::new(FalliblePersistence {
+            memory: MemoryPersistence::default(),
+            fail: AtomicBool::new(false),
+        });
+        let transport = Arc::new(FakeTransport {
+            result: Mutex::new(Ok(serde_json::to_vec(&vec![public_release(
+                "2.0.0", false,
+            )])
+            .unwrap())),
+            calls: AtomicUsize::new(0),
+        });
+        let service = UpdateService::new(
+            distribution(),
+            transport.clone(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence.clone(),
+        )
+        .unwrap();
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        persistence.fail.store(true, Ordering::SeqCst);
+        let failed = service.check(true).await;
+        assert_eq!(failed.phase, UpdatePhase::Unavailable);
+        assert!(failed.check_failed);
+        assert!(failed.message.is_some());
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+        persistence.fail.store(false, Ordering::SeqCst);
+        assert_eq!(
+            service.check(true).await.phase,
+            UpdatePhase::UpdateAvailable
+        );
+    }
+
+    #[tokio::test]
+    async fn wake_and_restart_share_bounded_failure_backoff_with_background_checks() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (service, transport) = service(Vec::new(), clock.clone(), persistence.clone());
+        *transport.result.lock().unwrap() = Err("offline");
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        assert!(service.check(false).await.check_failed);
+        for (attempt, delay) in [60, 300, 1800, 86400].into_iter().enumerate() {
+            clock.0.fetch_add(delay - 1, Ordering::SeqCst);
+            UpdateManager::wake_service(app.handle(), service.clone()).await;
+            assert_eq!(
+                transport.calls.load(Ordering::SeqCst),
+                attempt + 1,
+                "wake bypassed the retry budget"
+            );
+            let restarted = UpdateService::new(
+                distribution(),
+                transport.clone(),
+                clock.clone(),
+                persistence.clone(),
+            )
+            .unwrap();
+            assert!(
+                !restarted.automatic_due(),
+                "restart bypassed the retry budget"
+            );
+            clock.0.fetch_add(1, Ordering::SeqCst);
+            UpdateManager::wake_service(app.handle(), service.clone()).await;
+            assert_eq!(transport.calls.load(Ordering::SeqCst), attempt + 2);
+        }
+        // A deliberate manual retry remains usable during the daily cooldown.
+        *transport.result.lock().unwrap() =
+            Ok(serde_json::to_vec(&vec![public_release("2.0.0", false)]).unwrap());
+        assert_eq!(
+            service.check(true).await.phase,
+            UpdatePhase::UpdateAvailable
+        );
+        assert!(!service.automatic_due());
+    }
+
+    #[tokio::test]
     async fn production_scheduler_delays_retries_once_and_cancels_on_shutdown() {
         async fn boundary(
             timers: &mut tokio::sync::mpsc::UnboundedReceiver<(
@@ -1592,6 +1737,12 @@ mod tests {
         let (delay, resume) = boundary(&mut timers).await;
         assert_eq!(delay, Duration::from_secs(30));
         assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+        UpdateManager::wake_service(app.handle(), manager.service().clone()).await;
+        assert_eq!(
+            transport.calls.load(Ordering::SeqCst),
+            0,
+            "wake bypassed startup delay"
+        );
         assert!(
             timers.try_recv().is_err(),
             "duplicate start created a worker"
@@ -1603,6 +1754,15 @@ mod tests {
             assert_eq!(delay.as_secs(), expected);
             assert_eq!(transport.calls.load(Ordering::SeqCst), attempt + 1);
             if attempt == 3 {
+                clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
+                resume.send(()).unwrap();
+                let (delay, resume) = boundary(&mut timers).await;
+                assert_eq!(delay.as_secs(), 60);
+                assert_eq!(
+                    transport.calls.load(Ordering::SeqCst),
+                    4,
+                    "exhausted retries started another failure cycle"
+                );
                 drop(manager);
                 // Releasing the timer after shutdown must never fetch again.
                 let _ = resume.send(());
@@ -1772,6 +1932,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn restart_rejects_stable_cache_pointing_at_a_different_release() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (initial, transport) = service(
+            serde_json::to_vec(&vec![public_release("2.0.0", false)]).unwrap(),
+            clock.clone(),
+            persistence.clone(),
+        );
+        let offered = initial.check(true).await;
+        for url in [
+            release_page("3.0.0"),
+            "https://svb.miguel.ms/guide/Upgrading.html".into(),
+        ] {
+            let mut saved = initial.preferences().unwrap();
+            saved.cached_offer.as_mut().unwrap().action.url = url;
+            persistence.save(&saved).unwrap();
+            let restarted = UpdateService::new(
+                distribution(),
+                transport.clone(),
+                clock.clone(),
+                persistence.clone(),
+            )
+            .unwrap();
+            assert!(restarted.status().unwrap().action.is_none());
+            assert!(
+                restarted
+                    .claim_download_generation("2.0.0", offered.generation)
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn cached_offer_and_success_timestamp_are_discoverable_after_restart() {
         let clock = Arc::new(FakeClock(AtomicU64::new(100)));
         let persistence = Arc::new(MemoryPersistence::default());
@@ -1879,7 +2072,7 @@ mod tests {
             cached_offer: Some(cached_offer(
                 "2.0.0",
                 Some(this_target()),
-                "https://svb.miguel.ms/guide/Upgrading.html",
+                "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0",
             )),
             ..UpdatePreferences::default()
         });
@@ -2188,7 +2381,7 @@ mod tests {
         let bytes = String::from_utf8(catalog("2.0.0"))
             .unwrap()
             .replace(
-                "https://svb.miguel.ms/guide/Upgrading.html",
+                "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0",
                 "file:///tmp/run",
             )
             .into_bytes();
@@ -2269,23 +2462,35 @@ mod tests {
         assert!(active.dismiss("2.0.1").is_err());
         assert!(
             active
-                .claim_offer("1.9.0", "https://svb.miguel.ms/guide/Upgrading.html")
+                .claim_offer(
+                    "1.9.0",
+                    "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0"
+                )
                 .is_err()
         );
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
+                .claim_offer(
+                    "2.0.0",
+                    "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0"
+                )
                 .is_ok()
         );
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
+                .claim_offer(
+                    "2.0.0",
+                    "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0"
+                )
                 .is_err()
         );
         active.finish_open();
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
+                .claim_offer(
+                    "2.0.0",
+                    "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0"
+                )
                 .is_ok()
         );
     }
@@ -3005,7 +3210,9 @@ mod tests {
                     DistributionEdition::DirectMacos
                         | DistributionEdition::DirectWindows
                         | DistributionEdition::Debian
-                ) && architecture != ApplicationArchitecture::Unknown;
+                ) && architecture != ApplicationArchitecture::Unknown
+                    && (edition != DistributionEdition::DirectMacos
+                        || architecture == ApplicationArchitecture::Aarch64);
                 let service = UpdateService::new(
                     package,
                     Arc::new(FakeTransport {

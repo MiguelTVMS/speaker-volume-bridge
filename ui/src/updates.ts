@@ -23,6 +23,7 @@ export type UpdateStatus = {
   updateNotifications: boolean;
   promptDismissed: boolean;
   offerStale?: boolean;
+  checkFailed?: boolean;
 };
 
 const editions: Record<string, string> = {
@@ -45,6 +46,9 @@ export function updateStateText(status: UpdateStatus): string {
     case 'up_to_date':
       return 'This edition is up to date.';
     case 'update_available':
+      if (status.checkFailed && status.message) {
+        return `Version ${status.availableVersion ?? ''} was available at the last successful check. ${status.message} Check again to retry.`;
+      }
       return status.offerStale
         ? `Version ${status.availableVersion ?? ''} was available at the last successful check. Check again before opening it.`
         : `Version ${status.availableVersion ?? ''} is available.`;

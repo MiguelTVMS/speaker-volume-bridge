@@ -207,6 +207,29 @@ test('policy failure exposes an actionable state and keeps selection', async ({ 
   await expect(page.getByRole('button', { name: 'Check for updates' })).toBeEnabled();
 });
 
+test('Check again recovers when a policy write fails before the backend generation changes', async ({
+  page,
+}) => {
+  await page.goto('/preview.html');
+  await page.getByRole('button', { name: 'Updates', exact: true }).click();
+  await page.evaluate(() => {
+    const host = window as unknown as {
+      __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
+    };
+    const invoke = host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke = (command, args) =>
+      command === 'set_update_policy'
+        ? Promise.reject(new Error('Preference could not be saved.'))
+        : invoke(command, args);
+  });
+  await page.getByRole('combobox', { name: 'Release policy' }).selectOption('prereleases');
+  await expect(page.locator('#update-state')).toContainText('Check again to retry');
+  await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
+  await expect(page.locator('#update-state')).toContainText('is available');
+  await expect(page.getByRole('combobox', { name: 'Release policy' })).toHaveValue('stable');
+  await expect(page.getByRole('button', { name: 'Download update', exact: true })).toBeEnabled();
+});
+
 test('dark dropdown menus give every option an explicit readable surface', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('/preview.html?appearance=dark');

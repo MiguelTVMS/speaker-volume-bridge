@@ -42,6 +42,18 @@ preferences apply across themes. Icons are decorative; buttons retain text label
 
 ## Verification
 
+Updates renders version metadata as flat rows within the existing settings group
+on every platform, without nested card borders, corner rounding or shadows.
+The release policy retains the platform's normal section spacing and separator.
+Windows places those plain metadata rows in one outlined card, matching its other
+settings. Policy and download guidance share the preceding card visually rather
+than appearing in separate cards; action buttons align to the right.
+Windows accent actions use the same 34-pixel minimum height, 4-pixel corners and
+regular text weight as secondary actions, with accent hover, pressed and disabled
+states. Sidebar branding increases SPEAKER's font size proportionally to match
+the natural width of Volume Bridge on every platform. It uses no added tracking
+or transform stretching, and remeasures after fonts finish loading.
+
 Platform selection has automated coverage for macOS, Windows, Linux, and unknown
 hosts. The development-only preview uses mocked Tauri commands and sample devices
 for repeatable visual checks without touching speakers or saved configuration.

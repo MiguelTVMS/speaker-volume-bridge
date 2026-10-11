@@ -461,6 +461,18 @@ function render(nextSnapshot: Snapshot): void {
   );
   // Mount restores saved selections before their labels determine control width.
   if (document.documentElement.dataset.platform === 'macos') sizeSelectedControls(app);
+  const sizeBrand = (): void => {
+    const brand = app.querySelector<HTMLElement>('h1 .sonos-name');
+    const title = app.querySelector<HTMLElement>('h1 > span:last-child');
+    if (!brand || !title) return;
+    const width = brand.getBoundingClientRect().width;
+    if (width > 0) {
+      const size = Number.parseFloat(getComputedStyle(brand).fontSize);
+      brand.style.fontSize = `${(size * title.getBoundingClientRect().width) / width}px`;
+    }
+  };
+  sizeBrand();
+  void document.fonts.ready.then(sizeBrand);
   refreshScheduleView();
   const form = document.querySelector<HTMLFormElement>('#settings');
   const scheduleConfigurationSave = (event: Event): void => {

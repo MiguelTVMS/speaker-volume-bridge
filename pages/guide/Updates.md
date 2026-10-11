@@ -10,6 +10,9 @@ The app never downloads or installs a package itself.
 
 ## Updates page
 
+Version information appears together above the release policy. On Windows, this
+uses a single Settings-style card with plain rows, without nested boxes.
+
 When a newer compatible release is available, **Download update** opens its installer
 download in your default browser. macOS receives the DMG; Windows and Debian receive
 the package matching the installed application's architecture. Complete installation

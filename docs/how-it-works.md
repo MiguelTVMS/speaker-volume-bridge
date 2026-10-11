@@ -240,6 +240,12 @@ and reserve each notification once before sending. Startup waits 30 seconds;
 successful results remain fresh for 24 hours. Bounded retries retain the last valid
 offer on failures. Shutdown cancels the worker and pending requests.
 
+Wake cannot bypass the startup delay. Failures retry after one, five and thirty
+minutes, then daily until recovery; restart preserves this budget. A manual check
+can retry sooner except during a GitHub rate-limit cooldown. Manual errors are
+shown even when an earlier offer remains visible, and failed preference writes
+leave Check for updates usable.
+
 Stable only excludes GitHub prereleases. Include prereleases considers both stable
 and preview releases. Both use the anonymous public release list, compare semantic
 versions and require a compatible official package asset. No Store availability is

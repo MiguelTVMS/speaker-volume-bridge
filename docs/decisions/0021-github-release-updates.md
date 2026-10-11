@@ -28,6 +28,26 @@ Supersedes the catalog transport and delivery portions of ADR 0019 and ADR 0020.
 
 ## Decision
 
+Automatic startup and wake triggers share the 30-second startup gate. Failed
+requests persist a target-scoped failure count: retry after one minute, five
+minutes and thirty minutes, then at most once per day until recovery. Wake and
+restart cannot reset this budget. Manual checks and explicit policy changes can
+retry sooner, subject to the transport's rate-limit cooldown. Success resets the
+failure count; changing edition, architecture, policy or discovery source clears
+incompatible retry state. Shutdown closes the automatic gate before aborting work.
+
+Restart recovery requires the exact release page under both policies. An invalid
+cached action also invalidates freshness so automatic discovery can recover.
+An attempt-state write failure returns an actionable unavailable state before
+network access. A failed policy command rereads the backend identity, preventing
+an optimistic frontend generation from blocking subsequent manual checks.
+Manual refresh errors remain visible beside retained offers.
+
+Installed direct checks are supported for macOS ARM64, Windows x64/ARM64 and
+Debian x64/ARM64. Other application architectures remain excluded, including
+Intel macOS where there is no official compatible installer contract. Package
+metadata for a different operating system cannot enroll a custom build.
+
 New builds read published releases anonymously from the official repository's
 GitHub Releases API. There is no separately maintained version/catalog file,
 GitHub App requirement for checks, website deployment or redirect migration.

@@ -45,6 +45,13 @@ After a successful check, the result remains fresh for 24 hours. Temporary
 failures use bounded retry delays and remain quiet in the background. Manual
 checks can retry and show an error without interrupting volume synchronization.
 
+Wake does not bypass the startup delay. After a failed request, automatic retries
+wait one minute, five minutes and thirty minutes, then one day between further
+attempts. Restart preserves these delays. **Check for updates** can retry sooner
+unless GitHub has imposed a rate-limit cooldown. A failed manual check shows its
+error even when the last known offer remains visible. If saving a release policy
+fails, check again to recover the saved policy and current offer.
+
 Turn off **Automatically check for updates** to disable background requests.
 Debug, demo, custom, sideloaded, or ambiguous packages do not silently enroll in
 automatic checks.
@@ -72,6 +79,8 @@ availability, so direct-release assets never produce Store update offers.
 
 Recognized direct macOS, direct Windows and official Debian packages expose the
 Release policy dropdown. **Stable only** is the default and selects GA releases.
+Direct checks support macOS ARM64 and Windows/Debian x64 or ARM64 application
+builds. Other architectures, including Intel macOS, remain unsupported.
 **Include prereleases** considers GA and public prereleases, including Alpha/Beta
 packages with ordinary numeric versions. The app selects the highest compatible
 semantic version, regardless of publication order. Store, sideloaded, development,

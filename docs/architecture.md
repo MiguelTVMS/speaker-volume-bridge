@@ -379,6 +379,12 @@ test fixtures and manual tooling. New builds use the Releases API contract below
 
 ## Release update discovery
 
+Fresh compatible offers expose both a release-page action and a browser installer
+download action. The backend derives the package URL from the validated release
+and installed target, and authorizes the download through the same generation and
+freshness gate as release-page opening. No renderer-supplied download URL is used.
+An in-app availability notice complements native notifications. See ADR 0021.
+
 The Tauri shell reads the public GitHub Releases API anonymously. Stable only
 filters out prereleases; Include prereleases selects across GA and previews.
 Semantic version precedence, installed edition and application architecture

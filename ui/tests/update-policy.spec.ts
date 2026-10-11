@@ -12,6 +12,7 @@ for (const edition of ['direct_macos', 'direct_windows', 'debian']) {
     await selector.selectOption('prereleases');
     await expect(page.locator('#update-state')).toHaveText('Checking for updates…');
     await expect(page.getByRole('button', { name: 'Open update page' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Download update' })).toHaveCount(0);
     await expect(page.locator('#update-state')).toContainText('is available');
     await expect(selector).toHaveValue('prereleases');
     await expect(page.locator('#automatic-update-checks')).not.toBeChecked();
@@ -20,6 +21,58 @@ for (const edition of ['direct_macos', 'direct_windows', 'debian']) {
     await expect(page.getByText(/you will receive the next newer stable release/)).toBeVisible();
   });
 }
+
+for (const edition of ['direct_macos', 'direct_windows', 'debian']) {
+  test(`${edition} offers an explicit download without installation`, async ({ page }) => {
+    await page.goto(`/preview.html?edition=${edition}`);
+    await expect(page.locator('#update-available-notice')).toBeVisible();
+    await page.getByRole('button', { name: 'Updates', exact: true }).click();
+    await expect(
+      page.getByText('Opens the installer download in your browser.', { exact: false }),
+    ).toBeVisible();
+    await page.evaluate(() => {
+      const host = window as unknown as {
+        __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
+        downloadCommands?: { command: string; args?: unknown }[];
+      };
+      host.downloadCommands = [];
+      const invoke = host.__TAURI_INTERNALS__.invoke;
+      host.__TAURI_INTERNALS__.invoke = (command, args) => {
+        if (command.startsWith('open_update') || command.includes('install'))
+          host.downloadCommands!.push({ command, args });
+        return invoke(command, args);
+      };
+    });
+    await page.getByRole('button', { name: 'Download update', exact: true }).click();
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { downloadCommands: unknown[] }).downloadCommands,
+      ),
+    ).toEqual([{ command: 'open_update_download', args: { version: '1.8.0', generation: 0 } }]);
+    await expect(page.getByRole('button', { name: 'Open update page' })).toBeVisible();
+    await page.getByRole('button', { name: 'Later', exact: true }).click();
+    await expect(page.locator('#update-available-notice')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Download update', exact: true })).toBeVisible();
+  });
+}
+
+test('a browser-opening failure retains the release-page fallback', async ({ page }) => {
+  await page.goto('/preview.html');
+  await page.getByRole('button', { name: 'Updates', exact: true }).click();
+  await page.evaluate(() => {
+    const host = window as unknown as {
+      __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
+    };
+    const invoke = host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke = (command, args) =>
+      command === 'open_update_download'
+        ? Promise.reject(new Error('Browser unavailable.'))
+        : invoke(command, args);
+  });
+  await page.getByRole('button', { name: 'Download update' }).click();
+  await expect(page.locator('#notice')).toContainText('You can also use Open update page.');
+  await expect(page.getByRole('button', { name: 'Open update page' })).toBeEnabled();
+});
 
 for (const edition of [
   'microsoft_store',
@@ -91,6 +144,8 @@ for (const [edition, name] of [
     await expect(page.getByRole('button', { name: 'Check for updates' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Open update page' })).toHaveCount(0);
     await expect(page.locator('#automatic-update-checks')).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Download update' })).toHaveCount(0);
+    await expect(page.locator('#update-available-notice')).toHaveCount(0);
     await expect(page.locator('#update-notifications')).toBeDisabled();
     await page.evaluate(() => {
       const host = window as unknown as {

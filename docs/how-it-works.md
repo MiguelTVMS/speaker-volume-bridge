@@ -69,7 +69,14 @@ native update notices independently from automatic checks; enabling it is the
 only update flow that may request OS permission. Open update page is enabled only for the exact
 validated offer; the shell rechecks version and URL immediately before invoking
 the operating system's default HTTPS handler. No browser opens at startup and no
-package is downloaded or installed.
+package is downloaded or installed automatically.
+
+For a fresh compatible offer, Download update opens the selected installer asset
+in the default browser. The user completes installation manually. Open update page
+remains available for release notes or download trouble. The sidebar shows an
+available-version notice independently of OS notification permission. Later hides
+that notice but keeps both actions on Updates. Downloads use the same policy,
+version, edition, architecture and freshness guards as release-page actions.
 
 ## Synchronization strategy
 

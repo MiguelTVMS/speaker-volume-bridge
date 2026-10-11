@@ -10,6 +10,19 @@ The app never downloads or installs a package itself.
 
 ## Updates page
 
+When a newer compatible release is available, **Download update** opens its installer
+download in your default browser. macOS receives the DMG; Windows and Debian receive
+the package matching the installed application's architecture. Complete installation
+manually after downloading. The app does not quit, run the installer or replace
+itself. **Open update page** remains available for release notes and download help.
+The selected Stable only or Include prereleases policy still controls the offer.
+
+A version-available notice also appears in the Settings sidebar, including when
+native notifications are disabled or denied. Click it to open Updates. **Later**
+hides the notice for this session but leaves the download available on Updates.
+An expired offer requires another check before downloading. Store installations
+continue to use their Store action instead of a direct download.
+
 Open **Updates** in Settings to see the installed version and recognized
 distribution, the last successful check, and the current checker state. Choose
 **Check for updates** for a manual check. When a verified update is available,

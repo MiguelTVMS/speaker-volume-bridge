@@ -62,7 +62,7 @@ test('update controls are grouped and the HTTPS repository link uses the native 
   await page.goto('/preview.html?platform=macos');
   await page.getByRole('button', { name: 'Updates', exact: true }).click();
   await expect(page.locator('#update-state')).toHaveText('Version 1.8.0 is available.');
-  await expect(page.locator('.update-actions button')).toHaveCount(3);
+  await expect(page.locator('.update-actions button')).toHaveCount(4);
   const notifications = page.getByRole('switch', { name: /Update notifications/ });
   await notifications.uncheck();
   await expect(notifications).not.toBeChecked();
@@ -88,6 +88,8 @@ test('update controls are grouped and the HTTPS repository link uses the native 
   await expect(page.locator('#notice')).toHaveText(
     'Notifications remain disabled in system settings.',
   );
+  await expect(page.locator('#update-available-notice')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download update' })).toBeVisible();
   await page.getByRole('button', { name: 'About', exact: true }).click();
   const repository = page.getByRole('link', {
     name: 'https://github.com/MiguelTVMS/speaker-volume-bridge',

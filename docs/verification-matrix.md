@@ -2,6 +2,15 @@
 
 ## Notify and browser download acceptance
 
+Browser regressions exercise a native update-status event while an active keyboard
+slider gesture defers the production render path. Download submits the displayed
+offer, and ending the gesture allows the newer status to render. A second regression
+disables automatic checks, advances the clock beyond one day, rejects the download,
+returns a stale refreshed offer and verifies both actions disappear until an explicit
+successful check. Both regressions failed before the fixes and pass afterward.
+Event delivery and command responses are simulated; native browser opening remains
+subject to the packaged acceptance below.
+
 Download update and Open release share one action row, with Open release on the
 right. Browser coverage checks their relative layout and that Open release invokes
 the existing guarded opener with the exact selected GitHub release page.

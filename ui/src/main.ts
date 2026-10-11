@@ -403,7 +403,7 @@ function render(nextSnapshot: Snapshot): void {
           <div class="settings-group" data-update>
             <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${updateStatus.lastSuccessfulCheck ? escapeHtml(new Date(updateStatus.lastSuccessfulCheck * 1000).toLocaleString()) : 'Never'}</dd></div></dl>
             ${releasePolicyControl(updateStatus)}
-            ${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<div class="update-actions">${updateStatus.downloadAction ? '<button class="primary" type="button" id="download-update">Download update</button>' : ''}<button class="secondary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open release</button></div>${updateStatus.downloadAction ? '<p class="setting-note">Opens the installer download in your browser. Install it manually after downloading; the app will not quit or install it for you.</p>' : ''}` : ''}
+            ${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<div class="update-actions">${updateStatus.downloadAction ? `<button class="primary" type="button" id="download-update" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}">Download update</button>` : ''}<button class="secondary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open release</button></div>${updateStatus.downloadAction ? '<p class="setting-note">Opens the installer download in your browser. Install it manually after downloading; the app will not quit or install it for you.</p>' : ''}` : ''}
             <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks public GitHub Releases without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
             <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
             <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}${storeActionLabel(updateStatus) ? `<button class="primary" type="button" id="open-update-store">${storeActionLabel(updateStatus)}</button>` : `<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button>`}</div>
@@ -530,9 +530,12 @@ function render(nextSnapshot: Snapshot): void {
   document.querySelector('#open-update-store')?.addEventListener('click', () => {
     void invoke('open_update_store').catch((error) => notice(String(error)));
   });
-  document.querySelector('#download-update')?.addEventListener('click', () => {
-    void downloadUpdate();
-  });
+  document
+    .querySelector('#download-update')
+    ?.addEventListener(
+      'click',
+      (event) => void downloadUpdate(event.currentTarget as HTMLButtonElement),
+    );
   document
     .querySelector('#check-for-updates')
     ?.addEventListener('click', () => void checkForUpdates());
@@ -937,17 +940,20 @@ async function openUpdatePage(button: HTMLButtonElement): Promise<void> {
   }
 }
 
-async function downloadUpdate(): Promise<void> {
-  if (!updateStatus.availableVersion || !updateStatus.downloadAction || updateStatus.offerStale)
-    return;
+async function downloadUpdate(button: HTMLButtonElement): Promise<void> {
   try {
     await invoke('open_update_download', {
-      version: updateStatus.availableVersion,
-      generation: updateStatus.generation ?? 0,
+      version: button.dataset.version,
+      generation: Number(button.dataset.generation ?? 0),
     });
     notice('Download opened in your browser. Install the package manually when it finishes.');
   } catch (error) {
-    notice(`${String(error)} You can also use Open release.`);
+    await checkForUpdates();
+    const fallback =
+      updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action
+        ? 'You can also use Open release.'
+        : 'Check for updates again before downloading.';
+    notice(`${String(error)} ${fallback}`);
   }
 }
 

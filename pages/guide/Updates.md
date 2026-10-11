@@ -25,6 +25,8 @@ native notifications are disabled or denied. Click it to open Updates. **Later**
 hides the notice for this session but leaves the download available on Updates.
 An expired offer requires another check before downloading. Store installations
 continue to use their Store action instead of a direct download.
+If a download cannot be opened, the app refreshes the offer. Open release remains
+available when the refreshed offer is valid; otherwise use Check for updates to retry.
 
 Open **Updates** in Settings to see the installed version and recognized
 distribution, the last successful check, and the current checker state. Choose

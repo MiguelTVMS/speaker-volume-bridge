@@ -385,6 +385,9 @@ Fresh compatible offers expose both a release-page action and a browser installe
 download action. The backend derives the package URL from the validated release
 and installed target, and authorizes the download through the same generation and
 freshness gate as release-page opening. No renderer-supplied download URL is used.
+The rendered download button captures its offer version and generation, so deferred
+form rendering cannot substitute a newer offer at click time. Rejected downloads
+refresh through the shared manual-check path before showing fallback guidance.
 An in-app availability notice complements native notifications. See ADR 0021.
 
 The Tauri shell reads the public GitHub Releases API anonymously. Stable only

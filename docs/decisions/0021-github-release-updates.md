@@ -11,6 +11,10 @@ it never accepts a download URL from the renderer. The command reuses the shared
 offer generation, freshness, version and duplicate-opening checks. Cached offers
 restore this action while fresh; stale or changed-policy offers cannot open it.
 The separate release-page action remains available as a fallback.
+Both actions submit the version and generation captured when their buttons were
+rendered, even when a gesture defers rendering a newer status event. A rejected
+download triggers a manual refresh; guidance recommends Open release only when
+the refreshed offer is still available and fresh. Otherwise it directs a retry.
 
 The default browser handles the download only after an explicit click. The app
 does not fetch package bytes, execute an installer, quit or replace itself.

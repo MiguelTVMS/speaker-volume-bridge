@@ -36,7 +36,7 @@ for (const platform of ['macos', 'windows', 'linux']) {
     await page.getByRole('button', { name: 'Later', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Later selected' })).toBeDisabled();
     await page.getByRole('button', { name: 'Check for updates' }).click();
-    await expect(page.getByRole('button', { name: 'Open update page' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open release' })).toBeVisible();
   });
 }
 

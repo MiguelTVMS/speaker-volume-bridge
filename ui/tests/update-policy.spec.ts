@@ -11,7 +11,7 @@ for (const edition of ['direct_macos', 'direct_windows', 'debian']) {
     await page.locator('#automatic-update-checks').uncheck();
     await selector.selectOption('prereleases');
     await expect(page.locator('#update-state')).toHaveText('Checking for updates…');
-    await expect(page.getByRole('button', { name: 'Open update page' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open release' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Download update' })).toHaveCount(0);
     await expect(page.locator('#update-state')).toContainText('is available');
     await expect(selector).toHaveValue('prereleases');
@@ -49,7 +49,31 @@ for (const edition of ['direct_macos', 'direct_windows', 'debian']) {
         () => (window as unknown as { downloadCommands: unknown[] }).downloadCommands,
       ),
     ).toEqual([{ command: 'open_update_download', args: { version: '1.8.0', generation: 0 } }]);
-    await expect(page.getByRole('button', { name: 'Open update page' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open release' })).toBeVisible();
+    const download = await page
+      .getByRole('button', { name: 'Download update', exact: true })
+      .boundingBox();
+    const release = await page
+      .getByRole('button', { name: 'Open release', exact: true })
+      .boundingBox();
+    expect(Math.abs(download!.y - release!.y)).toBeLessThan(2);
+    expect(release!.x).toBeGreaterThan(download!.x + download!.width);
+    await page.getByRole('button', { name: 'Open release', exact: true }).click();
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { downloadCommands: unknown[] }).downloadCommands,
+      ),
+    ).toEqual([
+      { command: 'open_update_download', args: { version: '1.8.0', generation: 0 } },
+      {
+        command: 'open_update_page',
+        args: {
+          version: '1.8.0',
+          generation: 0,
+          url: 'https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0',
+        },
+      },
+    ]);
     await page.getByRole('button', { name: 'Later', exact: true }).click();
     await expect(page.locator('#update-available-notice')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Download update', exact: true })).toBeVisible();
@@ -70,8 +94,8 @@ test('a browser-opening failure retains the release-page fallback', async ({ pag
         : invoke(command, args);
   });
   await page.getByRole('button', { name: 'Download update' }).click();
-  await expect(page.locator('#notice')).toContainText('You can also use Open update page.');
-  await expect(page.getByRole('button', { name: 'Open update page' })).toBeEnabled();
+  await expect(page.locator('#notice')).toContainText('You can also use Open release.');
+  await expect(page.getByRole('button', { name: 'Open release' })).toBeEnabled();
 });
 
 for (const edition of [
@@ -142,7 +166,7 @@ for (const [edition, name] of [
     await page.getByRole('button', { name: 'Updates', exact: true }).click();
     await expect(page.locator('#update-state')).toContainText(`Updates are managed by the ${name}`);
     await expect(page.getByRole('button', { name: 'Check for updates' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Open update page' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open release' })).toHaveCount(0);
     await expect(page.locator('#automatic-update-checks')).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Download update' })).toHaveCount(0);
     await expect(page.locator('#update-available-notice')).toHaveCount(0);

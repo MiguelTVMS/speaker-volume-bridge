@@ -2,6 +2,10 @@
 
 ## Notify and browser download acceptance
 
+Download update and Open release share one action row, with Open release on the
+right. Browser coverage checks their relative layout and that Open release invokes
+the existing guarded opener with the exact selected GitHub release page.
+
 Shared service tests cover newest stable/preview selection, exact macOS ARM64,
 Windows x64/ARM64 and Debian x64/ARM64 installer URLs, notification deduplication,
 Later, restart restoration, stale offers, duplicate clicks and policy-generation

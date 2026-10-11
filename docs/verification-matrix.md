@@ -19,6 +19,11 @@ Each reported failure below was reproduced before its fix and passed afterward:
   longer backoff. A target-scoped persisted failure count now governs all automatic
   triggers, with one-, five- and thirty-minute retries followed by daily checks.
   Manual recovery remains usable. Success and policy/source changes reset the budget.
+  A separate restarted production-worker regression covers one and two persisted
+  failures. It reproduced extra delays from the worker's independent retry loop;
+  the worker now polls the shared due state once per minute, without adding another
+  backoff sequence. Both restarted cases retry at the persisted five-/thirty-minute
+  boundary in the injected timer test. Native polling can add up to one minute.
 - Production service restart: Stable restored a cached action pointing at another
   release or the obsolete guide. Both policies now require the exact release page;
   a rejected cache invalidates freshness as well as the action.

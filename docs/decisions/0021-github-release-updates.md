@@ -35,6 +35,9 @@ restart cannot reset this budget. Manual checks and explicit policy changes can
 retry sooner, subject to the transport's rate-limit cooldown. Success resets the
 failure count; changing edition, architecture, policy or discovery source clears
 incompatible retry state. Shutdown closes the automatic gate before aborting work.
+The worker polls that single due state once per minute, so no independent retry
+sequence adds delays after restart or wake; real timer alignment can add up to
+one minute to a due automatic request.
 
 Restart recovery requires the exact release page under both policies. An invalid
 cached action also invalidates freshness so automatic discovery can recover.

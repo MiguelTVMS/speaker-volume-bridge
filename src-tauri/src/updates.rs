@@ -1334,32 +1334,15 @@ impl UpdateManager {
                 return;
             }
             service.automatic_ready.store(true, Ordering::SeqCst);
-            #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with pinned Rust.
-            let backoff = [
-                Duration::from_secs(60),
-                Duration::from_secs(5 * 60),
-                Duration::from_secs(30 * 60),
-            ];
             loop {
                 if stopped.load(Ordering::SeqCst) {
                     return;
                 }
                 if service.automatic_due() {
-                    let status = run_check_and_deliver(&app_handle, &service, false).await;
-                    if status.check_failed {
-                        for delay in backoff {
-                            sleep(delay).await;
-                            if stopped.load(Ordering::SeqCst) {
-                                return;
-                            }
-                            let status = run_check_and_deliver(&app_handle, &service, false).await;
-                            if !status.check_failed {
-                                break;
-                            }
-                        }
-                    }
+                    run_check_and_deliver(&app_handle, &service, false).await;
                 }
-                #[allow(clippy::duration_suboptimal_units)]
+                // The service owns the persisted deadline. A second retry loop
+                // here would add delays after restarts or intervening wake checks.
                 sleep(Duration::from_secs(60)).await;
             }
         }));
@@ -1701,6 +1684,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn restarted_production_scheduler_retries_from_persisted_failure_count() {
+        for (failures, cooldown, retry_delay) in [(1, 60, 300), (2, 300, 1800)] {
+            let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+            let persistence = Arc::new(MemoryPersistence::default());
+            let (initial, transport) = service(Vec::new(), clock.clone(), persistence.clone());
+            *transport.result.lock().unwrap() = Err("offline");
+            for _ in 0..failures {
+                initial.check(true).await;
+            }
+            clock.0.store(100 + cooldown, Ordering::SeqCst);
+            let restarted = Arc::new(
+                UpdateService::new(
+                    distribution(),
+                    transport.clone(),
+                    clock.clone(),
+                    persistence,
+                )
+                .unwrap(),
+            );
+            let app = tauri::test::mock_builder()
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .unwrap();
+            let manager = UpdateManager::new(restarted);
+            let (sender, mut timers) = tokio::sync::mpsc::unbounded_channel();
+            manager.start_with_sleep(app.handle(), move |delay| {
+                let (resume, wait) = tokio::sync::oneshot::channel();
+                sender.send((delay, resume)).unwrap();
+                async move {
+                    let _ = wait.await;
+                }
+            });
+            let (delay, resume) = timers.recv().await.unwrap();
+            assert_eq!(delay.as_secs(), 30);
+            clock.0.fetch_add(30, Ordering::SeqCst);
+            resume.send(()).unwrap();
+            for elapsed in (0..=retry_delay).step_by(60) {
+                let (delay, resume) = tokio::time::timeout(Duration::from_secs(5), timers.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    transport.calls.load(Ordering::SeqCst),
+                    failures + 1 + usize::from(elapsed == retry_delay)
+                );
+                assert_eq!(
+                    delay.as_secs(),
+                    60,
+                    "worker added its own retry cycle after restart"
+                );
+                if elapsed == retry_delay {
+                    drop(manager);
+                    break;
+                }
+                clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
+                resume.send(()).unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn production_scheduler_delays_retries_once_and_cancels_on_shutdown() {
         async fn boundary(
             timers: &mut tokio::sync::mpsc::UnboundedReceiver<(
@@ -1749,20 +1792,19 @@ mod tests {
         );
         clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
         resume.send(()).unwrap();
-        for (attempt, expected) in [60, 300, 1800, 60].into_iter().enumerate() {
+        for elapsed in (0..=2220).step_by(60) {
             let (delay, resume) = boundary(&mut timers).await;
-            assert_eq!(delay.as_secs(), expected);
-            assert_eq!(transport.calls.load(Ordering::SeqCst), attempt + 1);
-            if attempt == 3 {
-                clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
-                resume.send(()).unwrap();
-                let (delay, resume) = boundary(&mut timers).await;
-                assert_eq!(delay.as_secs(), 60);
-                assert_eq!(
-                    transport.calls.load(Ordering::SeqCst),
-                    4,
-                    "exhausted retries started another failure cycle"
-                );
+            assert_eq!(delay.as_secs(), 60);
+            let expected = 1
+                + usize::from(elapsed >= 60)
+                + usize::from(elapsed >= 360)
+                + usize::from(elapsed >= 2160);
+            assert_eq!(
+                transport.calls.load(Ordering::SeqCst),
+                expected,
+                "worker bypassed the service retry deadline"
+            );
+            if elapsed == 2220 {
                 drop(manager);
                 // Releasing the timer after shutdown must never fetch again.
                 let _ = resume.send(());

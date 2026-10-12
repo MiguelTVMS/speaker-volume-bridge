@@ -34,6 +34,9 @@ distribution, the last successful check, and the current checker state. Choose
 **Open release** opens its validated HTTPS release page in the
 default browser.
 
+The last successful check uses your computer's regional date format, local time
+zone and 12/24-hour clock preference. Reopening Settings refreshes those preferences.
+
 An available update remains visible after choosing **Later** or denying an
 operating-system notification. The app revalidates the offered version and URL
 immediately before opening it.

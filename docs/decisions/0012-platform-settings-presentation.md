@@ -4,6 +4,12 @@
 
 ## Decision
 
+macOS Settings starts at 740 by 780 logical points, with a fixed 740-point width
+and vertical resizing. The height matches the accepted native window size.
+Updates timestamps use the desktop's regional format locale and 12/24-hour
+preference, rather than assuming the embedded WebView's language is the user's
+region. Read these preferences at startup and when Settings regains focus.
+
 Keep one accessible settings form and command contract, with separate CSS
 presentations selected from the desktop WebView's host operating-system user
 agent. macOS uses grouped inset rows, colored section icons, subtle sidebar

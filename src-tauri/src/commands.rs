@@ -207,6 +207,11 @@ pub fn get_system_hour12() -> Option<bool> {
 }
 
 #[tauri::command]
+pub fn get_system_locale() -> Option<String> {
+    crate::clock_format::locale()
+}
+
+#[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri injects managed state by value.
 pub fn get_snapshot(state: State<'_, AppState>) -> Result<UiSnapshot, String> {
     state

@@ -29,6 +29,7 @@ import { LiveStatus } from './live-status';
 import { UserWrites } from './user-writes';
 import {
   editionLabel,
+  formatLastSuccessfulCheck,
   releasePolicyControl,
   storeActionLabel,
   updateStateText,
@@ -38,6 +39,9 @@ import './style.css';
 import './platform.css';
 import './windows.css';
 import './linux.css';
+
+let systemLocale: string | undefined;
+let systemClockHour12: boolean | undefined;
 
 const platform = presentationOverride ?? desktopPlatform(navigator.userAgent);
 document.documentElement.dataset.platform = platform;
@@ -401,7 +405,7 @@ function render(nextSnapshot: Snapshot): void {
           `<div class="panel-heading"><h2>Updates</h2><p>${storeActionLabel(updateStatus) ? 'Manage updates through the Store that installed this edition.' : 'Check for a release published for this installed edition.'}</p></div>
           <p id="update-state" class="setting-note update-state${updateStatus.phase === 'update_available' ? ' update-state-available' : ''}" aria-live="polite">${escapeHtml(updateStateText(updateStatus))}</p>
           <div class="settings-group" data-update>
-            <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${updateStatus.lastSuccessfulCheck ? escapeHtml(new Date(updateStatus.lastSuccessfulCheck * 1000).toLocaleString()) : 'Never'}</dd></div></dl>
+            <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${escapeHtml(formatLastSuccessfulCheck(updateStatus.lastSuccessfulCheck, systemLocale, systemClockHour12))}</dd></div></dl>
             ${releasePolicyControl(updateStatus)}
             ${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<div class="update-actions">${updateStatus.downloadAction ? `<button class="primary" type="button" id="download-update" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}">Download update</button>` : ''}<button class="secondary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open release</button></div>${updateStatus.downloadAction ? '<p class="setting-note">Opens the installer download in your browser. Install it manually after downloading; the app will not quit or install it for you.</p>' : ''}` : ''}
             <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks public GitHub Releases without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
@@ -1021,9 +1025,12 @@ async function reset(): Promise<void> {
 Promise.all([
   invoke<Snapshot>('get_snapshot'),
   invoke<boolean | null>('get_system_hour12').catch(() => null),
+  invoke<string | null>('get_system_locale').catch(() => null),
   invoke<UpdateStatus>('get_update_status').catch(() => updateStatus),
 ])
-  .then(([nextSnapshot, hour12, initialUpdateStatus]) => {
+  .then(([nextSnapshot, hour12, locale, initialUpdateStatus]) => {
+    systemLocale = locale ?? undefined;
+    systemClockHour12 = hour12 ?? undefined;
     updateStatus = initialUpdateStatus;
     setSystemHour12(hour12);
     render(nextSnapshot);
@@ -1051,7 +1058,7 @@ async function refreshAllSettings(): Promise<void> {
   const request = ++refreshRequest;
   const revision = editRevision;
   try {
-    const [next, speaker, outputs, discovered, diagnostics, hour12, nextUpdateStatus] =
+    const [next, speaker, outputs, discovered, diagnostics, hour12, locale, nextUpdateStatus] =
       await Promise.all([
         invoke<Snapshot>('get_snapshot'),
         invoke<SpeakerSettings>('get_speaker_settings'),
@@ -1059,6 +1066,7 @@ async function refreshAllSettings(): Promise<void> {
         invoke<DiscoveredSonos[]>('discover_sonos').catch(() => null),
         invoke<Diagnostics>('diagnostics').catch(() => null),
         invoke<boolean | null>('get_system_hour12').catch(() => null),
+        invoke<string | null>('get_system_locale').catch(() => null),
         invoke<UpdateStatus>('get_update_status').catch(() => null),
       ]);
     if (
@@ -1071,6 +1079,8 @@ async function refreshAllSettings(): Promise<void> {
       )
     )
       return;
+    systemLocale = locale ?? undefined;
+    systemClockHour12 = hour12 ?? undefined;
     setSystemHour12(hour12);
     if (nextUpdateStatus && (nextUpdateStatus.generation ?? 0) >= (updateStatus.generation ?? 0))
       updateStatus = nextUpdateStatus;

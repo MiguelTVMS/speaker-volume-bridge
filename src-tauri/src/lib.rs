@@ -197,6 +197,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             ui_demo_platform,
             commands::get_snapshot,
             commands::get_system_hour12,
+            commands::get_system_locale,
             commands::save_night_schedule,
             commands::enable_night_schedule,
             commands::set_schedule_notifications,

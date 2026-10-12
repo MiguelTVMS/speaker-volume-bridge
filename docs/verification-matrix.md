@@ -32,7 +32,7 @@ Gatekeeper installation or App Store receipt acceptance.
 | Full restart | Restored Include prereleases, cached 1.8.2 offer and enabled notification preference; persisted notified-version identities retained |
 | Native notification deduplication | Fresh startup, repeated manual check and full process restart produced one successful native submission for the same stable version |
 | Visible notification and activation | Still outstanding; system notification surface cannot yet be inspected reliably by the current computer-use tool |
-| Tray menu and reopening Settings | Still outstanding; menu-bar surface inspection times out |
+| Tray menu and reopening Settings | Passed with user assistance: native watcher captured Open settings, Check for updates, Diagnostics and Quit; user confirmed both Settings actions worked, and subsequent native inspection verified Updates was visible |
 
 The browser download completed before cancellation was possible; it remains an
 inert downloaded file. Browser inspection of internal download pages is blocked
@@ -47,6 +47,23 @@ unrelated notification contents are outside the acceptance scope.
 Physical speaker synchronization, sleep/wake, installed Store editions and native
 Windows/Linux acceptance remain unverified. Required cross-platform acceptance
 still prevents closure of #161, #162, #163 and #178.
+
+### Regional timestamp and default-height follow-up
+
+The bare WebView date formatter used US month/day ordering and AM/PM despite the
+desktop's Portugal region override and 24-hour clock. Production startup browser
+regressions reproduced both the regional-order and clock mismatch before the fix.
+Updates now reads the desktop format locale and clock preference at startup and
+on focus refresh. The adapter translates macOS's region override into an explicit
+locale region because JavaScript Intl ignores the `rg` extension. Windows reads
+the user format locale; Linux follows LC_ALL, LC_TIME and LANG precedence.
+Missing native preferences fall back to the WebView locale without blocking
+Settings. Stored timestamps and update freshness are unchanged.
+
+The macOS default height is 780 logical points, matching the user's measured
+740-by-780 Settings window. Width stays fixed at 740 and vertical resizing remains
+available. The normal browser suite verifies the configured default and schedule
+layout; native verification of the rebuilt bundle is recorded separately below.
 
 ## Notification readiness follow-up, 2026-10-11
 

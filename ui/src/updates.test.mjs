@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   editionLabel,
+  formatLastSuccessfulCheck,
   storeActionLabel,
   releasePolicyControl,
   updateStateText,
@@ -79,4 +80,13 @@ test('Store editions explain delegation and expose only their Store action', () 
     assert.doesNotMatch(updateStateText(managed), /up to date|unavailable/i);
   }
   assert.equal(storeActionLabel(status('idle')), null);
+});
+
+test('last successful check handles absent time and unavailable native locale', () => {
+  assert.equal(formatLastSuccessfulCheck(null, 'en-PT', false), 'Never');
+  assert.notEqual(formatLastSuccessfulCheck(0, 'en-PT', false), 'Never');
+  assert.equal(
+    formatLastSuccessfulCheck(1791108000, 'invalid_locale', false),
+    formatLastSuccessfulCheck(1791108000, undefined, false),
+  );
 });

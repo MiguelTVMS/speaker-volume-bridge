@@ -63,7 +63,9 @@ manual failures are visible and retryable. Debug, demo, custom and ambiguous
 packages do not check automatically.
 
 The Updates page shows the installed version and distribution, last successful
-check and every checker state. An available offer remains discoverable after
+check and every checker state. The check date and time follow the desktop's
+regional format, local time zone and 12/24-hour preference, refreshed when
+Settings regains focus. An available offer remains discoverable after
 Later or notification denial. The persisted Update notifications switch suppresses
 native update notices independently from automatic checks; enabling it is the
 only update flow that may request OS permission. Open release is enabled only for the exact

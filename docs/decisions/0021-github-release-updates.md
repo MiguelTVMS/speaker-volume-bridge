@@ -28,6 +28,12 @@ Supersedes the catalog transport and delivery portions of ADR 0019 and ADR 0020.
 
 ## Decision
 
+The last successful check is stored as an absolute timestamp and displayed in
+the current local time zone using the desktop format locale and clock preference.
+macOS regional overrides, Windows user format locale and Linux time locale are
+resolved in the shell adapter. Presentation refreshes on focus; localization does
+not change freshness, ordering, retry or notification identity.
+
 Automatic startup and wake triggers share the 30-second startup gate. Failed
 requests persist a target-scoped failure count: retry after one minute, five
 minutes and thirty minutes, then at most once per day until recovery. Wake and

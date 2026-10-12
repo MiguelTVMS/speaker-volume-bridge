@@ -2051,9 +2051,10 @@ The rebuilt Windows application also started in the interactive desktop session
 and remained responsive.
 The Ubuntu application stayed running after launch in the logged-in Wayland
 session, with PipeWire's PulseAudio interface available. These checks establish
-native compilation, automated regressions and startup. Windows native tray
-navigation and live volume behavior remain unverified. Physical output replacement
-and end-to-end speaker reconnect acceptance remain unverified on both guests.
+native compilation, automated regressions and startup. The user subsequently
+confirmed that Windows Diagnostics and Updates tray actions open correctly and
+that Windows volume behavior works correctly. Physical output replacement and
+end-to-end speaker reconnect acceptance remain unverified on both guests.
 Ubuntu live follow-up and user-confirmed tray acceptance are recorded below.
 Website review: no update needed for this verification-only addition; existing
 user guidance and supported behavior are unchanged.

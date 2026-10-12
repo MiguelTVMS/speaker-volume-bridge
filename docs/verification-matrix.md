@@ -2057,3 +2057,19 @@ end-to-end speaker reconnect acceptance remain unverified on these two guests:
 the desktop automation connection became unavailable during visual inspection.
 Website review: no update needed for this verification-only addition; existing
 user guidance and supported behavior are unchanged.
+
+
+Ubuntu live follow-up: with the source app connected and a fixed output selected,
+two small rapid volume sequences (24%, 25%, 24%, 26%) each returned to the starting
+26% and remained there for all 30 post-gesture samples. A guest-local probe using
+`LinuxAudioController::start` and its production subscription received all four
+state callbacks in sequence, with no unavailable event. App logs showed no new
+listener failure or session restart during these gestures. This verifies the
+observed guest output settling and native callback delivery, not audible latency
+or physical USB reconnection. Native tray navigation still requires interactive
+confirmation because desktop automation could observe but could not send clicks.
+With the same fixed output selected, a temporary virtual output was created,
+made default, then the original default was restored and the temporary output
+removed. App logs recorded no audio failure, new attachment or speaker
+subscription restart. This covers unrelated default-output topology changes;
+it does not cover disappearance of the selected physical output.

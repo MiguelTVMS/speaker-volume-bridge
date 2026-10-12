@@ -197,8 +197,8 @@ impl CallbackListener {
     }
     /// Queued volume observations predating a fresh reconciliation must not undo it.
     /// Settings invalidations are retained independently of volume state.
-    pub fn discard_volume_observations_before_now(&mut self) {
-        self.volume_observation_floor = Some(Instant::now());
+    pub fn discard_volume_observations_through(&mut self, read_completed_at: Instant) {
+        self.volume_observation_floor = Some(read_completed_at);
     }
     pub async fn recv(&mut self) -> Option<RenderingControlNotification> {
         let (received_at, mut event) = self.events.recv().await?;

@@ -25,8 +25,9 @@ arrive; only the newest pending volume is dispatched. Mute changes bypass the
 debounce and supersede queued volume. A final speaker read runs after settling
 even when fallback polling is disabled. Rejected speaker observations do not
 change the waiting UI snapshot. They still invalidate mismatched cached commands.
-Volume observations queued before the final read completes cannot overwrite its
-fresh state; independent settings invalidations are retained. After settling, status remains degraded or polling
+Volume observations queued at or before a settling or output-change speaker read
+completes cannot overwrite its fresh state. Notifications received during later
+local-audio work remain deliverable; independent settings invalidations are retained. After settling, status remains degraded or polling
 fallback when the event subscription is unavailable. See ADR 0024.
 The coordinator does not resend a volume or mute value until it differs from
 the last sent value. When GENA delivery is healthy it polls slowly for health;

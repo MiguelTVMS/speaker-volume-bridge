@@ -488,7 +488,8 @@ Runtime observation publication is shared by notification, health-read and gestu
 settling paths. Rejected observations leave the snapshot unchanged; accepted state
 is published with the current subscription availability and polling policy (ADR 0024).
 
-The callback listener timestamps queued observations. Gesture reconciliation sets
-a volume-observation cutoff after the fresh read, retaining independent settings
-invalidations while excluding older queued volume state (ADR 0024). Core Audio
+The callback listener timestamps queued observations. Gesture and output-change reconciliation set
+a volume-observation cutoff at the fresh speaker read completion, before local
+audio application or snapshot publication. Independent settings invalidations and
+newer notifications remain deliverable (ADR 0024). Core Audio
 stream channel elements are cumulative across buffers to keep registrations unique.

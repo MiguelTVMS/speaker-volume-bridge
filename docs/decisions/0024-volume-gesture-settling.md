@@ -73,13 +73,16 @@ state or failed attachment still enters bounded recovery.
 
 ## Ordering queued notifications across the final read
 
-The callback listener timestamps received observations. Once the final settling
-read completes, volume notifications queued before that boundary are stripped of
+The callback listener timestamps received observations. The coordinator captures the completion time of each speaker read before any
+local-audio effect. Settling and output-change reconciliation use that timestamp;
+volume notifications queued at or before that boundary are stripped of
 volume state and volume-read invalidation before delivery. Independent speaker
 settings invalidations remain deliverable. This avoids a ready timer winning the
 runtime select and releasing authority ahead of an already queued stale event.
-The regression uses the real callback listener queue, deliberately executes the
-timer first, and verifies both stale-volume rejection and later-event acceptance.
+Regressions use the real callback listener queue, deliberately execute the
+timer or output change first, and verify stale-volume rejection and later-event
+acceptance. Notifications injected during post-read local application or snapshot
+publication remain deliverable, including when fallback polling is disabled.
 Notifications arriving after the read remain normal observations; the boundary
 cannot establish the provenance of arbitrarily late network delivery.
 

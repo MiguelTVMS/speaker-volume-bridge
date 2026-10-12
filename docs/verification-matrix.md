@@ -2109,3 +2109,19 @@ Each test fails when its corresponding faulty behavior is restored. All run in
 the normal suite; the Core Audio stream test runs on macOS CI without hardware.
 Website review: existing behavior guidance remains accurate. These corrections
 close race and device-layout gaps without changing supported setup or user flows.
+
+
+## Fresh-read cutoff timing and output-change ordering
+
+Production reconciliation uses the coordinator timestamp captured immediately
+when the speaker read returns, before local-audio effects. A regression suspends
+local application and, separately, the snapshot's local-state read, then delivers
+a newer notification through the real HTTP callback queue. With fallback polling
+disabled, that notification must survive the cutoff and update audio and published
+state without a later poll. The output-change regression queues an older callback,
+then executes production output reconciliation first; the old volume is fenced,
+settings invalidations survive, and a later notification is accepted. Both tests
+fail with the corresponding late cutoff or missing output-change cutoff restored.
+These tests run in the regular workspace suite without native audio hardware.
+Website review: no guide update needed; this corrects ordering guarantees without
+changing the documented behavior, setup or user flow.

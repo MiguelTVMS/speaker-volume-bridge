@@ -78,6 +78,7 @@ pub struct Coordinator<S, A> {
     last_sent_volume: Option<SonosVolume>,
     last_sent_mute: Option<MuteState>,
     metrics: TimingMetrics,
+    last_read_completed_at: Option<Deadline>,
 }
 
 impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
@@ -101,6 +102,7 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
             last_sent_volume: None,
             last_sent_mute: None,
             metrics: TimingMetrics::default(),
+            last_read_completed_at: None,
         }
     }
     /// A fixed deadline lets the runtime continue receiving callbacks while coalescing.
@@ -134,6 +136,10 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
     ) -> Option<speaker_volume_bridge_domain::ConfirmedSonosState> {
         self.synchronizer.confirmed()
     }
+    /// Captured before post-read synchronization effects or local audio work.
+    pub const fn last_read_completed_at(&self) -> Option<Deadline> {
+        self.last_read_completed_at
+    }
     pub const fn timing_metrics(&self) -> TimingMetrics {
         self.metrics
     }
@@ -154,6 +160,7 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
     }
     pub async fn reconcile_startup(&mut self) -> Result<(), IntegrationError> {
         let (volume, muted) = self.sonos.current_state().await?;
+        self.last_read_completed_at = Some(Deadline::now());
         self.last_local = None;
         self.local_authority_until = None;
         self.record_confirmation(volume, muted);
@@ -194,6 +201,7 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
     }
     pub async fn poll_once(&mut self) -> Result<(), IntegrationError> {
         let (volume, muted) = self.sonos.current_state().await?;
+        self.last_read_completed_at = Some(Deadline::now());
         if self.local_is_authoritative() {
             return Ok(());
         }

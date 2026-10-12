@@ -2033,3 +2033,27 @@ and warm events. Manual native check: select Devices, close Settings, choose
 Diagnostics from the tray/menu bar and verify Diagnostics opens. Repeat while
 Settings is visible on another page. The user confirmed the rebuilt native
 context-menu action opens Diagnostics directly.
+
+## Windows and Ubuntu native build checks, 2026-10-12
+
+The same committed source and built frontend were copied into isolated local
+source directories in Windows 11 ARM64 and Ubuntu 26.04 ARM64 virtual machines.
+Both passed `cargo fmt --check`, `cargo test --workspace`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo build -p speaker-volume-bridge --features tauri/custom-protocol`.
+Windows passed 192 tests; Ubuntu passed 190. Platform-specific ignored hardware
+tests were not counted as passed. Windows ARM64 required the installed Clang
+compiler to be selected for the native cryptography dependency. Ubuntu package
+fixture tests required the normal `022` umask.
+
+The Windows production Core Audio probe started and read the active output state.
+The rebuilt Windows application also started in the interactive desktop session
+and remained responsive.
+The Ubuntu application stayed running after launch in the logged-in Wayland
+session, with PipeWire's PulseAudio interface available. These checks establish
+native compilation, automated regressions and startup only. Native tray
+Diagnostics navigation, rapid volume callbacks, physical output replacement and
+end-to-end speaker reconnect acceptance remain unverified on these two guests:
+the desktop automation connection became unavailable during visual inspection.
+Website review: no update needed for this verification-only addition; existing
+user guidance and supported behavior are unchanged.

@@ -46,6 +46,13 @@ flowchart TB
 
 ## Architectural layers
 
+The shell's clock-format adapter reads the desktop format locale and clock
+preference. Updates uses those values for local timestamp presentation, including
+macOS region overrides, with WebView defaults when native preferences are
+unavailable. This read-only adapter is independent of synchronization and update
+eligibility. macOS Settings defaults to 740 by 780 logical points, with fixed width
+and vertical resizing.
+
 - `domain`: policy and data model only. No Tauri, OS APIs, or networking.
 - `synchronization`: policy machine. It processes normalized local and Sonos events and emits desired side effects.
 - `integration`: async coordinator and port abstractions.

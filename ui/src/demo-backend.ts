@@ -3,6 +3,7 @@
 export function createDemoBackend(
   options: {
     hour12?: boolean | null;
+    locale?: string | null;
     now?: () => Date;
     edition?: string;
     policyFailure?: boolean;
@@ -128,6 +129,8 @@ export function createDemoBackend(
         return snapshot;
       case 'get_system_hour12':
         return options.hour12 ?? null;
+      case 'get_system_locale':
+        return options.locale ?? null;
       case 'get_update_status':
       case 'check_for_updates':
         return updateStatus;

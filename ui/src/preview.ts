@@ -15,7 +15,8 @@ const backend = createDemoBackend({
   edition: params.get('edition') ?? undefined,
   policyFailure: params.get('policyFailure') === 'true',
   policyDelay: Number(params.get('policyDelay') ?? 0),
-  hour12: new URLSearchParams(location.search).get('hour12') === 'false' ? false : null,
+  hour12: params.has('hour12') ? params.get('hour12') === 'true' : null,
+  locale: params.get('locale'),
 });
 mockIPC(
   (command, args) => {

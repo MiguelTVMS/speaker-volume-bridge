@@ -1,5 +1,78 @@
 # Hardware verification matrix
 
+## macOS native acceptance follow-up, 2026-10-12
+
+The isolated ARM64 acceptance bundle uses the production notification runtime with an
+older compiled version (1.7.0), a separate application identity and Settings
+visible at startup. It queries actual public GitHub Releases and uses the real
+native notification and default-browser adapters. No demo, injected release
+transport or self-update acceptance feature is enabled. The production workspace
+version is unchanged. The installed application is not replaced.
+
+The prior hidden-window inspection timeout was avoided by making Settings visible
+in this acceptance bundle's build configuration. This is an acceptance setup
+change, not a production startup change. A linker-only executable signature did
+not bind the bundle identity and notification authorization returned an error.
+Ad-hoc signing the complete isolated bundle with its own identity and relaunching
+allowed macOS authorization. This does not establish Developer ID, notarization,
+Gatekeeper installation or App Store receipt acceptance.
+
+| Native check | Result |
+| --- | --- |
+| Settings inspection | Passed with visible-window acceptance configuration |
+| Automatic startup delay | Fresh isolated state: first persisted attempt observed 30.1 seconds after the native process appeared; actual public check succeeded |
+| Installed edition/version and application architecture | Direct macOS and compiled 1.7.0 displayed; ARM64 executable verified |
+| Stable discovery | Actual public release 1.8.0 offered |
+| Include prereleases | Policy change cleared the previous offer, checked again and offered actual public prerelease 1.8.2 |
+| Open release | Native action opened the exact offered 1.8.0 GitHub release page in the system default browser |
+| Download update | Native action opened a browser download; the downloaded macOS DMG matched the published 1.8.0 asset digest; no installation or execution |
+| OS notification denial | Explicitly disabled only the acceptance app in macOS notification settings; manual discovery still returned an actionable 1.8.2 offer; restored permission afterward |
+| Notification authorization/delivery | macOS granted authorization, accepted the request and delivered it to Notification Center; Focus silenced the banner. OS delivery diagnostics do not establish visible presentation or activation |
+| Later | Disabled the current prompt while preserving both release actions |
+| Full restart | Restored Include prereleases, cached 1.8.2 offer and enabled notification preference; persisted notified-version identities retained |
+| Native notification deduplication | Fresh startup, repeated manual check and full process restart produced one successful native submission for the same stable version |
+| Visible Notification Center notice and activation | Passed with user assistance: Settings was changed to Devices and hidden; a fresh 1.8.2 notice was submitted; the user confirmed selecting the test notice reopened Updates. The process had exited before post-action capture, so the final activation outcome is user-confirmed rather than agent-captured. Focus silenced the transient banner |
+| Tray menu and reopening Settings | Passed with user assistance: native watcher captured Open settings, Check for updates, Diagnostics and Quit; user confirmed both Settings actions worked, and subsequent native inspection verified Updates was visible |
+
+The browser download completed before cancellation was possible; it remains an
+inert downloaded file. Browser inspection of internal download pages is blocked
+by tool policy, so verification used the downloaded file's provenance and digest.
+No system-wide notification or screen-sharing setting was changed. The
+user-authorized AppleScript fallback required the user to complete macOS
+permission prompts. It can identify the isolated tray item, but the tray library's
+accessibility press action does not present its mouse-driven menu. Opening that
+menu therefore requires a physical click before accessibility inspection can
+continue. Notification inspection must remain limited to this acceptance app;
+unrelated notification contents are outside the acceptance scope.
+Physical speaker synchronization, sleep/wake, installed Store editions and native
+Windows/Linux acceptance remain unverified. Required cross-platform acceptance
+still prevents closure of #161, #162, #163 and #178.
+
+### Regional timestamp and default-height follow-up
+
+The bare WebView date formatter used US month/day ordering and AM/PM despite the
+desktop's Portugal region override and 24-hour clock. Production startup browser
+regressions reproduced both the regional-order and clock mismatch before the fix.
+Updates now reads the desktop format locale and clock preference at startup and
+on focus refresh. The adapter translates macOS's region override into an explicit
+locale region because JavaScript Intl ignores the `rg` extension. Windows reads
+the user format locale; Linux follows LC_ALL, LC_TIME and LANG precedence.
+Missing native preferences fall back to the WebView locale without blocking
+Settings. Stored timestamps and update freshness are unchanged.
+An unrepresentable persisted timestamp displays Unavailable without preventing
+manual recovery. The production focus-refresh/recheck regression failed before
+the formatter's range guard and passed afterward.
+
+The macOS default height is 780 logical points, matching the user's measured
+740-by-780 Settings window. Width stays fixed at 740 and vertical resizing remains
+available. The normal browser suite verifies the configured default and schedule
+layout. A separately identified, ad-hoc-signed native bundle built at the unchanged
+production version 1.8.2 copied the production window configuration with only
+visibility enabled. Its first window measured 740 by 780, and an actual public
+manual check rendered day/month/year and 24-hour time in the macOS WebView.
+The newer installed version remained up to date against the older stable release,
+with no downgrade offer or direct download action. No installed app was replaced.
+
 ## Notification readiness follow-up, 2026-10-11
 
 Current `develop` already supplies installed-distribution resolution, anonymous
@@ -413,7 +486,7 @@ is enabled in branch builds.
 
 ### Night schedule notification dropdown sizing
 
-The macOS Settings window opens at 740 by 760 points. Check Night schedule at
+The macOS Settings window opens at 740 by 780 points. Check Night schedule at
 that default size for unnecessary vertical scrolling; horizontal resizing must
 remain disabled. Browser coverage also checks the page with save feedback shown.
 

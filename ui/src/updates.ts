@@ -37,6 +37,26 @@ const editions: Record<string, string> = {
   unknown: 'Unknown or custom build',
 };
 
+export function formatLastSuccessfulCheck(
+  timestamp: number | null,
+  locale?: string,
+  hour12?: boolean,
+): string {
+  if (timestamp === null) return 'Never';
+  const options: Intl.DateTimeFormatOptions = {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+    ...(hour12 === undefined ? {} : { hour12 }),
+  };
+  const date = new Date(timestamp * 1000);
+  if (!Number.isFinite(date.getTime())) return 'Unavailable';
+  try {
+    return new Intl.DateTimeFormat(locale, options).format(date);
+  } catch {
+    return new Intl.DateTimeFormat(undefined, options).format(date);
+  }
+}
+
 export function updateStateText(status: UpdateStatus): string {
   switch (status.phase) {
     case 'store_managed':

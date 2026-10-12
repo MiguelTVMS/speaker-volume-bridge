@@ -50,6 +50,10 @@ a Store-signed Windows package, App Store receipt, or official Debian package
 registration is required for those editions. Ambiguous/custom packages remain
 unknown and do not affect speaker startup.
 
+The Debian bundle includes the repository Homepage used by the startup resolver
+alongside its package registration and bundled provenance. Older packages missing
+that field remain unknown; they need a manual upgrade to a corrected package.
+
 New builds of recognized direct and Debian installations query the anonymous GitHub Releases
 API 30 seconds after startup by default and no more than once per 24 hours after a
 successful check. Stable only excludes prereleases; Include prereleases considers

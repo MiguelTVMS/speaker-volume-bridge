@@ -92,6 +92,91 @@ do not infer those results from mocked tests.
 Issues #161, #162, #163 and #178 and epic #159 remain incomplete. Self-update #212
 is unchanged. Website review: the Updates guide now explicitly describes notification activation.
 
+## Linux ARM64 update-notification acceptance, 2026-10-12 (#159)
+
+Tested PR #214's existing update implementation and a focused Debian packaging
+correction (#216). No self-update feature, merge, release, publication or downloaded
+installer execution was performed. Existing application state was not replaced.
+
+### Automated results
+
+- PR #214 passed Rust formatting, Clippy, all 179 normal-feature workspace tests,
+  18 frontend unit-test files, 70 browser tests, frontend build, lint and format.
+  Browser IPC and private notification services do not establish desktop acceptance.
+- The normal Tauri Debian package omitted Homepage, causing the production startup
+  resolver to report Unknown. The new normal-suite regression builds real Debian
+  control metadata from bundle configuration, registers that control record in a
+  fixture database, and invokes production startup resolution with real dpkg-query
+  in a subprocess. It fails without Homepage and passes with the fix. The actual
+  corrected Tauri package also contains the required field.
+- The focused fix passed formatting, Clippy, all 181 workspace tests and five
+  packaging tests. Nine website guide and two build-metadata tests passed after
+  generating required local website build data; generated-page consistency passed.
+- Existing production orchestration tests cover delay, bounded retries, offline
+  recovery, wake, stale actions, policy generations, deduplication and persistence.
+  Native sleep/wake and restart results must remain separate.
+
+### Agent-observed native results
+
+Active local Ubuntu GNOME 50.1 Wayland session; uname reports aarch64. WebKitGTK
+4.1 and Ayatana AppIndicator libraries are available. The real GNOME notification
+service advertises actions and persistence. A tray host was registered. The real
+acceptance tray menu was subsequently exercised through its D-Bus menu events;
+physical panel click delivery remains a separate visual check.
+The tray watcher was intermittently unavailable after later relaunches; those
+trials used second-instance activation, and no physical tray-click acceptance
+is inferred. GNOME uses a 24-hour clock. Global notification/security settings were unchanged.
+Computer-use/internal-browser tools were unavailable. Native GTK/WebKitGTK controls
+were inspected and activated through desktop accessibility instead.
+
+| Check | Result and coverage limit |
+| --- | --- |
+| Normal direct Debian build | Optimized 1.8.2 executable is AArch64; package is arm64 and contains Debian provenance. No demo/updater-acceptance features. Original and corrected packages were built; neither replaced a system installation. |
+| Isolated acceptance app | Separate package, identifier, single-instance bus name, desktop launcher, preferences and data; compiled version 1.7.0. Overrides remained outside Git worktrees. The local package was registered in a private dpkg root and its query scoped to that real database. This does not establish host-system installed provenance. |
+| Edition/version | Before fix: Unknown or custom build. After fix: native Updates shows Debian package and compiled version 1.7.0. |
+| Architecture | Executable, package and persisted resolver target agree on ARM64. Updates has no visible architecture row; the requested display check is not met. |
+| Startup delay | No attempt/state file at 28 seconds; first persisted attempt at 30 seconds, native notification submission at approximately 31 seconds. Settings was hidden on Devices. |
+| Public release policies | Native Stable only discovers 1.8.0; activating Include prereleases in the real GTK popup discovers 1.8.2. Returning to Stable restores 1.8.0. Policy, successful-check time, compatible target and notification history were persisted. |
+| Submission/source lifetime | Real notice uses the acceptance app name and Open Settings action. Its sender remained connected more than a minute afterward. This does not prove visible delivery, retained notification-list presentation or activation. |
+| Manual rediscovery | Completed manual checks and returning to Stable caused no additional notice: exactly two real submissions, one per offered version. A click while checking was rejected by the disabled control. Full native tray Quit/relaunch preserved both notification-history entries without another submission. |
+| Restart and tray | Real native tray Open settings reopened Devices; Check for updates opened Updates. Full tray Quit/relaunch restored the stable offer, policy, automatic-check and notification preferences, successful-check time and dedup history. Connected status returned. Native menu events were used, not physical panel clicks. |
+| Test-app notification suppression | GNOME registered a distinct acceptance desktop identity. With only that app's OS notifications disabled, a native manual check completed and both release/download controls remained available. The original enabled setting was restored; no global setting changed. |
+| Release/download controls | Native Open release and Download update invoked the configured Chrome handler and the app reported success. Browser rendering/address and installer bytes were not independently verified. No downloaded installer was executed. |
+| Offline/retry | After seeding only the isolated last-success time older than 24 hours, an unavailable process-local HTTPS proxy caused a real automatic failure after the 30-second gate. The first retry occurred exactly 60 seconds after that attempt. Restart preserved two failures and passed its startup boundary without bypassing the five-minute next-attempt guard. Removing the process-local proxy and checking manually restored the actionable stable offer, cleared the failure count and caused no duplicate notification. Full five-/thirty-minute and exhausted one-day waits and actual sleep/wake remain unperformed. |
+| Timestamp | Native Updates rendered local regional time using GNOME's 24-hour preference. Process-only native relaunches matched LC_ALL=Portuguese over conflicting US values, then LC_TIME=British English with empty LC_ALL, then LANG=US English with both higher-priority variables empty. All three matched the exact persisted timestamp rendered with GNOME's 24-hour override; no global locale/clock setting changed. |
+| Physical speaker | A discovered speaker remained Connected during public-release and offline interactions. A small real local output change propagated to the speaker; restoring exact saved output channel values restored the prior speaker/output readings. External speaker-to-local and mute round trips remain outstanding. |
+
+### User-confirmed native results
+
+The user confirmed that activating the notification opens the application's
+Settings on Updates. The test had been left hidden on Devices. This establishes
+user-confirmed delivery and activation/routing for the notice they activated;
+the report does not specify the notice version or separately confirm notification
+list retention, application branding, every supported action or desktop suppression.
+
+### Remaining native sequence
+
+1. Separately confirm visible application branding and retained notification-list
+   presentation. User-confirmed activation/routing, native menu-event routing and
+   full-process restart persistence are recorded above; physical panel clicks and
+   every alternate notification action are not independently confirmed.
+2. Inspect the default browser's exact rendered-offer release page and compatible
+   official Debian ARM64 download. Never install it. Change policy/offer during
+   an action; verify native stale rejection and usable Check again. Existing
+   production orchestration/browser regressions cover stale action behavior.
+3. Complete the full native offline retry/wake sequence, including five-minute,
+   thirty-minute and exhausted one-day waits across restart. Use application-scoped
+   transport isolation or user assistance; no global network/security change is
+   authorized. A fresh successful check intentionally suppresses automatic retry
+   after an unrelated manual failure until it is due; due trials must start with
+   an isolated last-success timestamp older than 24 hours.
+4. Verify external speaker-to-local volume and both mute directions, restoring
+   initial state. Native local-to-speaker volume and exact restoration are recorded
+   above; full bidirectional hardware acceptance is not inferred.
+
+Website review: Updates now explains manual recovery for an older official Debian
+package reported as unknown. No website was published. Broader #159/#161/#162/#163/
+#178 native acceptance remains open.
 
 ## macOS native acceptance follow-up, 2026-10-12
 

@@ -458,3 +458,18 @@ Privileged File Operations grant and a matching direct-download profile remain
 external prerequisites for signed acceptance. The Store edition continues to
 receive Store-managed updates. See ADR 0023 and the verification matrix for the
 explicit outstanding native outcomes.
+
+## Local volume gestures
+
+Rapid callbacks replace a single pending volume while the runtime continues
+receiving input. Buffered callbacks are collapsed before dispatch. During a local
+gesture and for 500 ms after its latest change or completed write, speaker events
+cannot reverse local audio. A fresh read then reconciles the final speaker state,
+including independent speaker changes, mapping and caps. Mute changes supersede
+queued volume immediately. See [ADR 0024](decisions/0024-volume-gesture-settling.md).
+
+On macOS, reattachment removes the previous Core Audio listener set before
+registering replacements, including when the selected output is unchanged.
+Listener registration is transactional: failure rolls back successful registrations
+and reports the output unavailable. The app cannot silently continue with missing
+volume or lifecycle callbacks. See ADR 0024.

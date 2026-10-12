@@ -518,7 +518,20 @@ async fn run_session(
     let mut health_at = Instant::now() + Duration::from_secs(5);
 
     loop {
+        let local_deadline = coordinator.local_deadline();
+        let settling_deadline = coordinator.settling_deadline();
         tokio::select! {
+            () = sleep_until(settling_deadline.unwrap_or_else(Instant::now)), if settling_deadline.is_some() => {
+                coordinator.finish_local_adjustment().await.map_err(RuntimeError::from)?;
+                if let Some(confirmed) = coordinator.confirmed_state() {
+                    let local = audio.current_state().await.map_err(RuntimeError::Local)?;
+                    update_snapshot(snapshot, app, generation, UiStatus::Synchronized,
+                        Some(SnapshotValues { name: &speaker_name, sonos_volume: Some(confirmed.volume.get()), local_volume: Some(local.volume.get()), muted: Some(confirmed.muted.0) }));
+                }
+            }
+            () = sleep_until(local_deadline.unwrap_or_else(Instant::now)), if local_deadline.is_some() => {
+                coordinator.run_local_once().await.map_err(RuntimeError::from)?;
+            }
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     if let Some(value) = subscription.as_ref() { let _ = gena.unsubscribe(&device, value).await; }
@@ -542,15 +555,16 @@ async fn run_session(
                     update_snapshot(snapshot, app, generation, UiStatus::Synchronized, Some(SnapshotValues { name: &speaker_name, sonos_volume: Some(event.state.volume.get()), local_volume: Some(local_state.volume.get()), muted: Some(event.state.muted.0) }));
                 }
             }
-            received = audio_events.recv() => match received {
+            received = audio_events.recv() => match newest_audio_event(received, &mut audio_events) {
                 Ok(SystemAudioEvent::StateChanged { state, origin }) => {
+                    if origin == LocalOrigin::Application {
+                        last_local = Some(state);
+                        continue;
+                    }
                     let mute_changed = last_local.is_none_or(|previous| previous.muted != state.muted);
                     last_local = Some(state);
                     update_snapshot(snapshot, app, generation, UiStatus::WaitingForSonosConfirmation, Some(SnapshotValues { name: &speaker_name, sonos_volume: None, local_volume: Some(state.volume.get()), muted: Some(state.muted.0) }));
                     coordinator.on_local_event(state, origin, mute_changed).await.map_err(RuntimeError::from)?;
-                    if !mute_changed && origin != LocalOrigin::Application {
-                        coordinator.run_local_once().await.map_err(RuntimeError::from)?;
-                    }
                 }
                 Ok(SystemAudioEvent::DefaultOutputChanged | SystemAudioEvent::DeviceUnavailable { .. }) | Err(_) => return Err(RuntimeError::Local(PlatformAudioError::DeviceUnavailable)),
             },
@@ -586,6 +600,52 @@ async fn run_session(
             }
         }
     }
+}
+
+// Collapse callbacks buffered during a network request before issuing another write.
+fn newest_audio_event(
+    first: Result<SystemAudioEvent, tokio::sync::broadcast::error::RecvError>,
+    receiver: &mut tokio::sync::broadcast::Receiver<SystemAudioEvent>,
+) -> Result<SystemAudioEvent, tokio::sync::broadcast::error::RecvError> {
+    use tokio::sync::broadcast::error::{RecvError, TryRecvError};
+    let mut newest = match first {
+        Ok(event) => Some(event),
+        Err(RecvError::Lagged(_)) => None,
+        Err(error) => return Err(error),
+    };
+    // A bounded snapshot cannot be starved by continuing platform callbacks.
+    for _ in 0..receiver.len() {
+        if newest
+            .as_ref()
+            .is_some_and(|event| !matches!(event, SystemAudioEvent::StateChanged { .. }))
+        {
+            break;
+        }
+        match receiver.try_recv() {
+            Ok(event) => {
+                let application_echo = matches!(
+                    event,
+                    SystemAudioEvent::StateChanged {
+                        origin: LocalOrigin::Application,
+                        ..
+                    }
+                );
+                let user_waiting = matches!(
+                    newest,
+                    Some(SystemAudioEvent::StateChanged {
+                        origin: LocalOrigin::User | LocalOrigin::Unknown,
+                        ..
+                    })
+                );
+                if !application_echo || !user_waiting {
+                    newest = Some(event);
+                }
+            }
+            Err(TryRecvError::Lagged(_)) => {}
+            Err(TryRecvError::Empty | TryRecvError::Closed) => break,
+        }
+    }
+    newest.ok_or(RecvError::Closed)
 }
 
 fn renewal_at(subscription: &speaker_volume_bridge_sonos::Subscription) -> Instant {
@@ -873,6 +933,38 @@ mod tests {
     use speaker_volume_bridge_sonos::RenderingControlService;
     use tokio::sync::broadcast;
     use url::Url;
+
+    #[tokio::test]
+    async fn buffered_audio_callbacks_keep_latest_gesture_and_device_failures() {
+        let (sender, mut receiver) = broadcast::channel(16);
+        let event = |value, origin| SystemAudioEvent::StateChanged {
+            state: LocalAudioState {
+                volume: NormalizedVolume::new(value).unwrap(),
+                muted: MuteState(false),
+            },
+            origin,
+        };
+        sender.send(event(37, LocalOrigin::User)).unwrap();
+        let first = receiver.recv().await;
+        for value in [44, 51, 63, 69] {
+            sender.send(event(value, LocalOrigin::User)).unwrap();
+        }
+        sender.send(event(44, LocalOrigin::Application)).unwrap();
+        assert_eq!(
+            newest_audio_event(first, &mut receiver).unwrap(),
+            event(69, LocalOrigin::User)
+        );
+        sender.send(event(75, LocalOrigin::User)).unwrap();
+        let first = receiver.recv().await;
+        sender
+            .send(SystemAudioEvent::DeviceUnavailable { device_id: None })
+            .unwrap();
+        sender.send(event(80, LocalOrigin::User)).unwrap();
+        assert_eq!(
+            newest_audio_event(first, &mut receiver).unwrap(),
+            SystemAudioEvent::DeviceUnavailable { device_id: None }
+        );
+    }
 
     struct MuteUnavailableAudio {
         events: broadcast::Sender<SystemAudioEvent>,

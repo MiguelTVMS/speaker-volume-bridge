@@ -16,10 +16,14 @@ through a stable Core Audio event-context GUID; macOS compares it with a
 short-lived expected write using an adapter-configured tolerance; Ubuntu uses
 the PulseAudio-compatible `pactl` event stream with short-lived expected-write
 tracking. A Sonos
-confirmation always clears pending intents. It wins over any requested value
-only when two-way synchronization is enabled.
+confirmation accepted by the coordinator clears pending intents. During a local
+gesture the coordinator defers speaker corrections until a fresh read after
+500 ms of settling. Accepted confirmations apply locally only in two-way mode.
 
-Volume changes are debounced and coalesced; mute changes bypass the debounce.
+Volume changes use a fixed 45 ms dispatch deadline while callbacks continue to
+arrive; only the newest pending volume is dispatched. Mute changes bypass the
+debounce and supersede queued volume. A final speaker read runs after settling
+even when fallback polling is disabled. See ADR 0024.
 The coordinator does not resend a volume or mute value until it differs from
 the last sent value. When GENA delivery is healthy it polls slowly for health;
 on subscription loss it polls once per second until event delivery recovers.

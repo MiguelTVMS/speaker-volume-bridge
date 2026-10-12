@@ -301,18 +301,22 @@ fn run_worker(
                 let _ = response.send(unsafe { endpoint.set_muted(muted) });
             }
             Command::Reattach => {
-                match unsafe { Endpoint::attach(&selection, Arc::clone(&context)) } {
-                    Ok(next) => {
-                        endpoint.detach();
+                match replace_endpoint(&mut endpoint, Endpoint::detach, || unsafe {
+                    Endpoint::attach(&selection, Arc::clone(&context))
+                }) {
+                    Ok(()) => {
                         if let Ok(mut expected) = context.expected.lock() {
                             *expected = ExpectedWrites::default();
                         }
-                        endpoint = next;
                         let _ = events.send(SystemAudioEvent::DefaultOutputChanged);
                     }
-                    Err(_) => {
+                    Err(error) => {
+                        eprintln!(
+                            "Core Audio selected output reattachment failed with OSStatus {error}"
+                        );
                         let _ =
                             events.send(SystemAudioEvent::DeviceUnavailable { device_id: None });
+                        break;
                     }
                 }
             }
@@ -326,6 +330,7 @@ struct Endpoint {
     channels: Vec<UInt32>,
     has_mute: bool,
     context: Arc<CallbackContext>,
+    listeners: ListenerRegistrations,
 }
 
 impl Endpoint {
@@ -353,14 +358,15 @@ impl Endpoint {
         let mute_address = address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER);
         let has_mute = unsafe { AudioObjectHasProperty(id, &mute_address) != 0 }
             && matches!(unsafe { settable(id, &mute_address) }, Ok(true));
-        let endpoint = Self {
+        let mut endpoint = Self {
             id,
             channels,
             has_mute,
             context,
+            listeners: ListenerRegistrations::default(),
         };
         unsafe {
-            endpoint.listen();
+            endpoint.listen()?;
         }
         Ok(endpoint)
     }
@@ -426,91 +432,119 @@ impl Endpoint {
         }
     }
 
-    unsafe fn listen(&self) {
+    unsafe fn listen(&mut self) -> Result<(), OSStatus> {
         let data = Arc::as_ptr(&self.context).cast_mut().cast::<c_void>();
-        for channel in &self.channels {
-            let status = unsafe {
-                AudioObjectAddPropertyListener(
-                    self.id,
-                    &address(VOLUME_SCALAR, SCOPE_OUTPUT, *channel),
-                    property_changed,
-                    data,
-                )
-            };
-            if status != NO_ERR {
-                eprintln!("Core Audio volume listener registration failed with OSStatus {status}");
-            }
-        }
+        let mut registrations = self
+            .channels
+            .iter()
+            .map(|channel| ListenerRegistration {
+                object: self.id,
+                address: address(VOLUME_SCALAR, SCOPE_OUTPUT, *channel),
+                callback: property_changed,
+            })
+            .collect::<Vec<_>>();
         if self.has_mute {
-            let status = unsafe {
+            registrations.push(ListenerRegistration {
+                object: self.id,
+                address: address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER),
+                callback: property_changed,
+            });
+        }
+        registrations.extend([
+            ListenerRegistration {
+                object: SYSTEM_OBJECT,
+                address: address(DEFAULT_OUTPUT_DEVICE, SCOPE_GLOBAL, ELEMENT_MASTER),
+                callback: default_output_changed,
+            },
+            ListenerRegistration {
+                object: SYSTEM_OBJECT,
+                address: address(DEVICES, SCOPE_GLOBAL, ELEMENT_MASTER),
+                callback: device_list_changed,
+            },
+        ]);
+        self.listeners.register(
+            registrations,
+            |registration| unsafe {
                 AudioObjectAddPropertyListener(
-                    self.id,
-                    &address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER),
-                    property_changed,
+                    registration.object,
+                    &registration.address,
+                    registration.callback,
                     data,
                 )
-            };
-            if status != NO_ERR {
-                eprintln!("Core Audio mute listener registration failed with OSStatus {status}");
-            }
-        }
-        let status = unsafe {
-            AudioObjectAddPropertyListener(
-                SYSTEM_OBJECT,
-                &address(DEFAULT_OUTPUT_DEVICE, SCOPE_GLOBAL, ELEMENT_MASTER),
-                default_output_changed,
-                data,
-            )
-        };
-        if status != NO_ERR {
-            eprintln!(
-                "Core Audio default-output listener registration failed with OSStatus {status}"
-            );
-        }
-        let status = unsafe {
-            AudioObjectAddPropertyListener(
-                SYSTEM_OBJECT,
-                &address(DEVICES, SCOPE_GLOBAL, ELEMENT_MASTER),
-                device_list_changed,
-                data,
-            )
-        };
-        if status != NO_ERR {
-            eprintln!("Core Audio device-list listener registration failed with OSStatus {status}");
-        }
+            },
+            |registration| unsafe {
+                AudioObjectRemovePropertyListener(
+                    registration.object,
+                    &registration.address,
+                    registration.callback,
+                    data,
+                )
+            },
+        )
     }
-    fn detach(&self) {
-        // SAFETY: registrations use this endpoint's stable context pointer; Core Audio no longer invokes it after removal returns.
-        unsafe {
-            let data = Arc::as_ptr(&self.context).cast_mut().cast::<c_void>();
-            for channel in &self.channels {
-                let _ = AudioObjectRemovePropertyListener(
-                    self.id,
-                    &address(VOLUME_SCALAR, SCOPE_OUTPUT, *channel),
-                    property_changed,
-                    data,
-                );
-            }
-            if self.has_mute {
-                let _ = AudioObjectRemovePropertyListener(
-                    self.id,
-                    &address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER),
-                    property_changed,
-                    data,
-                );
-            }
-            let _ = AudioObjectRemovePropertyListener(
-                SYSTEM_OBJECT,
-                &address(DEFAULT_OUTPUT_DEVICE, SCOPE_GLOBAL, ELEMENT_MASTER),
-                default_output_changed,
+    fn detach(&mut self) {
+        let data = Arc::as_ptr(&self.context).cast_mut().cast::<c_void>();
+        // SAFETY: only successfully installed listeners are removed, while context remains alive.
+        self.listeners.remove(|registration| unsafe {
+            AudioObjectRemovePropertyListener(
+                registration.object,
+                &registration.address,
+                registration.callback,
                 data,
-            );
-            let _ = AudioObjectRemovePropertyListener(
-                SYSTEM_OBJECT,
-                &address(DEVICES, SCOPE_GLOBAL, ELEMENT_MASTER),
-                device_list_changed,
-                data,
-            );
+            )
+        });
+    }
+}
+
+impl Drop for Endpoint {
+    fn drop(&mut self) {
+        self.detach();
+    }
+}
+
+// Core Audio rejects a duplicate callback/address/context registration. Remove the
+// old set before attachment, including when reselecting the same physical output.
+fn replace_endpoint<T, E>(
+    current: &mut T,
+    detach: impl FnOnce(&mut T),
+    attach: impl FnOnce() -> Result<T, E>,
+) -> Result<(), E> {
+    detach(current);
+    *current = attach()?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ListenerRegistration {
+    object: AudioObjectID,
+    address: AudioObjectPropertyAddress,
+    callback: Listener,
+}
+
+#[derive(Default)]
+struct ListenerRegistrations(Vec<ListenerRegistration>);
+
+impl ListenerRegistrations {
+    fn register(
+        &mut self,
+        registrations: impl IntoIterator<Item = ListenerRegistration>,
+        mut add: impl FnMut(&ListenerRegistration) -> OSStatus,
+        mut remove: impl FnMut(&ListenerRegistration) -> OSStatus,
+    ) -> Result<(), OSStatus> {
+        for registration in registrations {
+            let status = add(&registration);
+            if status != NO_ERR {
+                self.remove(&mut remove);
+                return Err(status);
+            }
+            self.0.push(registration);
+        }
+        Ok(())
+    }
+
+    fn remove(&mut self, mut remove: impl FnMut(&ListenerRegistration) -> OSStatus) {
+        for registration in self.0.drain(..).rev() {
+            let _ = remove(&registration);
         }
     }
 }
@@ -870,6 +904,144 @@ fn normalize(value: f32) -> NormalizedVolume {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+
+    #[test]
+    #[ignore = "requires a writable native Core Audio output; reads and registers listeners only"]
+    fn native_same_output_reattachment_retains_registered_listeners() {
+        let selection = std::env::var("SVB_NATIVE_AUDIO_DEVICE")
+            .map_or(super::AudioDeviceSelection::FollowDefault, |device_id| {
+                super::AudioDeviceSelection::Fixed { device_id }
+            });
+        let (events, _) = tokio::sync::broadcast::channel(64);
+        let (commands, _receiver) = std::sync::mpsc::sync_channel(32);
+        let context = std::sync::Arc::new(super::CallbackContext {
+            events,
+            commands,
+            expected: std::sync::Mutex::new(super::ExpectedWrites::default()),
+            tolerance: 1,
+        });
+        let mut endpoint =
+            unsafe { super::Endpoint::attach(&selection, std::sync::Arc::clone(&context)) }
+                .unwrap();
+        for _ in 0..3 {
+            super::replace_endpoint(&mut endpoint, super::Endpoint::detach, || unsafe {
+                super::Endpoint::attach(&selection, std::sync::Arc::clone(&context))
+            })
+            .unwrap();
+            assert!(unsafe { endpoint.state() }.is_ok());
+            let data = std::sync::Arc::as_ptr(&context)
+                .cast_mut()
+                .cast::<std::ffi::c_void>();
+            // A duplicate must be rejected, proving the replacement remains registered.
+            for registration in &endpoint.listeners.0 {
+                assert_eq!(
+                    unsafe {
+                        super::AudioObjectAddPropertyListener(
+                            registration.object,
+                            &registration.address,
+                            registration.callback,
+                            data,
+                        )
+                    },
+                    1_852_797_029
+                );
+            }
+        }
+    }
+
+    fn test_registrations() -> Vec<super::ListenerRegistration> {
+        [
+            (2, super::VOLUME_SCALAR, super::SCOPE_OUTPUT, 1),
+            (2, super::VOLUME_SCALAR, super::SCOPE_OUTPUT, 2),
+            (2, super::MUTE, super::SCOPE_OUTPUT, 0),
+            (
+                super::SYSTEM_OBJECT,
+                super::DEFAULT_OUTPUT_DEVICE,
+                super::SCOPE_GLOBAL,
+                0,
+            ),
+            (super::SYSTEM_OBJECT, super::DEVICES, super::SCOPE_GLOBAL, 0),
+        ]
+        .into_iter()
+        .map(
+            |(object, selector, scope, element)| super::ListenerRegistration {
+                object,
+                address: super::address(selector, scope, element),
+                callback: super::property_changed,
+            },
+        )
+        .collect()
+    }
+
+    fn listener_key(registration: &super::ListenerRegistration) -> (u32, u32, u32, u32) {
+        (
+            registration.object,
+            registration.address.selector,
+            registration.address.scope,
+            registration.address.element,
+        )
+    }
+
+    #[test]
+    fn same_output_reattachment_removes_old_listeners_before_registering_replacements() {
+        let active = RefCell::new(BTreeSet::new());
+        let add = |registration: &super::ListenerRegistration| {
+            if active.borrow_mut().insert(listener_key(registration)) {
+                0
+            } else {
+                1_852_797_029
+            }
+        };
+        let remove = |registration: &super::ListenerRegistration| {
+            assert!(active.borrow_mut().remove(&listener_key(registration)));
+            0
+        };
+        let attach = || {
+            let mut registrations = super::ListenerRegistrations::default();
+            registrations.register(test_registrations(), add, remove)?;
+            Ok::<_, i32>(registrations)
+        };
+        let mut endpoint = attach().unwrap();
+        // Startup followed by repeated device/default-output notifications for the same output.
+        for _ in 0..3 {
+            super::replace_endpoint(&mut endpoint, |old| old.remove(remove), attach).unwrap();
+            assert_eq!(active.borrow().len(), 5);
+        }
+        endpoint.remove(remove);
+        endpoint.remove(remove);
+        assert!(active.borrow().is_empty());
+    }
+
+    #[test]
+    fn failed_listener_attachment_rolls_back_only_successful_registrations() {
+        for failure_index in 0..5 {
+            let active = RefCell::new(BTreeSet::new());
+            let mut attempt = 0;
+            let mut registrations = super::ListenerRegistrations::default();
+            let result = registrations.register(
+                test_registrations(),
+                |registration| {
+                    let fail = attempt == failure_index;
+                    attempt += 1;
+                    if fail {
+                        return 1_852_797_029;
+                    }
+                    assert!(active.borrow_mut().insert(listener_key(registration)));
+                    0
+                },
+                |registration| {
+                    assert!(active.borrow_mut().remove(&listener_key(registration)));
+                    0
+                },
+            );
+            assert_eq!(result, Err(1_852_797_029));
+            assert!(active.borrow().is_empty());
+            assert!(registrations.0.is_empty());
+        }
+    }
+
     use super::*;
     use speaker_volume_bridge_domain::ExpectedLocalWrite;
     #[test]

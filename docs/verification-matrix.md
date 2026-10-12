@@ -1,5 +1,28 @@
 # Hardware verification matrix
 
+## Local volume settling regression, 2026-10-12
+
+Before the fix, native observation captured repeated output callbacks and volume
+reversals during a rapid adjustment. Runtime logs also recorded output-device
+unavailability and reconnects; the arbitration fix does not establish a repair
+for device disconnects.
+
+Automated coverage: coordinator startup followed by repeated local input, stale
+speaker events, latest-volume dispatch, immediate mute superseding queued volume,
+deadline stability, a final read and subsequent independent speaker control. Burst
+and mute regressions fail on the original implementation. Runtime callback
+draining is exercised through the production helper.
+
+Manual reproduction: launch the source build with a selected writable native
+output, two-way mode and a real speaker. Repeatedly raise volume using the keyboard
+or system slider, then stop. Repeat while lowering. Verify intermediate values
+are not replayed after stopping and there is no repeated reversal. Toggle mute
+during adjustment; verify no older queued volume restores the previous mute.
+After settling, adjust volume from the speaker controller and verify the computer
+follows. Repeat with fallback polling disabled, a piecewise mapping and the
+safety cap. Native post-fix acceptance is pending; CI cannot establish hardware
+latency, audible behavior or disconnect recovery.
+
 ## Windows ARM64 native acceptance follow-up, 2026-10-12
 
 PR #214 was already merged when this run began. Its exact head was checked in an
@@ -1950,3 +1973,32 @@ quit the application completely, activate a previously delivered update toast,
 and verify Settings opens Updates. Repeat with the app running and Settings hidden
 on Devices. The automated test covers shared lifecycle orchestration; actual
 Windows launch and WebView subscription timing still require this manual check.
+
+## Core Audio listener registration regression, 2026-10-12
+
+Native read-only probing reproduced illegal-operation status when adding the
+same property, callback and context twice. Removing the first registration before
+adding its replacement succeeded. The worker's original replacement order was
+reintroduced temporarily; the regular reattachment regression failed with the
+same status. The corrected ordering passes. Transactional registration tests fail
+each registration position and verify complete rollback of successful additions.
+
+Read-only native verification command:
+`cargo test -p speaker-volume-bridge-platform-audio native_same_output_reattachment -- --ignored`.
+An optional `SVB_NATIVE_AUDIO_DEVICE` environment variable selects a persistent
+output UID; otherwise the default output must support writable software volume.
+The test repeatedly executes the production replacement path and checks that every
+replacement listener remains registered. It passed locally on the configured output
+for three consecutive replacements. It does not change volume or mute.
+
+The fixed source app and observer were restarted. Initial attachment and speaker
+subscription succeeded; no listener-registration errors were present in either
+captured stderr stream at that check. Live post-restart callback acceptance remains
+pending a further user adjustment.
+
+Manual callback reproduction: launch the fixed native app, keep the same selected
+output, trigger a normal device/default-output notification, then adjust system
+volume. Verify callbacks still arrive, no listener-registration errors occur,
+and the speaker follows. The native registration test does not establish USB
+hardware stability or audible latency. Post-restart interactive acceptance remains
+separate from registration coverage.

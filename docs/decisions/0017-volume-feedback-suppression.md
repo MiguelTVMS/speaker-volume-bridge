@@ -31,3 +31,7 @@ expiry, independent deadlines, bounded history, per-channel averages, Windows
 contexts, unchanged local applications, and all mapping/direction/mute policies.
 Native Windows and Linux tests run on both supported architectures; macOS tests
 run locally and in CI. Hardware validation remains separate from simulated tests.
+
+ADR 0024 adds bounded local-gesture arbitration in the coordinator. Its settling
+window defers speaker corrections; adapter callbacks continue to be received and
+classified using the echo tracking described here.

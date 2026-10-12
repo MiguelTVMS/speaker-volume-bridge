@@ -69,3 +69,22 @@ and starting exponential network backoff. Pending input for the previous endpoin
 is discarded. Two-way mode applies the speaker baseline to the new output;
 one-way mode sends the new output's local state. Actual disappearance, unreadable
 state or failed attachment still enters bounded recovery.
+
+
+## Ordering queued notifications across the final read
+
+The callback listener timestamps received observations. Once the final settling
+read completes, volume notifications queued before that boundary are stripped of
+volume state and volume-read invalidation before delivery. Independent speaker
+settings invalidations remain deliverable. This avoids a ready timer winning the
+runtime select and releasing authority ahead of an already queued stale event.
+The regression uses the real callback listener queue, deliberately executes the
+timer first, and verifies both stale-volume rejection and later-event acceptance.
+Notifications arriving after the read remain normal observations; the boundary
+cannot establish the provenance of arbitrarily late network delivery.
+
+A rejected speaker observation still invalidates mismatched cached volume/mute
+commands. This does not pass stale state to the synchronizer, but allows a new
+gesture ending at a previously sent value to reassert that value after an external
+change. Core Audio channel elements are numbered cumulatively across stream
+buffers, preventing duplicate listener addresses on multi-buffer outputs.

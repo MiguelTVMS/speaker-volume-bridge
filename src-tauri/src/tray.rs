@@ -534,12 +534,10 @@ fn open_settings_menu_item<R: Runtime>(app: &AppHandle<R>, id: &str) {
         "updates" => Some("updates"),
         _ => None,
     };
-    if let Some(page) = page {
-        *app.state::<PendingSettingsNavigation>()
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(page);
-    }
+    *app.state::<PendingSettingsNavigation>()
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = page;
     show_settings(app);
     if let Some(page) = page {
         let _ = app.emit("open-settings-page", page);
@@ -595,6 +593,20 @@ mod tests {
             take_pending_settings_navigation(app.handle()),
             Some("updates")
         );
+    }
+
+    #[tokio::test]
+    async fn ordinary_settings_clears_unconsumed_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        for page in ["diagnostics", "updates"] {
+            open_settings_menu_item(app.handle(), page);
+            // No frontend has consumed the first request yet.
+            open_settings_menu_item(app.handle(), "settings");
+            assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        }
     }
 
     #[cfg(target_os = "linux")]

@@ -2090,3 +2090,22 @@ disabled; each must publish the corresponding status and confirmed volume.
 Both regressions fail when their original faulty publication behavior is restored.
 These run in the normal workspace suite without native audio or a GUI and cover
 shared production orchestration, rather than only the coordinator's decisions.
+
+
+## Follow-up queue, cache, stream and cold-navigation regressions
+
+The runtime queue regression sends a notification through the real callback HTTP
+listener, waits for its acknowledgement, and executes the ready settling timer
+before receiving the queued notification. The fresh read remains authoritative,
+settings invalidations survive, and a later notification can still update volume.
+The cache regression performs startup, a successful volume/mute write, a new local
+gesture, a rejected differing external observation and a final gesture matching
+the previous command; both desired values must be reasserted before settling.
+The macOS regression supplies two stereo AudioBuffers, includes an unwritable
+channel, and exercises unique cumulative elements through listener registration.
+The tray regression invokes Diagnostics/Updates followed by ordinary Settings
+without consuming the first request. No stale destination may remain.
+Each test fails when its corresponding faulty behavior is restored. All run in
+the normal suite; the Core Audio stream test runs on macOS CI without hardware.
+Website review: existing behavior guidance remains accurate. These corrections
+close race and device-layout gaps without changing supported setup or user flows.

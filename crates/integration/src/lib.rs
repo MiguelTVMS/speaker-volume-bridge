@@ -172,6 +172,8 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
         muted: MuteState,
     ) -> Result<bool, IntegrationError> {
         self.health = Health::Healthy;
+        // Even a suppressed observation proves a cached command may no longer hold.
+        self.record_confirmation(volume, muted);
         if self.local_is_authoritative() {
             return Ok(false);
         }
@@ -349,6 +351,50 @@ mod tests {
             volume: NormalizedVolume::new(value).unwrap(),
             muted: MuteState(muted),
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rejected_observation_invalidates_prior_volume_and_mute_commands() {
+        let state = Arc::new(Mutex::new((volume(20), MuteState(false))));
+        let applied = Arc::new(Mutex::new(Vec::new()));
+        let mut coordinator = Coordinator::new(
+            Synchronizer::new(VolumeMapping::Linear, SonosVolume::MAX, true, true, false).unwrap(),
+            Sonos(Arc::clone(&state)),
+            Audio(Arc::clone(&applied)),
+            SynchronizationPolicy::default(),
+        );
+        coordinator.reconcile_startup().await.unwrap();
+        coordinator
+            .on_local_event(local(60, true), LocalOrigin::User, true)
+            .await
+            .unwrap();
+        coordinator.finish_local_adjustment().await.unwrap();
+        assert_eq!(*state.lock().unwrap(), (volume(60), MuteState(true)));
+        // Another gesture begins before the differing external observation arrives.
+        coordinator
+            .on_local_event(local(50, false), LocalOrigin::User, false)
+            .await
+            .unwrap();
+        *state.lock().unwrap() = (volume(30), MuteState(false));
+        assert!(
+            !coordinator
+                .on_sonos_event(volume(30), MuteState(false))
+                .await
+                .unwrap()
+        );
+        assert_eq!(applied.lock().unwrap().last(), Some(&local(60, true)));
+        coordinator
+            .on_local_event(local(60, true), LocalOrigin::User, true)
+            .await
+            .unwrap();
+        coordinator.run_local_once().await.unwrap();
+        assert_eq!(*state.lock().unwrap(), (volume(60), MuteState(true)));
+        coordinator.finish_local_adjustment().await.unwrap();
+        assert_eq!(coordinator.confirmed_state().unwrap().volume, volume(60));
+        assert_eq!(
+            coordinator.confirmed_state().unwrap().muted,
+            MuteState(true)
+        );
     }
 
     #[tokio::test(start_paused = true)]

@@ -16,6 +16,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::mpsc,
+    time::Instant,
 };
 use url::Url;
 
@@ -135,7 +136,8 @@ fn parse_timeout(value: &str) -> Option<Duration> {
 pub struct CallbackListener {
     callback_url: Url,
     expected_sid: Arc<Mutex<Option<String>>>,
-    events: mpsc::Receiver<RenderingControlNotification>,
+    events: mpsc::Receiver<(Instant, RenderingControlNotification)>,
+    volume_observation_floor: Option<Instant>,
 }
 
 impl CallbackListener {
@@ -168,7 +170,7 @@ impl CallbackListener {
                             .and_then(|(body, sequence)| {
                                 parse_rendering_control_notification(body, sequence).ok()
                             })
-                            .is_some_and(|event| sender.try_send(event).is_ok());
+                            .is_some_and(|event| sender.try_send((Instant::now(), event)).is_ok());
                     let response = if accepted {
                         "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
                     } else {
@@ -182,6 +184,7 @@ impl CallbackListener {
             callback_url,
             expected_sid,
             events,
+            volume_observation_floor: None,
         })
     }
     pub fn callback_url(&self) -> &Url {
@@ -192,8 +195,21 @@ impl CallbackListener {
             *sid = Some(subscription.id.clone());
         }
     }
+    /// Queued volume observations predating a fresh reconciliation must not undo it.
+    /// Settings invalidations are retained independently of volume state.
+    pub fn discard_volume_observations_before_now(&mut self) {
+        self.volume_observation_floor = Some(Instant::now());
+    }
     pub async fn recv(&mut self) -> Option<RenderingControlNotification> {
-        self.events.recv().await
+        let (received_at, mut event) = self.events.recv().await?;
+        if self
+            .volume_observation_floor
+            .is_some_and(|floor| received_at <= floor)
+        {
+            event.volume_state = None;
+            event.volume_changed = false;
+        }
+        Some(event)
     }
 }
 

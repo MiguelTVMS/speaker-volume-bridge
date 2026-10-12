@@ -14,3 +14,7 @@ Tests invoke the production menu action before and after frontend subscription.
 Rendered browser coverage verifies cold and warm Diagnostics routing on all three
 platform layouts. The user also confirmed the rebuilt native context-menu action opens Diagnostics
 directly.
+
+Ordinary Open settings also replaces the pending navigation slot, with no explicit
+page. A later ordinary request therefore cancels an unconsumed Diagnostics or
+Updates destination during cold startup.

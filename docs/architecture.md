@@ -487,3 +487,8 @@ the requested page. Ordinary Settings preserves its selected page. See
 Runtime observation publication is shared by notification, health-read and gesture-
 settling paths. Rejected observations leave the snapshot unchanged; accepted state
 is published with the current subscription availability and polling policy (ADR 0024).
+
+The callback listener timestamps queued observations. Gesture reconciliation sets
+a volume-observation cutoff after the fresh read, retaining independent settings
+invalidations while excluding older queued volume state (ADR 0024). Core Audio
+stream channel elements are cumulative across buffers to keep registrations unique.

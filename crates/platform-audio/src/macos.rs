@@ -807,21 +807,31 @@ unsafe fn output_channels(id: AudioObjectID) -> Result<Vec<UInt32>, OSStatus> {
     if status != NO_ERR {
         return Err(status);
     }
-    let buffers = unsafe { *(bytes.as_ptr().cast::<u32>()) } as usize;
+    stream_channels(&bytes, |channel| {
+        let volume_address = address(VOLUME_SCALAR, SCOPE_OUTPUT, channel);
+        unsafe {
+            AudioObjectHasProperty(id, &volume_address) != 0
+                && matches!(settable(id, &volume_address), Ok(true))
+        }
+    })
+}
+
+// Core Audio channel elements are cumulative across AudioBuffers.
+fn stream_channels(
+    bytes: &[u8],
+    mut writable: impl FnMut(u32) -> bool,
+) -> Result<Vec<u32>, OSStatus> {
+    let buffers = u32::from_ne_bytes(bytes.get(..4).ok_or(-1)?.try_into().map_err(|_| -1)?);
     let mut offset = 8_usize;
+    let mut element = 0_u32;
     let mut channels = Vec::new();
     for _ in 0..buffers {
-        if offset + 16 > bytes.len() {
-            return Err(-1);
-        }
-        let count = unsafe { *(bytes.as_ptr().add(offset).cast::<u32>()) };
-        for channel in 1..=count {
-            let volume_address = address(VOLUME_SCALAR, SCOPE_OUTPUT, channel);
-            if unsafe {
-                AudioObjectHasProperty(id, &volume_address) != 0
-                    && matches!(settable(id, &volume_address), Ok(true))
-            } {
-                channels.push(channel);
+        let buffer = bytes.get(offset..offset + 16).ok_or(-1)?;
+        let count = u32::from_ne_bytes(buffer[..4].try_into().map_err(|_| -1)?);
+        for _ in 0..count {
+            element = element.checked_add(1).ok_or(-1)?;
+            if writable(element) {
+                channels.push(element);
             }
         }
         offset += 16;
@@ -1081,6 +1091,42 @@ mod tests {
             registration.address.scope,
             registration.address.element,
         )
+    }
+
+    #[test]
+    fn multibuffer_stream_channels_register_each_element_once() {
+        // Two stereo buffers, including an unwritable channel in the first.
+        let mut bytes = vec![0_u8; 8 + 2 * 16];
+        bytes[..4].copy_from_slice(&2_u32.to_ne_bytes());
+        bytes[8..12].copy_from_slice(&2_u32.to_ne_bytes());
+        bytes[24..28].copy_from_slice(&2_u32.to_ne_bytes());
+        let channels = super::stream_channels(&bytes, |channel| channel != 2).unwrap();
+        assert_eq!(channels, vec![1, 3, 4]);
+        let mut registrations = super::ListenerRegistrations::default();
+        let active = RefCell::new(BTreeSet::new());
+        registrations
+            .register(
+                channels
+                    .into_iter()
+                    .map(|channel| super::ListenerRegistration {
+                        object: 1,
+                        address: super::address(super::VOLUME_SCALAR, super::SCOPE_OUTPUT, channel),
+                        callback: super::property_changed,
+                    }),
+                |registration| {
+                    if active.borrow_mut().insert(listener_key(registration)) {
+                        0
+                    } else {
+                        1_852_797_029
+                    }
+                },
+                |registration| {
+                    active.borrow_mut().remove(&listener_key(registration));
+                    0
+                },
+            )
+            .unwrap();
+        assert_eq!(active.borrow().len(), 3);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 {
   "bundle": {
+    "homepage": "https://github.com/migueltvms/speaker-volume-bridge",
     "resources": {
       "distribution/debian.json": "distribution.json"
     }

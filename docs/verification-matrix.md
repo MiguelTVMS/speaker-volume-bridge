@@ -1,5 +1,87 @@
 # Hardware verification matrix
 
+## Linux ARM64 update-notification acceptance, 2026-10-12 (#159)
+
+Tested PR #214's existing update implementation and a focused Debian packaging
+correction (#216). No self-update feature, merge, release, publication or downloaded
+installer execution was performed. Existing application state was not replaced.
+
+### Automated results
+
+- PR #214 passed Rust formatting, Clippy, all 179 normal-feature workspace tests,
+  18 frontend unit-test files, 70 browser tests, frontend build, lint and format.
+  Browser IPC and private notification services do not establish desktop acceptance.
+- The normal Tauri Debian package omitted Homepage, causing the production startup
+  resolver to report Unknown. The new normal-suite regression builds real Debian
+  control metadata from bundle configuration, registers that control record in a
+  fixture database, and invokes production startup resolution with real dpkg-query
+  in a subprocess. It fails without Homepage and passes with the fix. The actual
+  corrected Tauri package also contains the required field.
+- The focused fix passed formatting, Clippy, all 181 workspace tests and five
+  packaging tests. Nine website guide and two build-metadata tests passed after
+  generating required local website build data; generated-page consistency passed.
+- Existing production orchestration tests cover delay, bounded retries, offline
+  recovery, wake, stale actions, policy generations, deduplication and persistence.
+  Native sleep/wake and restart results must remain separate.
+
+### Agent-observed native results
+
+Active local Ubuntu GNOME 50.1 Wayland session; uname reports aarch64. WebKitGTK
+4.1 and Ayatana AppIndicator libraries are available. The real GNOME notification
+service advertises actions and persistence. A tray host was registered initially;
+a later watcher lookup was unavailable, so visible tray operation remains unaccepted.
+GNOME uses a 24-hour clock. Global notification/security settings were unchanged.
+Computer-use/internal-browser tools were unavailable. Native GTK/WebKitGTK controls
+were inspected and activated through desktop accessibility instead.
+
+| Check | Result and coverage limit |
+| --- | --- |
+| Normal direct Debian build | Optimized 1.8.2 executable is AArch64; package is arm64 and contains Debian provenance. No demo/updater-acceptance features. Original and corrected packages were built; neither replaced a system installation. |
+| Isolated acceptance app | Separate package, identifier, single-instance bus name, desktop launcher, preferences and data; compiled version 1.7.0. Overrides remained outside Git worktrees. The local package was registered in a private dpkg root and its query scoped to that real database. This does not establish host-system installed provenance. |
+| Edition/version | Before fix: Unknown or custom build. After fix: native Updates shows Debian package and compiled version 1.7.0. |
+| Architecture | Executable, package and persisted resolver target agree on ARM64. Updates has no visible architecture row; the requested display check is not met. |
+| Startup delay | No attempt/state file at 28 seconds; first persisted attempt at 30 seconds, native notification submission at approximately 31 seconds. Settings was hidden on Devices. |
+| Public release policies | Native Stable only discovers 1.8.0; activating Include prereleases in the real GTK popup discovers 1.8.2. Returning to Stable restores 1.8.0. Policy, successful-check time, compatible target and notification history were persisted. |
+| Submission/source lifetime | Real notice uses the acceptance app name and Open Settings action. Its sender remained connected more than a minute afterward. This does not prove visible delivery, retained notification-list presentation or activation. |
+| Manual rediscovery | Completed manual checks and returning to Stable caused no additional notice: exactly two real submissions, one per offered version. A click while checking was rejected by the disabled control. Full-restart deduplication remains outstanding. |
+| Release/download controls | Native Open release and Download update invoked the configured Chrome handler and the app reported success. Browser rendering/address and installer bytes were not independently verified. No downloaded installer was executed. |
+| Timestamp | Native Updates rendered local regional time using GNOME's 24-hour preference. Native trials of LC_ALL/LC_TIME/LANG precedence remain outstanding. |
+| Physical speaker | A discovered speaker connected in the isolated profile and remained Connected during a release check. No controlled volume/mute round trip was performed; synchronization continuity is not fully accepted. |
+
+### User-confirmed native results
+
+None recorded. Requested narrowly scoped assistance: with Settings hidden on
+Devices, find the acceptance app's retained 1.8.0 notice in GNOME's notification
+list, activate it or Open Settings, and confirm Updates reopens. Submission and
+a live sender must not be substituted for this confirmation.
+
+### Remaining native sequence
+
+1. Confirm visible identity, retained source and notification activation from hidden
+   Devices. Repeat completed checks and full Quit/relaunch; verify no repeated
+   notice for already-notified versions and retained preferences, policy, cache
+   and successful-check time.
+2. Disable notifications only for the test app; verify manual discovery and in-app
+   offers remain actionable. Restore only that app's preference. Exercise the
+   visible tray's Open settings and Check for updates; the latter must open Updates.
+   Record absent desktop capabilities instead of claiming tray acceptance.
+3. Inspect the default browser's exact rendered-offer release page and compatible
+   official Debian ARM64 download. Never install it. Change policy/offer during
+   an action; verify stale rejection and usable Check again.
+4. Relaunch with conflicting LC_ALL, LC_TIME and LANG, then with higher-priority
+   values empty. Compare native timestamp formatting and the desktop clock preference.
+5. Start isolated/offline, verify the 30-second gate and one-, five-, thirty-minute
+   retries, then the exhausted one-day budget across restart. Restore connectivity
+   and manually recover. Sleep/wake while due and with notifications off must not
+   create bursts. Use application-scoped transport isolation or user assistance;
+   no global network/security change was performed in this run.
+6. Keep the physical speaker connected and verify volume/mute in both directions,
+   restoring initial values. Connected status alone is insufficient.
+
+Website review: Updates now explains manual recovery for an older official Debian
+package reported as unknown. No website was published. Broader #159/#161/#162/#163/
+#178 native acceptance remains open.
+
 ## macOS native acceptance follow-up, 2026-10-12
 
 The isolated ARM64 acceptance bundle uses the production notification runtime with an

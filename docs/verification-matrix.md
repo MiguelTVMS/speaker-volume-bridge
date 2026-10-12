@@ -59,6 +59,9 @@ locale region because JavaScript Intl ignores the `rg` extension. Windows reads
 the user format locale; Linux follows LC_ALL, LC_TIME and LANG precedence.
 Missing native preferences fall back to the WebView locale without blocking
 Settings. Stored timestamps and update freshness are unchanged.
+An unrepresentable persisted timestamp displays Unavailable without preventing
+manual recovery. The production focus-refresh/recheck regression failed before
+the formatter's range guard and passed afterward.
 
 The macOS default height is 780 logical points, matching the user's measured
 740-by-780 Settings window. Width stays fixed at 740 and vertical resizing remains

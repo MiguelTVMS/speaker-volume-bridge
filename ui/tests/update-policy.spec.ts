@@ -362,3 +362,30 @@ test('last successful check refreshes desktop regional preferences on focus', as
   await expect(value).toHaveText(expected);
   expect(expected).not.toBe(before);
 });
+
+test('an unrepresentable persisted check time leaves Updates usable and manual recovery works', async ({
+  page,
+}) => {
+  await page.goto('/preview.html?locale=en-PT&hour12=false');
+  await page.getByRole('button', { name: 'Updates', exact: true }).click();
+  await page.evaluate(async () => {
+    const host = window as unknown as {
+      __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
+    };
+    const invoke = host.__TAURI_INTERNALS__.invoke;
+    const status = (await invoke('get_update_status')) as Record<string, unknown>;
+    host.__TAURI_INTERNALS__.invoke = (command, args) =>
+      command === 'get_update_status'
+        ? Promise.resolve({ ...status, lastSuccessfulCheck: Number.MAX_SAFE_INTEGER })
+        : invoke(command, args);
+    window.dispatchEvent(new Event('focus'));
+  });
+  const value = page
+    .getByText('Last successful check', { exact: true })
+    .locator('..')
+    .locator('dd');
+  await expect(value).toHaveText('Unavailable');
+  await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
+  await expect(value).not.toHaveText('Unavailable');
+});

@@ -85,6 +85,7 @@ test('Store editions explain delegation and expose only their Store action', () 
 test('last successful check handles absent time and unavailable native locale', () => {
   assert.equal(formatLastSuccessfulCheck(null, 'en-PT', false), 'Never');
   assert.notEqual(formatLastSuccessfulCheck(0, 'en-PT', false), 'Never');
+  assert.equal(formatLastSuccessfulCheck(Number.MAX_SAFE_INTEGER, 'en-PT', false), 'Unavailable');
   assert.equal(
     formatLastSuccessfulCheck(1791108000, 'invalid_locale', false),
     formatLastSuccessfulCheck(1791108000, undefined, false),

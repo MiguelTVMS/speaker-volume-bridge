@@ -49,6 +49,7 @@ export function formatLastSuccessfulCheck(
     ...(hour12 === undefined ? {} : { hour12 }),
   };
   const date = new Date(timestamp * 1000);
+  if (!Number.isFinite(date.getTime())) return 'Unavailable';
   try {
     return new Intl.DateTimeFormat(locale, options).format(date);
   } catch {

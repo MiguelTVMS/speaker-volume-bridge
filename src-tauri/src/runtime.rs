@@ -1294,6 +1294,102 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn queued_notification_first_at_deadline_preserves_settling_read() {
+        let mut listener =
+            CallbackListener::bind("127.0.0.1:0".parse().unwrap(), "127.0.0.1".parse().unwrap())
+                .await
+                .unwrap();
+        let local = LocalAudioState {
+            volume: NormalizedVolume::new(60).unwrap(),
+            muted: MuteState(false),
+        };
+        let audio: Arc<dyn SystemAudioController> = Arc::new(SessionAudio(Mutex::new(local)));
+        let mut coordinator = Coordinator::new(
+            Synchronizer::new(
+                speaker_volume_bridge_domain::VolumeMapping::Linear,
+                SonosVolume::MAX,
+                true,
+                true,
+                false,
+            )
+            .unwrap(),
+            SessionSonos(Arc::new(Mutex::new((
+                SonosVolume::new(20).unwrap(),
+                MuteState(false),
+            )))),
+            DeviceAudioPort(Arc::clone(&audio)),
+            SynchronizationPolicy::default(),
+        );
+        coordinator.reconcile_startup().await.unwrap();
+        audio
+            .set_volume(local.volume, LocalOrigin::User)
+            .await
+            .unwrap();
+        coordinator
+            .on_local_event(local, LocalOrigin::User, false)
+            .await
+            .unwrap();
+        coordinator.run_local_once().await.unwrap();
+        let deadline = coordinator.settling_deadline().unwrap();
+        tokio::time::sleep_until(deadline).await;
+        enqueue_test_notification(&listener, 20).await;
+        // Deliberately execute the notification branch first when both branches
+        // are ready, before the fresh-read queue fence exists.
+        let stale = listener.recv().await.unwrap().volume_state.unwrap();
+        let mut published = (20, "waiting");
+        process_session_observation(
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Speaker(stale.state.volume, stale.state.muted),
+            true,
+            false,
+            |confirmed, _, status| {
+                published = (confirmed.volume.get(), status_name(&status));
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, (20, "waiting"));
+        assert_eq!(audio.current_state().await.unwrap(), local);
+        assert_eq!(coordinator.settling_deadline(), Some(deadline));
+        let read_before = coordinator.last_read_completed_at();
+        reconcile_session_observations(
+            &mut listener,
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Settled,
+            true,
+            false,
+            |confirmed, _, status| {
+                published = (confirmed.volume.get(), status_name(&status));
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, (60, "synchronized"));
+        assert!(coordinator.last_read_completed_at() > read_before);
+        assert_eq!(coordinator.settling_deadline(), None);
+        // Authority is released by the read, allowing later speaker changes.
+        tokio::time::advance(Duration::from_millis(1)).await;
+        enqueue_test_notification(&listener, 35).await;
+        let fresh = listener.recv().await.unwrap().volume_state.unwrap();
+        process_session_observation(
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Speaker(fresh.state.volume, fresh.state.muted),
+            true,
+            false,
+            |confirmed, _, status| {
+                published = (confirmed.volume.get(), status_name(&status));
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, (35, "synchronized"));
+        assert_eq!(audio.current_state().await.unwrap().volume.get(), 35);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn settling_timer_before_queued_notification_keeps_fresh_state() {
         let mut listener =
             CallbackListener::bind("127.0.0.1:0".parse().unwrap(), "127.0.0.1".parse().unwrap())

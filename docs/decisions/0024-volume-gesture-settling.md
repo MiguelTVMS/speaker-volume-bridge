@@ -91,3 +91,13 @@ commands. This does not pass stale state to the synchronizer, but allows a new
 gesture ending at a previously sent value to reassert that value after an external
 change. Core Audio channel elements are numbered cumulatively across stream
 buffers, preventing duplicate listener addresses on multi-buffer outputs.
+
+
+The 500 ms deadline makes the final read ready; it does not itself release local
+authority. Authority remains latched until the explicit settling read returns.
+Thus both timer-first and notification-first selection at the deadline preserve
+the fresh reconciliation. A failed read leaves the latch in place until session
+recovery rather than accepting stale queued state. The notification-first
+regression uses the real callback queue with fallback polling disabled and checks
+that waiting status, local volume and the settling deadline survive the stale
+event, then verifies the final read and later speaker control.

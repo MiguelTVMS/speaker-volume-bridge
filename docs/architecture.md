@@ -496,3 +496,7 @@ stream channel elements are cumulative across buffers to keep registrations uniq
 
 Tray left-double-click and the ordinary Settings menu share navigation handling,
 so both cancel unconsumed explicit page requests during startup (ADR 0025).
+
+The local-authority deadline schedules reconciliation; authority remains latched
+until its explicit speaker read returns, protecting either select ordering at the
+deadline (ADR 0024).

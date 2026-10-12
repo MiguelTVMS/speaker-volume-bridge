@@ -117,16 +117,14 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
     pub async fn finish_local_adjustment(&mut self) -> Result<(), IntegrationError> {
         if let Some(deadline) = self.settling_deadline() {
             sleep_until(deadline).await;
-            self.local_authority_until = None;
-            self.poll_once().await?;
+            // Retain authority until the explicit read returns, regardless of
+            // which ready select branch wins at the deadline.
+            self.reconcile_startup().await?;
         }
         Ok(())
     }
     fn local_is_authoritative(&self) -> bool {
-        self.pending_local.is_some()
-            || self
-                .local_authority_until
-                .is_some_and(|until| Deadline::now() < until)
+        self.pending_local.is_some() || self.local_authority_until.is_some()
     }
     pub const fn health(&self) -> Health {
         self.health
@@ -442,6 +440,9 @@ mod tests {
         assert!(applied.lock().unwrap().is_empty());
         tokio::time::advance(Duration::from_millis(501)).await;
         coordinator.poll_once().await.unwrap();
+        assert!(applied.lock().unwrap().is_empty());
+        assert!(coordinator.settling_deadline().is_some());
+        coordinator.finish_local_adjustment().await.unwrap();
         assert_eq!(applied.lock().unwrap().as_slice(), &[local(69, false)]);
         // Speaker-side changes resume after the local gesture settles.
         coordinator
@@ -708,6 +709,7 @@ mod tests {
             .await
             .unwrap();
         tokio::time::advance(LOCAL_SETTLING).await;
+        coordinator.finish_local_adjustment().await.unwrap();
         coordinator
             .on_sonos_event(volume(35), MuteState(false))
             .await

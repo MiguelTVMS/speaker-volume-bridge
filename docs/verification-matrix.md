@@ -2138,3 +2138,18 @@ Manual coverage: before frontend initialization completes, select an explicit
 tray destination and then left-double-click the tray. Ordinary Settings should
 open without later navigation to the superseded destination. This precise native
 startup interaction has automated orchestration coverage, not new manual acceptance.
+
+
+## Notification-first settling deadline regression
+
+With a real callback listener, the regression completes startup, dispatches local
+input, advances to the settling deadline and queues a stale speaker notification.
+It invokes the production notification orchestration before settling, reproducing
+the opposite ordering to the timer-first regression. Waiting publication, local
+volume and the settling deadline must remain intact. The production settling
+operation must perform a fresh read and release authority; a later independent
+notification must then update local audio and published state. Fallback polling
+is disabled. The regression fails with the time-expiring authority check restored
+and passes with latched authority. It runs in the normal workspace suite.
+Website review: no additional guide changes needed; this repairs the documented
+settling guarantee without changing setup or user-facing controls.

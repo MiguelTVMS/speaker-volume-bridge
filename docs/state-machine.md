@@ -18,7 +18,9 @@ the PulseAudio-compatible `pactl` event stream with short-lived expected-write
 tracking. A Sonos
 confirmation accepted by the coordinator clears pending intents. During a local
 gesture the coordinator defers speaker corrections until a fresh read after
-500 ms of settling. Accepted confirmations apply locally only in two-way mode.
+500 ms of settling. Local authority stays latched until that read returns, even
+if a notification branch runs first at the deadline. Accepted confirmations apply
+locally only in two-way mode.
 
 Volume changes use a fixed 45 ms dispatch deadline while callbacks continue to
 arrive; only the newest pending volume is dispatched. Mute changes bypass the

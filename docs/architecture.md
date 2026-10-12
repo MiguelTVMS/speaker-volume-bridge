@@ -263,7 +263,10 @@ The Windows shell registers an unpackaged notification identity before checking
 permission and uses that same identity for native toast delivery. Unpackaged startup
 registers the sender's COM activator and quoted executable launch command as well
 as its display name. A process-lifetime MTA owns the class factory; notification
-activation opens Settings on the UI thread. Demo and normal activators are separate.
+activation opens Settings on the UI thread. The COM callback reads toast launch
+intent from its second parameter; the first identifies the sender. Update intent
+selects Updates, while schedule activation retains ordinary Settings navigation.
+Demo and normal activators are separate.
 The Start menu shortcut stores both the same sender ID and toast activator CLSID;
 local startup creates it when absent and repairs its properties without retargeting
 an existing installed shortcut. Recent native toast objects are retained in a bounded

@@ -23,9 +23,21 @@ establish signed installed-package acceptance.
 | Regional timestamp | Display matches the Windows user's month/day/year and 12-hour clock preferences; alternate settings not tested |
 | Open release | Native stable-offer action opened the exact 1.8.0 release page through the system default browser |
 | Download update | Native action invoked the browser and reported success; downloaded installer provenance/completion remains unverified; nothing installed or executed |
+| Full process restart | Include prereleases, cached 1.8.2 offer, prior successful-check time, enabled check/notification preferences and speaker selection restored; real speaker reconnected |
 | Notification state | Stable and prerelease deduplication identities persisted; this alone does not prove visible OS delivery or activation |
 | Hardware | Real speaker selected with user authorization; Connected displayed during update interactions; synchronization continuity remains unverified |
 | Microsoft Store | No genuine installed candidate available; Store acceptance unavailable |
+
+### Activation regression
+
+The real registered Windows COM factory test now passes the application identity
+first and toast launch arguments second, as the native API does. This sequence
+failed before the fix: both schedule and update activation opened ordinary Settings.
+The callback now reads the second parameter and the same regression passes in the
+normal Windows test suite. The former test had mirrored the incorrect parameter
+order. The production activation callback and existing main-thread navigation are
+used; no helper-only assertion or alternate runtime is substituted. Native retest
+with the rebuilt isolated executable remains required.
 
 ### Automated verification and coverage limits
 
@@ -33,7 +45,8 @@ The unmodified Windows code failed strict workspace Clippy on an unused import,
 a Linux-only helper compiled on Windows, and the intentionally shared async
 notification interface. The focused cleanup removes the import, scopes the helper
 to Linux/tests and annotates the existing interface. Strict Clippy then passes.
-There is no runtime behavior change or replacement update implementation.
+This lint cleanup does not change runtime behavior. The separate activation
+correction above fixes existing update routing.
 
 Rust formatting and strict workspace Clippy pass. Workspace tests pass excluding
 `speaker-volume-bridge-updater-artifact`. The unfiltered required command fails
@@ -47,17 +60,17 @@ These fixtures do not establish native permissions, tray, delivery or sleep/wake
 
 ### User-confirmed results and outstanding checks
 
-No user-confirmed notification outcome is recorded yet. Settings was placed on
-Devices and hidden before requesting activation of the isolated app's notice.
+The user confirmed that activating the isolated update notification reopened
+Settings but did not select Updates after Devices was hidden. Visible delivery
+and reopening are user-confirmed; correct routing failed before the fix.
 Native notification presentation/activation, repeated-check and restart deduplication,
-per-app OS notification denial with manual offers, tray actions, restart persistence,
+per-app OS notification denial with manual offers, tray actions,
 ARM64 installer provenance, native stale-action rejection, offline recovery, bounded
 retries and sleep/wake remain outstanding. Follow the documented manual sequence;
 do not infer those results from mocked tests.
 
 Issues #161, #162, #163 and #178 and epic #159 remain incomplete. Self-update #212
-is unchanged. Website review: no update needed for evidence and lint-only cleanup;
-product behavior, setup and architecture are unchanged.
+is unchanged. Website review: the Updates guide now explicitly describes notification activation.
 
 
 ## macOS native acceptance follow-up, 2026-10-12

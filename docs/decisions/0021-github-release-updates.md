@@ -116,3 +116,8 @@ native Store destinations through an edition-authorized command. No release
 offer or Store availability claim is created. Direct release-policy behavior is
 unchanged. Existing catalog clients require a one-time manual upgrade; see
 [upgrade guidance](../rebrand-upgrade.md).
+
+Windows notification activation uses the native COM callback's second parameter
+for toast launch intent. The first parameter is application identity. The registered
+COM-factory regression uses that API order and distinguishes ordinary Settings
+from Updates navigation; native delivery and activation remain separate evidence.

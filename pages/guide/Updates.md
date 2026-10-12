@@ -137,3 +137,7 @@ presence does not enable automatic installation or change release policy.
 Native replacement and preservation of settings, login behavior and speaker
 synchronization have not yet passed signed packaged-upgrade acceptance.
 Mac App Store editions continue to update through the Store.
+
+Selecting a native update notification opens Settings on **Updates**, including
+when Settings was hidden on another page. Ordinary tray **Open settings** retains
+the current page; tray **Check for updates** opens Updates.

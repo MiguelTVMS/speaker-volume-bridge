@@ -33,6 +33,9 @@ Open [Diagnostics](/guide/Diagnostics-and-Troubleshooting.html) when the binary 
 
 ## Closing and quitting
 
+Double-click the tray icon with the left mouse button to open ordinary Settings.
+This also cancels an earlier page shortcut that is still waiting for startup.
+
 Closing the Settings window hides it. Synchronization continues in the background.
 
 Choose **Quit** from the tray or menu-bar menu to stop the runtime completely.

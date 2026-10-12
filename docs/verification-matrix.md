@@ -2125,3 +2125,16 @@ fail with the corresponding late cutoff or missing output-change cutoff restored
 These tests run in the regular workspace suite without native audio hardware.
 Website review: no guide update needed; this corrects ordering guarantees without
 changing the documented behavior, setup or user flow.
+
+
+## Cold-start tray double-click navigation
+
+The regression selects Diagnostics or Updates, leaves its destination unconsumed,
+then invokes the production tray double-click action. Left double-click must clear
+the pending request; right and middle double-clicks must retain it. The test fails
+with the original direct window-showing path and passes with shared ordinary
+Settings handling. It runs in the workspace suite with the mock Tauri runtime.
+Manual coverage: before frontend initialization completes, select an explicit
+tray destination and then left-double-click the tray. Ordinary Settings should
+open without later navigation to the superseded destination. This precise native
+startup interaction has automated orchestration coverage, not new manual acceptance.

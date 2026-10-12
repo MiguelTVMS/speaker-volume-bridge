@@ -123,8 +123,8 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 button_state: MouseButtonState::Down,
                 ..
             } => refresh_speaker_controls(tray.app_handle()),
-            TrayIconEvent::DoubleClick { button, .. } if opens_settings_on_double_click(button) => {
-                show_settings(tray.app_handle());
+            TrayIconEvent::DoubleClick { button, .. } => {
+                open_settings_on_tray_double_click(tray.app_handle(), button);
             }
             _ => {}
         })
@@ -551,6 +551,12 @@ fn show_settings<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+fn open_settings_on_tray_double_click<R: Runtime>(app: &AppHandle<R>, button: MouseButton) {
+    if opens_settings_on_double_click(button) {
+        open_settings_menu_item(app, "settings");
+    }
+}
+
 fn opens_settings_on_double_click(button: MouseButton) -> bool {
     button == MouseButton::Left
 }
@@ -605,6 +611,28 @@ mod tests {
             open_settings_menu_item(app.handle(), page);
             // No frontend has consumed the first request yet.
             open_settings_menu_item(app.handle(), "settings");
+            assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn tray_double_click_clears_unconsumed_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        for page in ["diagnostics", "updates"] {
+            open_settings_menu_item(app.handle(), page);
+            // Right/middle double-clicks must not cancel explicit navigation.
+            for button in [MouseButton::Right, MouseButton::Middle] {
+                open_settings_on_tray_double_click(app.handle(), button);
+                assert_eq!(
+                    *app.state::<PendingSettingsNavigation>().0.lock().unwrap(),
+                    Some(page)
+                );
+            }
+            // No frontend subscription or consumption between these actions.
+            open_settings_on_tray_double_click(app.handle(), MouseButton::Left);
             assert_eq!(take_pending_settings_navigation(app.handle()), None);
         }
     }

@@ -493,3 +493,6 @@ a volume-observation cutoff at the fresh speaker read completion, before local
 audio application or snapshot publication. Independent settings invalidations and
 newer notifications remain deliverable (ADR 0024). Core Audio
 stream channel elements are cumulative across buffers to keep registrations unique.
+
+Tray left-double-click and the ordinary Settings menu share navigation handling,
+so both cancel unconsumed explicit page requests during startup (ADR 0025).

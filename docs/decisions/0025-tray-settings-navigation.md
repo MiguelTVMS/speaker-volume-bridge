@@ -18,3 +18,8 @@ directly.
 Ordinary Open settings also replaces the pending navigation slot, with no explicit
 page. A later ordinary request therefore cancels an unconsumed Diagnostics or
 Updates destination during cold startup.
+
+Left double-click on the tray uses the same ordinary Settings action, including
+clearing an unconsumed explicit destination. Right and middle double-clicks do
+not alter pending navigation. The regression invokes the shared production
+double-click action before frontend subscription or consumption.

@@ -111,3 +111,8 @@ Changes to unrelated outputs should not interrupt a healthy selected output.
 A successful output switch keeps the speaker connection and reconciles volume
 using the selected synchronization direction. Connection recovery is reserved
 for an unavailable output or failed attachment.
+
+While a volume adjustment settles, delayed speaker updates do not replace the
+waiting status or displayed speaker value. After settling, Diagnostics continues
+to report degraded event delivery or polling fallback if the subscription is
+unavailable.

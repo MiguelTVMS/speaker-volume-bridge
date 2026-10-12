@@ -165,14 +165,15 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
         })
         .await
     }
+    /// Returns whether the observation was accepted, so callers can publish only confirmed state.
     pub async fn on_sonos_event(
         &mut self,
         volume: SonosVolume,
         muted: MuteState,
-    ) -> Result<(), IntegrationError> {
+    ) -> Result<bool, IntegrationError> {
         self.health = Health::Healthy;
         if self.local_is_authoritative() {
-            return Ok(());
+            return Ok(false);
         }
         self.last_local = None;
         self.local_authority_until = None;
@@ -183,7 +184,8 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
             source: SonosObservationSource::Event,
             at_ms: now_ms(),
         })
-        .await
+        .await?;
+        Ok(true)
     }
     pub fn on_subscription_lost(&mut self) {
         self.health = Health::PollingFallback;

@@ -483,3 +483,7 @@ Explicit Diagnostics and Updates tray actions retain a page destination until
 Settings acknowledges it, so opening a hidden or not-yet-ready window selects
 the requested page. Ordinary Settings preserves its selected page. See
 [ADR 0025](decisions/0025-tray-settings-navigation.md).
+
+Runtime observation publication is shared by notification, health-read and gesture-
+settling paths. Rejected observations leave the snapshot unchanged; accepted state
+is published with the current subscription availability and polling policy (ADR 0024).

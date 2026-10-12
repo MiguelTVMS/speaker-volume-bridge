@@ -2075,3 +2075,18 @@ made default, then the original default was restored and the temporary output
 removed. App logs recorded no audio failure, new attachment or speaker
 subscription restart. This covers unrelated default-output topology changes;
 it does not cover disappearance of the selected physical output.
+
+
+## Runtime observation publication regressions
+
+The production session delegates notification, polling and settling publication to
+shared async orchestration. Runtime regressions start a real coordinator with a
+speaker baseline, enqueue local input, dispatch it, and process observations both
+before dispatch and during settling. Suppressed stale observations must not invoke
+the snapshot publisher; after the final read, normal speaker events must publish
+accepted state. Another regression completes local gestures with subscription
+present, subscription absent with fallback enabled, and absent with fallback
+disabled; each must publish the corresponding status and confirmed volume.
+Both regressions fail when their original faulty publication behavior is restored.
+These run in the normal workspace suite without native audio or a GUI and cover
+shared production orchestration, rather than only the coordinator's decisions.

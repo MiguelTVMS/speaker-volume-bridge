@@ -23,7 +23,9 @@ gesture the coordinator defers speaker corrections until a fresh read after
 Volume changes use a fixed 45 ms dispatch deadline while callbacks continue to
 arrive; only the newest pending volume is dispatched. Mute changes bypass the
 debounce and supersede queued volume. A final speaker read runs after settling
-even when fallback polling is disabled. See ADR 0024.
+even when fallback polling is disabled. Rejected speaker observations do not
+change the waiting UI snapshot. After settling, status remains degraded or polling
+fallback when the event subscription is unavailable. See ADR 0024.
 The coordinator does not resend a volume or mute value until it differs from
 the last sent value. When GENA delivery is healthy it polls slowly for health;
 on subscription loss it polls once per second until event delivery recovers.

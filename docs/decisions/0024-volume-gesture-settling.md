@@ -19,6 +19,13 @@ fresh speaker read reconciles final volume and mute, even with fallback polling
 disabled. Ordinary speaker changes again apply in two-way mode. One-way mode
 continues to observe speaker confirmations without applying them locally.
 
+The runtime publishes speaker state only when the coordinator accepts an
+observation. Suppressed notifications and health reads retain the waiting snapshot,
+including its last speaker value. Completing the final read preserves subscription
+health: without an event subscription the UI reports polling fallback when enabled,
+or degraded delivery otherwise. Notification, polling and settling branches share
+the same observation-to-publication orchestration, exercised by runtime regressions.
+
 ## Tradeoffs and validation
 
 An independent speaker change during a local gesture is reconciled by the final

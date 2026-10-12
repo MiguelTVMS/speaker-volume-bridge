@@ -35,9 +35,10 @@ first and toast launch arguments second, as the native API does. This sequence
 failed before the fix: both schedule and update activation opened ordinary Settings.
 The callback now reads the second parameter and the same regression passes in the
 normal Windows test suite. The former test had mirrored the incorrect parameter
-order. The production activation callback and existing main-thread navigation are
-used; no helper-only assertion or alternate runtime is substituted. Native retest
-with the rebuilt isolated executable remains required.
+order. The test invokes the actual registered production COM callback and observes
+its route callback; it does not drive a native WebView. Existing shared activation
+tests cover emitted navigation. Native retest with the rebuilt isolated executable
+remains required.
 
 ### Automated verification and coverage limits
 
@@ -52,7 +53,8 @@ Rust formatting and strict workspace Clippy pass. Workspace tests pass excluding
 `speaker-volume-bridge-updater-artifact`. The unfiltered required command fails
 because Windows refuses to launch that package's test executable without elevation.
 No updater was enabled or run. Frontend formatting, lint, 51 unit tests and
-production build pass. The normal browser suite reports 67 passes and three layout
+production build pass. Nine website guide checks pass after generating required
+local build metadata and using UTF-8. The normal browser suite reports 67 passes and three layout
 failures: the Linux default schedule exceeds its viewport by two pixels, and the
 Windows minimum-height speaker footer exceeds its viewport in both appearances.
 Update policy, stale-action recovery and regional-format browser checks pass.

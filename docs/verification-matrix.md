@@ -76,11 +76,15 @@ reopening captured Updates with the 1.8.0 offer. Corrected activation is therefo
 user-confirmed, with resulting page inspection recorded separately.
 
 Repeated native manual checks succeeded and retained one notified-version entry.
-The user reported no new notice after the previous full process restart; exact
-Notification Center notice counts remain unconfirmed.
+The user reported no new notice after the previous full process restart and
+confirmed no duplicate notice after the repeated manual checks. Exact historical
+Notification Center notice counts were not recorded.
 
-Exact repeated-check/restart notice counts,
-per-app OS notification denial with manual offers, tray actions,
+The user confirmed both isolated tray actions: Open settings reopened Devices and
+Check for updates opened Updates. The user requested skipping per-app Windows
+notification denial, so that check is explicitly skipped, not passed. No OS
+notification settings were changed for this test.
+
 ARM64 installer provenance, native stale-action rejection, offline recovery, bounded
 retries and sleep/wake remain outstanding. Follow the documented manual sequence;
 do not infer those results from mocked tests.

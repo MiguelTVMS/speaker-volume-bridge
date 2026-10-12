@@ -116,3 +116,14 @@ native Store destinations through an edition-authorized command. No release
 offer or Store availability claim is created. Direct release-policy behavior is
 unchanged. Existing catalog clients require a one-time manual upgrade; see
 [upgrade guidance](../rebrand-upgrade.md).
+
+Windows notification activation uses the native COM callback's second parameter
+for toast launch intent. The first parameter is application identity. The registered
+COM-factory regression uses that API order and distinguishes ordinary Settings
+from Updates navigation; native delivery and activation remain separate evidence.
+
+Update notification navigation is retained in shell state before emitting the
+frontend event. After installing its listener, Settings consumes the pending
+destination through a command; warm activation uses the same acknowledgement.
+Schedule activation cannot clear pending Updates navigation. This preserves
+cold-start intent when native activation precedes frontend initialization.

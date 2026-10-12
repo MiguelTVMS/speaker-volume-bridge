@@ -1,5 +1,97 @@
 # Hardware verification matrix
 
+## Windows ARM64 native acceptance follow-up, 2026-10-12
+
+PR #214 was already merged when this run began. Its exact head was checked in an
+isolated worktree and built using the direct Windows configuration and optimized
+production runtime, without demo or native-updater-acceptance features. Temporary
+build-only overrides supplied version 1.7.0 and separate application identity,
+preferences, shortcut and notification activation registration. Overrides were
+restored after building and are excluded from this contribution. The installed
+application and its state were not replaced. This standalone executable does not
+establish signed installed-package acceptance.
+
+### Agent-observed native results
+
+| Check | Result |
+| --- | --- |
+| Architecture | Windows ARM64 host; actual executable PE machine independently verified as ARM64 |
+| Edition/version | Updates displays Direct download for Windows and compiled 1.7.0; ARM64 discovery target verified separately |
+| Automatic startup delay | Fresh isolated state: first persisted attempt 30.44 seconds after process start; public discovery succeeded |
+| Stable | Actual public release 1.8.0 offered |
+| Include prereleases | Policy change cleared the stable offer, checked again and offered actual public prerelease 1.8.2 |
+| Regional timestamp | Display matches the Windows user's month/day/year and 12-hour clock preferences; alternate settings not tested |
+| Open release | Native stable-offer action opened the exact 1.8.0 release page through the system default browser |
+| Download update | Native action invoked the browser and reported success; downloaded installer provenance/completion remains unverified; nothing installed or executed |
+| Full process restart | Include prereleases, cached 1.8.2 offer, prior successful-check time, enabled check/notification preferences and speaker selection restored; real speaker reconnected |
+| Notification state | Stable and prerelease deduplication identities persisted; this alone does not prove visible OS delivery or activation |
+| Hardware | Real speaker selected with user authorization; Connected displayed during update interactions; synchronization continuity remains unverified |
+| Microsoft Store | No genuine installed candidate available; Store acceptance unavailable |
+
+### Activation regression
+
+The real registered Windows COM factory test now passes the application identity
+first and toast launch arguments second, as the native API does. This sequence
+failed before the fix: both schedule and update activation opened ordinary Settings.
+The callback now reads the second parameter and the same regression passes in the
+normal Windows test suite. The former test had mirrored the incorrect parameter
+order. The test invokes the actual registered production COM callback and observes
+its route callback; it does not drive a native WebView. Existing shared activation
+tests cover emitted navigation. Native retest passed with user assistance as
+recorded below.
+
+### Automated verification and coverage limits
+
+The unmodified Windows code failed strict workspace Clippy on an unused import,
+a Linux-only helper compiled on Windows, and the intentionally shared async
+notification interface. The focused cleanup removes the import, scopes the helper
+to Linux/tests and annotates the existing interface. Strict Clippy then passes.
+This lint cleanup does not change runtime behavior. The separate activation
+correction above fixes existing update routing.
+
+Rust formatting and strict workspace Clippy pass. Workspace tests pass excluding
+`speaker-volume-bridge-updater-artifact`. The unfiltered required command fails
+because Windows refuses to launch that package's test executable without elevation.
+No updater was enabled or run. Frontend formatting, lint, 51 unit tests and
+production build pass. Nine website guide checks pass after generating required
+local build metadata and using UTF-8. The normal browser suite reports 67 passes and three layout
+failures: the Linux default schedule exceeds its viewport by two pixels, and the
+Windows minimum-height speaker footer exceeds its viewport in both appearances.
+Update policy, stale-action recovery and regional-format browser checks pass.
+These fixtures do not establish native permissions, tray, delivery or sleep/wake.
+
+### User-confirmed results and outstanding checks
+
+The user confirmed that activating the isolated update notification reopened
+Settings but did not select Updates after Devices was hidden. Visible delivery
+and reopening are user-confirmed; correct routing failed before the fix.
+
+After rebuilding, the user reported no remaining notice after restart. Both
+versions were already recorded as notified. The isolated update-state file was
+preserved privately and a fresh update profile started without changing the
+speaker configuration or installed app. Production startup discovered 1.8.0 and
+recorded one notice. With Devices hidden, the user confirmed activating that
+fresh notice opened the correct Updates screen. Subsequent agent inspection after
+reopening captured Updates with the 1.8.0 offer. Corrected activation is therefore
+user-confirmed, with resulting page inspection recorded separately.
+
+Repeated native manual checks succeeded and retained one notified-version entry.
+The user reported no new notice after the previous full process restart and
+confirmed no duplicate notice after the repeated manual checks. Exact historical
+Notification Center notice counts were not recorded.
+
+The user confirmed both isolated tray actions: Open settings reopened Devices and
+Check for updates opened Updates. The user requested skipping per-app Windows
+notification denial, so that check is explicitly skipped, not passed. No OS
+notification settings were changed for this test.
+
+ARM64 installer provenance, native stale-action rejection, offline recovery, bounded
+retries and sleep/wake remain outstanding. Follow the documented manual sequence;
+do not infer those results from mocked tests.
+
+Issues #161, #162, #163 and #178 and epic #159 remain incomplete. Self-update #212
+is unchanged. Website review: the Updates guide now explicitly describes notification activation.
+
 ## Linux ARM64 update-notification acceptance, 2026-10-12 (#159)
 
 Tested PR #214's existing update implementation and a focused Debian packaging
@@ -1843,3 +1935,18 @@ The installer-entry regression also covers an authorized recovery callback that
 reports success while leaving the destination absent. The postcondition failure
 retains staging and the original native error code/domain. This sequence failed
 with the untyped postcondition error and passes with structured context retained.
+
+### Cold-start update notification navigation
+
+The normal shell regression activates an update notification before installing
+the frontend observer, then consumes the pending destination through the shared
+command implementation. It also checks schedule activation cannot overwrite it,
+one-time consumption, and subsequent warm activation. A browser regression starts
+with pending intent, verifies Updates is selected after subscription, and checks
+a later navigation event still opens Updates. Both regressions fail when their
+respective retention/consumption changes are removed and pass with the fix.
+Native Windows acceptance:
+quit the application completely, activate a previously delivered update toast,
+and verify Settings opens Updates. Repeat with the app running and Settings hidden
+on Devices. The automated test covers shared lifecycle orchestration; actual
+Windows launch and WebView subscription timing still require this manual check.

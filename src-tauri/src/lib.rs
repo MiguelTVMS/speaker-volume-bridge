@@ -151,6 +151,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             }
             let state = AppState::new(store, configuration, guard);
             app.manage(state);
+            app.manage(schedule_notifications::PendingUpdateNavigation::default());
             let transport = updates::HttpReleaseTransport::new().map(|transport| {
                 std::sync::Arc::new(transport) as std::sync::Arc<dyn updates::ReleaseTransport>
             });
@@ -196,6 +197,7 @@ fn run_normal(context: tauri::Context<tauri::Wry>) {
             ui_demo_enabled,
             ui_demo_platform,
             commands::get_snapshot,
+            commands::take_pending_update_navigation,
             commands::get_system_hour12,
             commands::get_system_locale,
             commands::save_night_schedule,

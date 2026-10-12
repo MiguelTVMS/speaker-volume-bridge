@@ -178,6 +178,11 @@ conflicting, sideloaded or unverifiable packages never silently enroll in offici
 checks. Resolution failure is an update-only condition and cannot stop audio
 synchronization. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
 
+The Linux bundle explicitly sets the repository Homepage field in Debian control
+metadata. Startup requires that field alongside the package name and bundled
+provenance; omitting it leaves the official package unrecognized and disables
+update discovery. The package metadata and runtime resolver are tested together.
+
 The shell also owns one update service with injected release transport, clock,
 distribution metadata and persistence. It starts only after synchronization has
 started, waits 30 seconds, and performs at most one shared request at a time.

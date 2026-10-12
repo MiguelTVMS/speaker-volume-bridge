@@ -59,6 +59,11 @@ Turn off **Automatically check for updates** to disable background requests.
 Debug, demo, custom, sideloaded, or ambiguous packages do not silently enroll in
 automatic checks.
 
+If an official Ubuntu package reports **Unknown or custom build**, it may be an
+older package missing distribution metadata. Download a corrected package from
+the project's release page and upgrade manually; an unrecognized build cannot
+discover its own update. See [Updating and uninstalling](/guide/Updating-and-Uninstalling.html).
+
 ## Notifications
 
 **Update notifications** controls native desktop notices separately from update

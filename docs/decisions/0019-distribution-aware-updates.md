@@ -10,6 +10,20 @@ prerequisite for GitHub Releases discovery.
 
 Accepted for phase 1.
 
+### Debian packaging and startup recognition
+
+The Linux Tauri bundle explicitly supplies the canonical repository Homepage.
+The runtime's Debian evidence query requires this control field as well as the
+expected package name, then combines it with bundled provenance. A package with
+no Homepage remains unknown; the fix supplies the missing packaging evidence
+instead of weakening recognition for custom packages. A normal-suite Linux
+regression builds real Debian control metadata from the bundle configuration,
+registers that control record in an isolated fixture database, and enters the
+production startup resolver with real `dpkg-query` in a subprocess. It fails
+without the Homepage and passes with it. Native packaging additionally checks
+the actual Tauri-generated Debian package. No installed package is retroactively
+reclassified; affected older versions require manual upgrade.
+
 ## Decision
 
 The public site owns a versioned catalog at `/updates/v1/catalog.json`. A catalog

@@ -519,6 +519,117 @@ mod tests {
         assert!(!installed.check_supported);
     }
 
+    // Run the production startup resolver in a subprocess so the test's package
+    // database and PATH cannot affect other tests or the user's installed app.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn debian_package_startup_probe() {
+        let Some(resources) = std::env::var_os("SVB_TEST_DEBIAN_RESOURCES") else {
+            return;
+        };
+        let installed = resolve_at_startup(&InstalledDistributionResolver::from_runtime(
+            Path::new(&resources),
+            false,
+        ));
+        assert_eq!(installed.edition, DistributionEdition::Debian);
+        assert!(installed.check_supported);
+        assert!(installed.prerelease_supported());
+        assert_eq!(installed.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(installed.architecture, application_architecture());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_bundle_metadata_enables_updates_through_production_startup() {
+        use std::{fmt::Write, os::unix::fs::PermissionsExt, process::Command};
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("package");
+        let control_dir = root.join("DEBIAN");
+        fs::create_dir_all(&control_dir).unwrap();
+        let resources = root.join("usr/lib/speaker-volume-bridge");
+        fs::create_dir_all(&resources).unwrap();
+        fs::write(
+            resources.join("distribution.json"),
+            include_str!("../distribution/debian.json"),
+        )
+        .unwrap();
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let linux: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.linux.conf.json")).unwrap();
+        let homepage = linux["bundle"]["homepage"]
+            .as_str()
+            .or_else(|| base["bundle"]["homepage"].as_str());
+        let mut control = format!(
+            "Package: speaker-volume-bridge\nVersion: {}\nArchitecture: {}\nMaintainer: Test\nDescription: startup regression fixture\n",
+            env!("CARGO_PKG_VERSION"),
+            if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "amd64"
+            }
+        );
+        if let Some(homepage) = homepage {
+            writeln!(control, "Homepage: {homepage}").unwrap();
+        }
+        fs::write(control_dir.join("control"), control).unwrap();
+        let deb = fixture.path().join("package.deb");
+        assert!(
+            Command::new("dpkg-deb")
+                .args(["--build", "--root-owner-group"])
+                .arg(&root)
+                .arg(&deb)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        let metadata = Command::new("dpkg-deb")
+            .arg("--field")
+            .arg(&deb)
+            .output()
+            .unwrap();
+        assert!(metadata.status.success());
+        // Register the actual packaged control record in a fixture database.
+        // dpkg-query remains real; no canned command response is used.
+        let database = fixture.path().join("database");
+        fs::create_dir(&database).unwrap();
+        fs::write(
+            database.join("status"),
+            format!(
+                "Status: install ok installed\n{}\n",
+                String::from_utf8(metadata.stdout).unwrap()
+            ),
+        )
+        .unwrap();
+        let bin = fixture.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        let query = bin.join("dpkg-query");
+        fs::write(
+            &query,
+            "#!/bin/sh\nexec /usr/bin/dpkg-query --admindir=\"$SVB_TEST_DEBIAN_DATABASE\" \"$@\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&query, fs::Permissions::from_mode(0o755)).unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "distribution::tests::debian_package_startup_probe",
+                "--nocapture",
+            ])
+            .env("PATH", &bin)
+            .env("SVB_TEST_DEBIAN_DATABASE", &database)
+            .env("SVB_TEST_DEBIAN_RESOURCES", &resources)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     #[test]
     fn startup_resolver_excludes_unsupported_application_architectures() {
         for (edition, architecture) in [

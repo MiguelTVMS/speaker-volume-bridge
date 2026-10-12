@@ -37,8 +37,8 @@ The callback now reads the second parameter and the same regression passes in th
 normal Windows test suite. The former test had mirrored the incorrect parameter
 order. The test invokes the actual registered production COM callback and observes
 its route callback; it does not drive a native WebView. Existing shared activation
-tests cover emitted navigation. Native retest with the rebuilt isolated executable
-remains required.
+tests cover emitted navigation. Native retest passed with user assistance as
+recorded below.
 
 ### Automated verification and coverage limits
 
@@ -65,7 +65,21 @@ These fixtures do not establish native permissions, tray, delivery or sleep/wake
 The user confirmed that activating the isolated update notification reopened
 Settings but did not select Updates after Devices was hidden. Visible delivery
 and reopening are user-confirmed; correct routing failed before the fix.
-Native notification presentation/activation, repeated-check and restart deduplication,
+
+After rebuilding, the user reported no remaining notice after restart. Both
+versions were already recorded as notified. The isolated update-state file was
+preserved privately and a fresh update profile started without changing the
+speaker configuration or installed app. Production startup discovered 1.8.0 and
+recorded one notice. With Devices hidden, the user confirmed activating that
+fresh notice opened the correct Updates screen. Subsequent agent inspection after
+reopening captured Updates with the 1.8.0 offer. Corrected activation is therefore
+user-confirmed, with resulting page inspection recorded separately.
+
+Repeated native manual checks succeeded and retained one notified-version entry.
+The user reported no new notice after the previous full process restart; exact
+Notification Center notice counts remain unconfirmed.
+
+Exact repeated-check/restart notice counts,
 per-app OS notification denial with manual offers, tray actions,
 ARM64 installer provenance, native stale-action rejection, offline recovery, bounded
 retries and sleep/wake remain outstanding. Follow the documented manual sequence;

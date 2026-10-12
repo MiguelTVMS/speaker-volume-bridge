@@ -566,7 +566,18 @@ async fn run_session(
                     update_snapshot(snapshot, app, generation, UiStatus::WaitingForSonosConfirmation, Some(SnapshotValues { name: &speaker_name, sonos_volume: None, local_volume: Some(state.volume.get()), muted: Some(state.muted.0) }));
                     coordinator.on_local_event(state, origin, mute_changed).await.map_err(RuntimeError::from)?;
                 }
-                Ok(SystemAudioEvent::DefaultOutputChanged | SystemAudioEvent::DeviceUnavailable { .. }) | Err(_) => return Err(RuntimeError::Local(PlatformAudioError::DeviceUnavailable)),
+                Ok(SystemAudioEvent::DefaultOutputChanged) => {
+                    let local = audio.current_state().await.map_err(RuntimeError::Local)?;
+                    coordinator.reconcile_output_change(local).await.map_err(RuntimeError::from)?;
+                    let local = audio.current_state().await.map_err(RuntimeError::Local)?;
+                    last_local = Some(local);
+                    let confirmed = coordinator.confirmed_state();
+                    update_snapshot(snapshot, app, generation,
+                        if subscription.is_some() { UiStatus::Synchronized } else { UiStatus::SubscriptionDegraded },
+                        Some(SnapshotValues { name: &speaker_name, sonos_volume: confirmed.map(|state| state.volume.get()), local_volume: Some(local.volume.get()), muted: Some(local.muted.0) }));
+                    tracing::info!("reconciled changed local output without reconnecting to the speaker");
+                }
+                Ok(SystemAudioEvent::DeviceUnavailable { .. }) | Err(_) => return Err(RuntimeError::Local(PlatformAudioError::DeviceUnavailable)),
             },
             () = sleep_until(renew_at) => {
                 if let Some(current) = subscription.as_ref() {

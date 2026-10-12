@@ -2002,3 +2002,23 @@ volume. Verify callbacks still arrive, no listener-registration errors occur,
 and the speaker follows. The native registration test does not establish USB
 hardware stability or audible latency. Post-restart interactive acceptance remains
 separate from registration coverage.
+
+## False audio reconnect regression, 2026-10-12
+
+The old runtime classified a successful output reattachment as device failure.
+Core Audio also reattached unchanged fixed outputs after unrelated topology
+notifications. Automated tests now cover unchanged healthy outputs, unreadable
+outputs, actual replacement, preservation of coordinator subscription health and
+both direction policies without replaying pending input from the former output.
+The unchanged-output regression fails when unconditional reattachment is restored.
+
+Native read-only command:
+`cargo test -p speaker-volume-bridge-platform-audio native_unchanged_output_notifications -- --ignored`.
+Select an optional writable output via `SVB_NATIVE_AUDIO_DEVICE`. It starts the
+production controller and sends five topology notifications through the worker,
+using FIFO state reads to verify completion. No lifecycle failure/change event
+may be emitted for the unchanged output. No volume or mute is written.
+Manual follow-up: keep a fixed output selected, change an unrelated default output
+or device, and verify the speaker remains connected. Change the selected output
+in follow-default mode and verify direction policy reconciles without backoff.
+Physical unplug/replug and prolonged USB stability remain separate hardware checks.

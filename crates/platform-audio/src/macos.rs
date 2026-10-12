@@ -301,10 +301,9 @@ fn run_worker(
                 let _ = response.send(unsafe { endpoint.set_muted(muted) });
             }
             Command::Reattach => {
-                match replace_endpoint(&mut endpoint, Endpoint::detach, || unsafe {
-                    Endpoint::attach(&selection, Arc::clone(&context))
-                }) {
-                    Ok(()) => {
+                match unsafe { endpoint.refresh(&selection, Arc::clone(&context)) } {
+                    Ok(false) => {} // A notification about an unrelated output needs no work.
+                    Ok(true) => {
                         if let Ok(mut expected) = context.expected.lock() {
                             *expected = ExpectedWrites::default();
                         }
@@ -338,26 +337,7 @@ impl Endpoint {
         selection: &AudioDeviceSelection,
         context: Arc<CallbackContext>,
     ) -> Result<Self, OSStatus> {
-        let id = match selection {
-            AudioDeviceSelection::FollowDefault => unsafe { default_output_device()? },
-            AudioDeviceSelection::Fixed { device_id } => unsafe {
-                resolve_fixed_output(device_id)?
-            },
-        };
-        let master = address(VOLUME_SCALAR, SCOPE_OUTPUT, ELEMENT_MASTER);
-        let has_master = unsafe { AudioObjectHasProperty(id, &master) != 0 }
-            && matches!(unsafe { settable(id, &master) }, Ok(true));
-        let channels = if has_master {
-            vec![ELEMENT_MASTER]
-        } else {
-            unsafe { output_channels(id)? }
-        };
-        if channels.is_empty() {
-            return Err(-1);
-        }
-        let mute_address = address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER);
-        let has_mute = unsafe { AudioObjectHasProperty(id, &mute_address) != 0 }
-            && matches!(unsafe { settable(id, &mute_address) }, Ok(true));
+        let (id, channels, has_mute) = unsafe { resolve_endpoint(selection)? };
         let mut endpoint = Self {
             id,
             channels,
@@ -369,6 +349,21 @@ impl Endpoint {
             endpoint.listen()?;
         }
         Ok(endpoint)
+    }
+    unsafe fn refresh(
+        &mut self,
+        selection: &AudioDeviceSelection,
+        context: Arc<CallbackContext>,
+    ) -> Result<bool, OSStatus> {
+        let (id, channels, has_mute) = unsafe { resolve_endpoint(selection)? };
+        let unchanged = self.id == id && self.channels == channels && self.has_mute == has_mute;
+        refresh_endpoint(
+            self,
+            unchanged,
+            |endpoint| unsafe { endpoint.state().map(|_| ()) },
+            Self::detach,
+            || unsafe { Self::attach(selection, context) },
+        )
     }
     unsafe fn state(&self) -> Result<LocalAudioState, OSStatus> {
         let mut total = 0.0_f32;
@@ -500,6 +495,46 @@ impl Drop for Endpoint {
     fn drop(&mut self) {
         self.detach();
     }
+}
+
+unsafe fn resolve_endpoint(
+    selection: &AudioDeviceSelection,
+) -> Result<(AudioObjectID, Vec<UInt32>, bool), OSStatus> {
+    let id = match selection {
+        AudioDeviceSelection::FollowDefault => unsafe { default_output_device()? },
+        AudioDeviceSelection::Fixed { device_id } => unsafe { resolve_fixed_output(device_id)? },
+    };
+    let master = address(VOLUME_SCALAR, SCOPE_OUTPUT, ELEMENT_MASTER);
+    let has_master = unsafe { AudioObjectHasProperty(id, &master) != 0 }
+        && matches!(unsafe { settable(id, &master) }, Ok(true));
+    let channels = if has_master {
+        vec![ELEMENT_MASTER]
+    } else {
+        unsafe { output_channels(id)? }
+    };
+    if channels.is_empty() {
+        return Err(-1);
+    }
+    let mute_address = address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER);
+    let has_mute = unsafe { AudioObjectHasProperty(id, &mute_address) != 0 }
+        && matches!(unsafe { settable(id, &mute_address) }, Ok(true));
+    Ok((id, channels, has_mute))
+}
+
+// Healthy, unchanged outputs keep their listeners and current synchronization session.
+fn refresh_endpoint<T, E>(
+    current: &mut T,
+    unchanged: bool,
+    verify: impl FnOnce(&T) -> Result<(), E>,
+    detach: impl FnOnce(&mut T),
+    attach: impl FnOnce() -> Result<T, E>,
+) -> Result<bool, E> {
+    if unchanged {
+        verify(current)?;
+        return Ok(false);
+    }
+    replace_endpoint(current, detach, attach)?;
+    Ok(true)
 }
 
 // Core Audio rejects a duplicate callback/address/context registration. Remove the
@@ -946,6 +981,70 @@ mod tests {
                         )
                     },
                     1_852_797_029
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unchanged_output_notification_does_not_replace_listeners_or_hide_read_failure() {
+        let mut endpoint = 2;
+        let changed = super::refresh_endpoint(
+            &mut endpoint,
+            true,
+            |_| Ok::<_, i32>(()),
+            |_| panic!("must retain healthy listeners"),
+            || panic!("must not reattach unchanged output"),
+        )
+        .unwrap();
+        assert!(!changed);
+        assert_eq!(endpoint, 2);
+        assert_eq!(
+            super::refresh_endpoint(
+                &mut endpoint,
+                true,
+                |_| Err(7),
+                |_| panic!("no attachment on failed verification"),
+                || Ok(3)
+            ),
+            Err(7)
+        );
+        assert!(
+            super::refresh_endpoint(
+                &mut endpoint,
+                false,
+                |_| panic!("changed output"),
+                |old| *old = 0,
+                || Ok::<_, i32>(3)
+            )
+            .unwrap()
+        );
+        assert_eq!(endpoint, 3);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a writable native output; sends read-only topology notifications"]
+    async fn native_unchanged_output_notifications_keep_session() {
+        use super::SystemAudioController;
+        let selection = std::env::var("SVB_NATIVE_AUDIO_DEVICE")
+            .map_or(super::AudioDeviceSelection::FollowDefault, |device_id| {
+                super::AudioDeviceSelection::Fixed { device_id }
+            });
+        let controller = super::MacosAudioController::start(selection, 1).unwrap();
+        let mut events = controller.subscribe();
+        controller.current_state().await.unwrap();
+        for _ in 0..5 {
+            controller
+                .worker
+                .commands
+                .send(super::Command::Reattach)
+                .unwrap();
+            // The read is a FIFO barrier after the real worker processes the notification.
+            controller.current_state().await.unwrap();
+            while let Ok(event) = events.try_recv() {
+                assert!(
+                    matches!(event, super::SystemAudioEvent::StateChanged { .. }),
+                    "unchanged output must not report a lifecycle change: {event:?}"
                 );
             }
         }

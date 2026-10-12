@@ -111,3 +111,8 @@ remain validation artifacts retained in CI and never create installation actions
 GitHub release-page fallback, version/policy guards and Store delegation remain
 unchanged. Native sandboxed replacement acceptance is pending; see
 [ADR 0023](decisions/0023-macos-updater-artifacts.md).
+
+Healthy unchanged macOS outputs retain their listeners on unrelated topology
+notifications. Successful output changes reconcile within the existing speaker
+session, without connection backoff. Pending input from the former output is
+discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.

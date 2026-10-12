@@ -106,3 +106,8 @@ must appear as an unavailable output and retry, rather than remain connected
 without observing volume. After reconnecting, check both computer-to-speaker and
 speaker-to-computer volume changes. If the output repeatedly disconnects, check
 its connection and current selection in Devices.
+
+Changes to unrelated outputs should not interrupt a healthy selected output.
+A successful output switch keeps the speaker connection and reconciles volume
+using the selected synchronization direction. Connection recovery is reserved
+for an unavailable output or failed attachment.

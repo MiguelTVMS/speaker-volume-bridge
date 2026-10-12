@@ -137,6 +137,21 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
     pub const fn timing_metrics(&self) -> TimingMetrics {
         self.metrics
     }
+    /// An already attached new output needs reconciliation, not a network reconnect.
+    pub async fn reconcile_output_change(
+        &mut self,
+        local: LocalAudioState,
+    ) -> Result<(), IntegrationError> {
+        self.pending_local = None;
+        self.local_deadline = None;
+        self.last_sent_volume = None;
+        self.last_sent_mute = None;
+        self.reconcile_startup().await?;
+        if !self.synchronizer.two_way_synchronization() {
+            self.on_local_event(local, LocalOrigin::User, true).await?;
+        }
+        Ok(())
+    }
     pub async fn reconcile_startup(&mut self) -> Result<(), IntegrationError> {
         let (volume, muted) = self.sonos.current_state().await?;
         self.last_local = None;
@@ -522,6 +537,46 @@ mod tests {
                 .unwrap();
             assert_eq!(coordinator.local_deadline(), None);
             assert_eq!(coordinator.settling_deadline(), None);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn changed_output_reconciles_without_resetting_subscription_or_replaying_old_input() {
+        for two_way in [true, false] {
+            let state = Arc::new(Mutex::new((volume(20), MuteState(false))));
+            let applied = Arc::new(Mutex::new(Vec::new()));
+            let machine =
+                Synchronizer::new(VolumeMapping::Linear, volume(55), true, two_way, false).unwrap();
+            let mut coordinator = Coordinator::new(
+                machine,
+                Sonos(Arc::clone(&state)),
+                Audio(Arc::clone(&applied)),
+                SynchronizationPolicy::default(),
+            );
+            coordinator.reconcile_startup().await.unwrap();
+            coordinator
+                .on_sonos_event(volume(20), MuteState(false))
+                .await
+                .unwrap();
+            applied.lock().unwrap().clear();
+            coordinator
+                .on_local_event(local(80, false), LocalOrigin::User, false)
+                .await
+                .unwrap();
+            coordinator
+                .reconcile_output_change(local(10, true))
+                .await
+                .unwrap();
+            assert_eq!(coordinator.health(), Health::Healthy);
+            assert_eq!(coordinator.local_deadline(), None);
+            coordinator.run_local_once().await.unwrap();
+            if two_way {
+                assert_eq!(*state.lock().unwrap(), (volume(20), MuteState(false)));
+                assert_eq!(*applied.lock().unwrap(), vec![local(20, false)]);
+            } else {
+                assert_eq!(*state.lock().unwrap(), (volume(10), MuteState(true)));
+                assert!(applied.lock().unwrap().is_empty());
+            }
         }
     }
 

@@ -50,3 +50,15 @@ while their callback context is still alive. Regression tests exercise the share
 replacement ordering and partial-registration rollback. A separate ignored native
 test repeatedly reattaches and verifies all replacement registrations remain
 installed, without changing output volume.
+
+## Successful output refresh is not a speaker connection failure
+
+Core Audio device-list/default-output notifications first resolve the selected
+output's identity and volume/mute properties. An unchanged, readable endpoint
+retains its listeners and emits no lifecycle event. An actual output change
+reattaches and emits `DefaultOutputChanged`; the runtime reconciles the new
+output in the existing speaker session rather than reporting audio unavailability
+and starting exponential network backoff. Pending input for the previous endpoint
+is discarded. Two-way mode applies the speaker baseline to the new output;
+one-way mode sends the new output's local state. Actual disappearance, unreadable
+state or failed attachment still enters bounded recovery.

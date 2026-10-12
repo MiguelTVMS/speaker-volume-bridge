@@ -473,3 +473,8 @@ registering replacements, including when the selected output is unchanged.
 Listener registration is transactional: failure rolls back successful registrations
 and reports the output unavailable. The app cannot silently continue with missing
 volume or lifecycle callbacks. See ADR 0024.
+
+Healthy unchanged macOS outputs retain their listeners on unrelated topology
+notifications. Successful output changes reconcile within the existing speaker
+session, without connection backoff. Pending input from the former output is
+discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.

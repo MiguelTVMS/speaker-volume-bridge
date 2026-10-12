@@ -1,5 +1,65 @@
 # Hardware verification matrix
 
+## Windows ARM64 native acceptance follow-up, 2026-10-12
+
+PR #214 was already merged when this run began. Its exact head was checked in an
+isolated worktree and built using the direct Windows configuration and optimized
+production runtime, without demo or native-updater-acceptance features. Temporary
+build-only overrides supplied version 1.7.0 and separate application identity,
+preferences, shortcut and notification activation registration. Overrides were
+restored after building and are excluded from this contribution. The installed
+application and its state were not replaced. This standalone executable does not
+establish signed installed-package acceptance.
+
+### Agent-observed native results
+
+| Check | Result |
+| --- | --- |
+| Architecture | Windows ARM64 host; actual executable PE machine independently verified as ARM64 |
+| Edition/version | Updates displays Direct download for Windows and compiled 1.7.0; ARM64 discovery target verified separately |
+| Automatic startup delay | Fresh isolated state: first persisted attempt 30.44 seconds after process start; public discovery succeeded |
+| Stable | Actual public release 1.8.0 offered |
+| Include prereleases | Policy change cleared the stable offer, checked again and offered actual public prerelease 1.8.2 |
+| Regional timestamp | Display matches the Windows user's month/day/year and 12-hour clock preferences; alternate settings not tested |
+| Open release | Native stable-offer action opened the exact 1.8.0 release page through the system default browser |
+| Download update | Native action invoked the browser and reported success; downloaded installer provenance/completion remains unverified; nothing installed or executed |
+| Notification state | Stable and prerelease deduplication identities persisted; this alone does not prove visible OS delivery or activation |
+| Hardware | Real speaker selected with user authorization; Connected displayed during update interactions; synchronization continuity remains unverified |
+| Microsoft Store | No genuine installed candidate available; Store acceptance unavailable |
+
+### Automated verification and coverage limits
+
+The unmodified Windows code failed strict workspace Clippy on an unused import,
+a Linux-only helper compiled on Windows, and the intentionally shared async
+notification interface. The focused cleanup removes the import, scopes the helper
+to Linux/tests and annotates the existing interface. Strict Clippy then passes.
+There is no runtime behavior change or replacement update implementation.
+
+Rust formatting and strict workspace Clippy pass. Workspace tests pass excluding
+`speaker-volume-bridge-updater-artifact`. The unfiltered required command fails
+because Windows refuses to launch that package's test executable without elevation.
+No updater was enabled or run. Frontend formatting, lint, 51 unit tests and
+production build pass. The normal browser suite reports 67 passes and three layout
+failures: the Linux default schedule exceeds its viewport by two pixels, and the
+Windows minimum-height speaker footer exceeds its viewport in both appearances.
+Update policy, stale-action recovery and regional-format browser checks pass.
+These fixtures do not establish native permissions, tray, delivery or sleep/wake.
+
+### User-confirmed results and outstanding checks
+
+No user-confirmed notification outcome is recorded yet. Settings was placed on
+Devices and hidden before requesting activation of the isolated app's notice.
+Native notification presentation/activation, repeated-check and restart deduplication,
+per-app OS notification denial with manual offers, tray actions, restart persistence,
+ARM64 installer provenance, native stale-action rejection, offline recovery, bounded
+retries and sleep/wake remain outstanding. Follow the documented manual sequence;
+do not infer those results from mocked tests.
+
+Issues #161, #162, #163 and #178 and epic #159 remain incomplete. Self-update #212
+is unchanged. Website review: no update needed for evidence and lint-only cleanup;
+product behavior, setup and architecture are unchanged.
+
+
 ## macOS native acceptance follow-up, 2026-10-12
 
 The isolated ARM64 acceptance bundle uses the production notification runtime with an

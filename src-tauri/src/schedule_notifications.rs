@@ -292,6 +292,7 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
 
 #[cfg(windows)]
 #[allow(dead_code)] // Production-only delivery; orchestration tests inject a notification sink.
+#[allow(clippy::unused_async)] // Shared async interface; other native adapters await delivery.
 pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
     if let Err(error) = windows::notifier(
         &app.config().identifier,

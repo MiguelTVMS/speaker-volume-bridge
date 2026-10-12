@@ -1850,3 +1850,18 @@ The installer-entry regression also covers an authorized recovery callback that
 reports success while leaving the destination absent. The postcondition failure
 retains staging and the original native error code/domain. This sequence failed
 with the untyped postcondition error and passes with structured context retained.
+
+### Cold-start update notification navigation
+
+The normal shell regression activates an update notification before installing
+the frontend observer, then consumes the pending destination through the shared
+command implementation. It also checks schedule activation cannot overwrite it,
+one-time consumption, and subsequent warm activation. A browser regression starts
+with pending intent, verifies Updates is selected after subscription, and checks
+a later navigation event still opens Updates. Both regressions fail when their
+respective retention/consumption changes are removed and pass with the fix.
+Native Windows acceptance:
+quit the application completely, activate a previously delivered update toast,
+and verify Settings opens Updates. Repeat with the app running and Settings hidden
+on Devices. The automated test covers shared lifecycle orchestration; actual
+Windows launch and WebView subscription timing still require this manual check.

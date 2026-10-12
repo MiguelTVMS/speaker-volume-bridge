@@ -67,8 +67,9 @@ notification permission. Turning it off does not hide an available update from
 the Updates page.
 
 Selecting a native update notification opens Settings on **Updates**, including
-when Settings was hidden on another page. Ordinary tray **Open settings** retains
-the current page; tray **Check for updates** opens Updates.
+when Settings was hidden on another page or the application must start first.
+Ordinary tray **Open settings** retains the current page; tray **Check for updates**
+opens Updates.
 
 ## Privacy and editions
 

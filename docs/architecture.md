@@ -171,6 +171,12 @@ notifications
 carry activation intent; only activating one or choosing the tray Updates action
 navigates to the Updates page.
 
+Update notification navigation is retained in shell state before emitting the
+frontend event. After installing its listener, Settings consumes the pending
+destination through a command; warm activation uses the same acknowledgement.
+Schedule activation cannot clear pending Updates navigation. This preserves
+cold-start intent when native activation precedes frontend initialization.
+
 At shell startup, a single installed-distribution resolver combines package-level
 provenance with conservative platform evidence. It reports the workspace
 application version and compiled application architecture. Debug/demo, missing,

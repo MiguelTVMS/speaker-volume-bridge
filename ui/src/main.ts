@@ -1170,7 +1170,15 @@ if (isTauri()) {
     updateStatus = payload;
     if (snapshot) render(snapshot);
   });
-  void listen('open-updates', () => activatePage('updates'));
+  const consumeUpdateNavigation = async (): Promise<void> => {
+    if (await invoke<boolean>('take_pending_update_navigation')) {
+      activatePage('updates');
+    }
+  };
+  void listen('open-updates', () => {
+    activatePage('updates');
+    void invoke<boolean>('take_pending_update_navigation');
+  }).then(consumeUpdateNavigation);
 }
 
 void invoke<ScheduleStatus>('get_schedule_status').then((status) => {

@@ -1993,8 +1993,8 @@ for three consecutive replacements. It does not change volume or mute.
 
 The fixed source app and observer were restarted. Initial attachment and speaker
 subscription succeeded; no listener-registration errors were present in either
-captured stderr stream at that check. Live post-restart callback acceptance remains
-pending a further user adjustment.
+captured stderr stream at that check. A subsequent user adjustment produced live volume callbacks with no
+listener-registration errors. Separate false-reconnect handling is covered below.
 
 Manual callback reproduction: launch the fixed native app, keep the same selected
 output, trigger a normal device/default-output notification, then adjust system
@@ -2022,3 +2022,14 @@ Manual follow-up: keep a fixed output selected, change an unrelated default outp
 or device, and verify the speaker remains connected. Change the selected output
 in follow-default mode and verify direction policy reconciles without backoff.
 Physical unplug/replug and prolonged USB stability remain separate hardware checks.
+
+## Diagnostics tray destination, 2026-10-12
+
+Rust regression invokes the production Diagnostics menu action before frontend
+subscription, consumes its retained destination once, and verifies warm delivery
+and the newest explicit menu selection. Rendered browser tests verify the
+Diagnostics heading becomes visible on macOS, Windows and Linux for both cold
+and warm events. Manual native check: select Devices, close Settings, choose
+Diagnostics from the tray/menu bar and verify Diagnostics opens. Repeat while
+Settings is visible on another page. The user confirmed the rebuilt native
+context-menu action opens Diagnostics directly.

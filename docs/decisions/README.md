@@ -35,3 +35,5 @@ This folder stores decision records. Keep one record per important design choice
 - [0023-macos-updater-artifacts](0023-macos-updater-artifacts.md)
 
 - [0024-volume-gesture-settling](0024-volume-gesture-settling.md)
+
+- [0025-tray-settings-navigation](0025-tray-settings-navigation.md)

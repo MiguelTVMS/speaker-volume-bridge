@@ -19,8 +19,14 @@ const backend = createDemoBackend({
   locale: params.get('locale'),
 });
 let pendingUpdateNavigation = params.get('pendingUpdates') === 'true';
+let pendingSettingsNavigation = params.get('pendingSettingsPage');
 mockIPC(
   (command, args) => {
+    if (command === 'take_pending_settings_navigation') {
+      const pending = pendingSettingsNavigation;
+      pendingSettingsNavigation = null;
+      return pending;
+    }
     if (command === 'take_pending_update_navigation') {
       const pending = pendingUpdateNavigation;
       pendingUpdateNavigation = false;

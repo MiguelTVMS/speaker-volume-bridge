@@ -22,7 +22,7 @@ import { desktopPlatform } from './platform';
 import { settingCaption } from './setting-caption';
 import { sizeSelectedControls } from './select-sizing';
 import { canApplyRefresh } from './refresh-state';
-import { adjacentPage, type SettingsPage } from './settings-navigation';
+import { adjacentPage, settingsPages, type SettingsPage } from './settings-navigation';
 import { applySpeakerControls, type SpeakerSettings } from './speaker-controls';
 import { SliderInteraction } from './slider-interaction';
 import { LiveStatus } from './live-status';
@@ -1170,6 +1170,16 @@ if (isTauri()) {
     updateStatus = payload;
     if (snapshot) render(snapshot);
   });
+  const openSettingsPage = (page: string | null): void => {
+    if (page && settingsPages.includes(page as SettingsPage)) activatePage(page as SettingsPage);
+  };
+  const consumeSettingsNavigation = async (): Promise<void> => {
+    openSettingsPage(await invoke<string | null>('take_pending_settings_navigation'));
+  };
+  void listen<string>('open-settings-page', ({ payload }) => {
+    openSettingsPage(payload);
+    void invoke<string | null>('take_pending_settings_navigation');
+  }).then(consumeSettingsNavigation);
   const consumeUpdateNavigation = async (): Promise<void> => {
     if (await invoke<boolean>('take_pending_update_navigation')) {
       activatePage('updates');

@@ -92,10 +92,8 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .menu(&menu)
         .tooltip("Speaker Volume Bridge")
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "settings" | "diagnostics" => show_settings(app),
-            "updates" => {
-                show_settings(app);
-                let _ = app.emit("open-updates", ());
+            "settings" | "diagnostics" | "updates" => {
+                open_settings_menu_item(app, event.id().as_ref());
             }
             "night-schedule-enabled" => toggle_schedule(app),
             "speaker-night-sound" => {
@@ -519,6 +517,35 @@ fn speaker_label(name: Option<&str>, volume: Option<u8>) -> String {
     }
 }
 
+#[derive(Default)]
+pub struct PendingSettingsNavigation(Mutex<Option<&'static str>>);
+
+pub fn take_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>) -> Option<&'static str> {
+    app.state::<PendingSettingsNavigation>()
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+}
+
+fn open_settings_menu_item<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    let page = match id {
+        "diagnostics" => Some("diagnostics"),
+        "updates" => Some("updates"),
+        _ => None,
+    };
+    if let Some(page) = page {
+        *app.state::<PendingSettingsNavigation>()
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(page);
+    }
+    show_settings(app);
+    if let Some(page) = page {
+        let _ = app.emit("open-settings-page", page);
+    }
+}
+
 fn show_settings<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -533,6 +560,42 @@ fn opens_settings_on_double_click(button: MouseButton) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn diagnostics_menu_retains_cold_navigation_and_emits_warm_destination() {
+        use std::sync::Arc;
+        use tauri::Listener;
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        // Exact production menu action before any frontend listener is ready.
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&received);
+        let _listener = app.listen("open-settings-page", move |event| {
+            observed.lock().unwrap().push(event.payload().to_owned());
+        });
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(*received.lock().unwrap(), vec!["\"diagnostics\""]);
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        open_settings_menu_item(app.handle(), "settings");
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        open_settings_menu_item(app.handle(), "diagnostics");
+        open_settings_menu_item(app.handle(), "updates");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("updates")
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

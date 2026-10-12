@@ -16,7 +16,7 @@ The menu shows:
 
 - **State: Connected** or **State: Disconnected**.
 - The selected speaker name and cached volume when available.
-- Shortcuts to **Settings** and **Diagnostics**.
+- Shortcuts to **Settings** and **Diagnostics**. Diagnostics opens its page directly, including when Settings is closed.
 - Supported Sonos speaker controls.
 - A checked **Night schedule** toggle directly above **Night sound**.
 - **Quit**.

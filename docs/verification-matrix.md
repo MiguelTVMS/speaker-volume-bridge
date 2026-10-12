@@ -2,7 +2,7 @@
 
 ## macOS native acceptance follow-up, 2026-10-12
 
-The isolated ARM64 acceptance bundle uses the current production code with an
+The isolated ARM64 acceptance bundle uses the production notification runtime with an
 older compiled version (1.7.0), a separate application identity and Settings
 visible at startup. It queries actual public GitHub Releases and uses the real
 native notification and default-browser adapters. No demo, injected release
@@ -27,11 +27,11 @@ Gatekeeper installation or App Store receipt acceptance.
 | Open release | Native action opened the exact offered 1.8.0 GitHub release page in the system default browser |
 | Download update | Native action opened a browser download; the downloaded macOS DMG matched the published 1.8.0 asset digest; no installation or execution |
 | OS notification denial | Explicitly disabled only the acceptance app in macOS notification settings; manual discovery still returned an actionable 1.8.2 offer; restored permission afterward |
-| Notification authorization/submission | macOS granted authorization and accepted the native notification request without error; this alone does not establish visible presentation or activation |
+| Notification authorization/delivery | macOS granted authorization, accepted the request and delivered it to Notification Center; Focus silenced the banner. OS delivery diagnostics do not establish visible presentation or activation |
 | Later | Disabled the current prompt while preserving both release actions |
 | Full restart | Restored Include prereleases, cached 1.8.2 offer and enabled notification preference; persisted notified-version identities retained |
 | Native notification deduplication | Fresh startup, repeated manual check and full process restart produced one successful native submission for the same stable version |
-| Visible notification and activation | Still outstanding; system notification surface cannot yet be inspected reliably by the current computer-use tool |
+| Visible Notification Center notice and activation | Passed with user assistance: Settings was changed to Devices and hidden; a fresh 1.8.2 notice was submitted; the user confirmed selecting the test notice reopened Updates. The process had exited before post-action capture, so the final activation outcome is user-confirmed rather than agent-captured. Focus silenced the transient banner |
 | Tray menu and reopening Settings | Passed with user assistance: native watcher captured Open settings, Check for updates, Diagnostics and Quit; user confirmed both Settings actions worked, and subsequent native inspection verified Updates was visible |
 
 The browser download completed before cancellation was possible; it remains an
@@ -63,7 +63,12 @@ Settings. Stored timestamps and update freshness are unchanged.
 The macOS default height is 780 logical points, matching the user's measured
 740-by-780 Settings window. Width stays fixed at 740 and vertical resizing remains
 available. The normal browser suite verifies the configured default and schedule
-layout; native verification of the rebuilt bundle is recorded separately below.
+layout. A separately identified, ad-hoc-signed native bundle built at the unchanged
+production version 1.8.2 copied the production window configuration with only
+visibility enabled. Its first window measured 740 by 780, and an actual public
+manual check rendered day/month/year and 24-hour time in the macOS WebView.
+The newer installed version remained up to date against the older stable release,
+with no downgrade offer or direct download action. No installed app was replaced.
 
 ## Notification readiness follow-up, 2026-10-11
 

@@ -37,7 +37,13 @@ Gatekeeper installation or App Store receipt acceptance.
 The browser download completed before cancellation was possible; it remains an
 inert downloaded file. Browser inspection of internal download pages is blocked
 by tool policy, so verification used the downloaded file's provenance and digest.
-No system-wide notification, screen-sharing or security setting was changed.
+No system-wide notification or screen-sharing setting was changed. The
+user-authorized AppleScript fallback required the user to complete macOS
+permission prompts. It can identify the isolated tray item, but the tray library's
+accessibility press action does not present its mouse-driven menu. Opening that
+menu therefore requires a physical click before accessibility inspection can
+continue. Notification inspection must remain limited to this acceptance app;
+unrelated notification contents are outside the acceptance scope.
 Physical speaker synchronization, sleep/wake, installed Store editions and native
 Windows/Linux acceptance remain unverified. Required cross-platform acceptance
 still prevents closure of #161, #162, #163 and #178.

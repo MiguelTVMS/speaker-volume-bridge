@@ -1293,6 +1293,123 @@ mod tests {
         assert_eq!(audio.current_state().await.unwrap().volume.get(), 35);
     }
 
+    async fn complete_delayed_test_notification(
+        stream: &mut tokio::net::TcpStream,
+        callback: &url::Url,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let body = "<LastChange>&lt;Event&gt;&lt;InstanceID val=\"0\"&gt;&lt;Volume channel=\"Master\" val=\"20\"/&gt;&lt;Mute channel=\"Master\" val=\"0\"/&gt;&lt;Bass val=\"1\"/&gt;&lt;/InstanceID&gt;&lt;/Event&gt;</LastChange>";
+        let request = format!(
+            "NOTIFY {} HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+            callback.path(),
+            body.len()
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 200"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn accepted_notification_delayed_across_reconciliation_keeps_arrival_timestamp() {
+        for observation in [
+            SessionObservation::Settled,
+            SessionObservation::OutputChanged,
+        ] {
+            let accepted = Arc::new(tokio::sync::Notify::new());
+            let observed = Arc::clone(&accepted);
+            let mut listener = CallbackListener::bind_with_accept_observer(
+                "127.0.0.1:0".parse().unwrap(),
+                "127.0.0.1".parse().unwrap(),
+                move |_| {
+                    observed.notify_one();
+                },
+            )
+            .await
+            .unwrap();
+            let local = LocalAudioState {
+                volume: NormalizedVolume::new(20).unwrap(),
+                muted: MuteState(false),
+            };
+            let audio: Arc<dyn SystemAudioController> = Arc::new(SessionAudio(Mutex::new(local)));
+            let mut coordinator = Coordinator::new(
+                Synchronizer::new(
+                    speaker_volume_bridge_domain::VolumeMapping::Linear,
+                    SonosVolume::MAX,
+                    true,
+                    true,
+                    false,
+                )
+                .unwrap(),
+                SessionSonos(Arc::new(Mutex::new((
+                    SonosVolume::new(20).unwrap(),
+                    MuteState(false),
+                )))),
+                DeviceAudioPort(Arc::clone(&audio)),
+                SynchronizationPolicy::default(),
+            );
+            coordinator.reconcile_startup().await.unwrap();
+            audio
+                .set_volume(NormalizedVolume::new(60).unwrap(), LocalOrigin::User)
+                .await
+                .unwrap();
+            coordinator
+                .on_local_event(
+                    audio.current_state().await.unwrap(),
+                    LocalOrigin::User,
+                    false,
+                )
+                .await
+                .unwrap();
+            coordinator.run_local_once().await.unwrap();
+            let callback = listener.callback_url().clone();
+            let mut stream = tokio::net::TcpStream::connect((
+                callback.host_str().unwrap(),
+                callback.port().unwrap(),
+            ))
+            .await
+            .unwrap();
+            // Prove accept completed, but hold the child handler's read until
+            // after the production reconciliation GET and queue cutoff.
+            accepted.notified().await;
+            let mut published = 0;
+            reconcile_session_observations(
+                &mut listener,
+                &mut coordinator,
+                audio.as_ref(),
+                observation,
+                true,
+                false,
+                |confirmed, _, _| published = confirmed.volume.get(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(published, 60);
+            tokio::time::advance(Duration::from_millis(1)).await;
+            complete_delayed_test_notification(&mut stream, &callback).await;
+            let stale = listener.recv().await.unwrap();
+            assert!(stale.volume_state.is_none());
+            assert!(!stale.volume_changed);
+            assert!(stale.settings_changed);
+            assert_eq!(audio.current_state().await.unwrap().volume.get(), 60);
+            // A genuinely later connection remains usable with polling disabled.
+            enqueue_test_notification(&listener, 35).await;
+            let fresh = listener.recv().await.unwrap().volume_state.unwrap();
+            process_session_observation(
+                &mut coordinator,
+                audio.as_ref(),
+                SessionObservation::Speaker(fresh.state.volume, fresh.state.muted),
+                true,
+                false,
+                |confirmed, _, _| published = confirmed.volume.get(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(published, 35);
+            assert_eq!(audio.current_state().await.unwrap().volume.get(), 35);
+        }
+    }
+
     #[tokio::test(start_paused = true)]
     async fn queued_notification_first_at_deadline_preserves_settling_read() {
         let mut listener =

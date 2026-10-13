@@ -142,6 +142,23 @@ pub struct CallbackListener {
 
 impl CallbackListener {
     pub async fn bind(bind: SocketAddr, sonos_peer: IpAddr) -> Result<Self, SonosError> {
+        Self::bind_observed(bind, sonos_peer, |_| {}).await
+    }
+
+    #[cfg(feature = "test-support")]
+    pub async fn bind_with_accept_observer(
+        bind: SocketAddr,
+        sonos_peer: IpAddr,
+        accepted: impl Fn(Instant) + Send + 'static,
+    ) -> Result<Self, SonosError> {
+        Self::bind_observed(bind, sonos_peer, accepted).await
+    }
+
+    async fn bind_observed(
+        bind: SocketAddr,
+        sonos_peer: IpAddr,
+        accepted: impl Fn(Instant) + Send + 'static,
+    ) -> Result<Self, SonosError> {
         let listener = TcpListener::bind(bind).await?;
         let local = listener.local_addr()?;
         let random: [u8; 16] = rand::rng().random();
@@ -157,6 +174,9 @@ impl CallbackListener {
         let expected_path = callback_url.path().to_owned();
         tokio::spawn(async move {
             while let Ok((mut stream, peer)) = listener.accept().await {
+                // Arrival is fixed before the child can be delayed by scheduling or I/O.
+                let received_at = Instant::now();
+                accepted(received_at);
                 let sender = sender.clone();
                 let expected = Arc::clone(&expected);
                 let path = expected_path.clone();
@@ -170,7 +190,7 @@ impl CallbackListener {
                             .and_then(|(body, sequence)| {
                                 parse_rendering_control_notification(body, sequence).ok()
                             })
-                            .is_some_and(|event| sender.try_send((Instant::now(), event)).is_ok());
+                            .is_some_and(|event| sender.try_send((received_at, event)).is_ok());
                     let response = if accepted {
                         "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
                     } else {

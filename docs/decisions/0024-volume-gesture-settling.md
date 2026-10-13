@@ -73,7 +73,10 @@ state or failed attachment still enters bounded recovery.
 
 ## Ordering queued notifications across the final read
 
-The callback listener timestamps received observations. The coordinator captures the completion time of each speaker read before any
+The callback listener timestamps each connection immediately when its socket is
+accepted, before spawning its read/parse handler. That immutable arrival timestamp
+follows the observation into the queue; child scheduling and socket-read delay
+cannot move an old arrival across the read-completion boundary. The coordinator captures the completion time of each speaker read before any
 local-audio effect. Settling and output-change reconciliation use that timestamp;
 volume notifications queued at or before that boundary are stripped of
 volume state and volume-read invalidation before delivery. Independent speaker

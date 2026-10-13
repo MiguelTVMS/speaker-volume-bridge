@@ -19,6 +19,7 @@ native-updater-acceptance = ["dep:tauri-plugin-updater", "tauri-plugin-updater/n
 tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
+speaker-volume-bridge-sonos = { path = "../crates/sonos", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"
 tauri = { version = "2.12.0", features = ["test"] }

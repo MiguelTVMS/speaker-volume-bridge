@@ -2168,3 +2168,19 @@ and preview backend restored, and pass with the unified slot and serialized
 consumer. Existing cold/warm notification and tray browser coverage remains.
 Native notification delivery and OS startup scheduling are outside these tests;
 this change has no new manual native acceptance claim.
+
+
+## Socket acceptance versus delayed notification handling
+
+The production listener timestamps acceptance before spawning its child handler.
+A feature-gated acceptance observer, enabled only for tests, provides a deterministic
+barrier on that same production path. The runtime regression opens a connection,
+waits for observed acceptance, holds its request bytes across the real shared
+settling/output-change reconciliation, and only then lets the handler read and
+parse the stale notification. Its volume state must be fenced, independent
+settings invalidations retained, and a later connection accepted with polling
+disabled. The regression fails with the original handler-time timestamp restored.
+The production constructor uses the same listener implementation with a no-op
+observer. This is orchestration coverage without new native hardware acceptance.
+Website review: no additional guide update needed; this restores the existing
+settling/reconciliation guarantee without changing setup or user controls.

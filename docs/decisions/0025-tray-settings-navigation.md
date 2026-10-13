@@ -14,6 +14,9 @@ and startup IPC responses pass through the same revision gate: older or duplicat
 requests cannot activate pages. Delayed notification events therefore cannot
 supersede newer tray choices. There is no promise chain for an IPC failure to poison.
 Consuming a request removes the retained copy; a later duplicate event is harmless.
+Warm event delivery acknowledges its exact revision through native IPC. The native
+slot is cleared only if it still contains that revision, preserving a newer request
+while preventing an accepted destination from replaying after WebView recreation.
 
 Production-action tests cover cold/warm tray and notification ordering. Frontend
 unit tests hold a consumed response across cancellation and reject replayed events.

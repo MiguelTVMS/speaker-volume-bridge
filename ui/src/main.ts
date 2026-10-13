@@ -1182,6 +1182,7 @@ if (isTauri()) {
   const settingsNavigation = new SettingsNavigation(openSettingsPage);
   void listen<SettingsNavigationRequest>('open-settings-page', ({ payload }) => {
     settingsNavigation.accept(payload);
+    void invoke('acknowledge_settings_navigation', { revision: payload.revision });
   }).then(async () => {
     settingsNavigation.accept(
       await invoke<SettingsNavigationRequest | null>('take_pending_settings_navigation'),

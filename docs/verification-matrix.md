@@ -2218,3 +2218,14 @@ Website guides were reviewed and updated for newer-intent precedence. Existing
 native acceptance records describe earlier builds: this coordinated repair has
 portable orchestration and browser coverage, not a fresh Windows/Ubuntu hardware
 run. Native OS reads/writes are not claimed to be one atomic hardware transaction.
+
+### Warm navigation acknowledgement
+
+Native regression `warm_navigation_acknowledgement_survives_frontend_restart`
+checks warm delivery cleanup and an older acknowledgement racing a newer request.
+Browser coverage repeats the startup consumer after warm delivery while keeping
+the native preview backend alive on all three layouts. Manual reproduction: open
+Diagnostics from the tray while Settings is running, navigate elsewhere, recreate
+the WebView within the same native process and confirm Diagnostics is not replayed.
+A full preview document reload resets its mock native state, so the regression
+retains that backend explicitly; actual native WebView recreation is not automated.

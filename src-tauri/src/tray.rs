@@ -543,6 +543,21 @@ pub fn take_settings_navigation_request<R: Runtime>(
         .take()
 }
 
+pub fn acknowledge_settings_navigation<R: Runtime>(app: &AppHandle<R>, revision: u64) {
+    let state = app.state::<PendingSettingsNavigation>();
+    let mut state = state
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state
+        .pending
+        .as_ref()
+        .is_some_and(|request| request.revision == revision)
+    {
+        state.pending = None;
+    }
+}
+
 #[cfg(test)]
 pub fn take_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>) -> Option<&'static str> {
     take_settings_navigation_request(app).and_then(|request| request.page)
@@ -726,6 +741,23 @@ mod tests {
             open_settings_on_tray_double_click(app.handle(), MouseButton::Left);
             assert_eq!(take_pending_settings_navigation(app.handle()), None);
         }
+    }
+
+    #[test]
+    fn warm_navigation_acknowledgement_survives_frontend_restart() {
+        let app = tauri::test::mock_app();
+        app.manage(PendingSettingsNavigation::default());
+        let delivered = set_pending_settings_navigation(app.handle(), Some("diagnostics"));
+        acknowledge_settings_navigation(app.handle(), delivered.revision);
+        assert!(take_settings_navigation_request(app.handle()).is_none());
+        let newer = set_pending_settings_navigation(app.handle(), Some("updates"));
+        acknowledge_settings_navigation(app.handle(), delivered.revision);
+        assert_eq!(
+            take_settings_navigation_request(app.handle())
+                .unwrap()
+                .revision,
+            newer.revision
+        );
     }
 
     #[cfg(target_os = "linux")]

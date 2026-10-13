@@ -38,6 +38,11 @@ mockIPC(
       }
       return pending;
     }
+    if (command === 'acknowledge_settings_navigation') {
+      if (pendingNavigationRequest?.revision === (args as { revision: number }).revision)
+        pendingNavigationRequest = null;
+      return null;
+    }
     if (command === 'preview_navigation_held') return releaseHeldNavigation !== null;
     if (command === 'preview_release_navigation') {
       releaseHeldNavigation?.();

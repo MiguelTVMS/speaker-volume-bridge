@@ -776,3 +776,9 @@ pub fn take_pending_settings_navigation(
 ) -> Option<crate::tray::SettingsNavigationRequest> {
     crate::tray::take_settings_navigation_request(&app)
 }
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn acknowledge_settings_navigation(app: AppHandle, revision: u64) {
+    crate::tray::acknowledge_settings_navigation(&app, revision);
+}

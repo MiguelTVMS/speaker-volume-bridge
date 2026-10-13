@@ -517,22 +517,53 @@ fn speaker_label(name: Option<&str>, volume: Option<u8>) -> String {
     }
 }
 
-#[derive(Default)]
-pub struct PendingSettingsNavigation(Mutex<Option<&'static str>>);
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SettingsNavigationRequest {
+    pub revision: u64,
+    pub page: Option<&'static str>,
+}
 
-pub fn take_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>) -> Option<&'static str> {
+#[derive(Default)]
+struct SettingsNavigationState {
+    revision: u64,
+    pending: Option<SettingsNavigationRequest>,
+}
+
+#[derive(Default)]
+pub struct PendingSettingsNavigation(Mutex<SettingsNavigationState>);
+
+pub fn take_settings_navigation_request<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Option<SettingsNavigationRequest> {
     app.state::<PendingSettingsNavigation>()
         .0
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .pending
         .take()
 }
 
-pub fn set_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>, page: Option<&'static str>) {
-    *app.state::<PendingSettingsNavigation>()
+#[cfg(test)]
+pub fn take_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>) -> Option<&'static str> {
+    take_settings_navigation_request(app).and_then(|request| request.page)
+}
+
+pub fn set_pending_settings_navigation<R: Runtime>(
+    app: &AppHandle<R>,
+    page: Option<&'static str>,
+) -> SettingsNavigationRequest {
+    let state = app.state::<PendingSettingsNavigation>();
+    let mut state = state
         .0
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = page;
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.revision += 1;
+    let request = SettingsNavigationRequest {
+        revision: state.revision,
+        page,
+    };
+    state.pending = Some(request.clone());
+    request
 }
 
 fn open_settings_menu_item<R: Runtime>(app: &AppHandle<R>, id: &str) {
@@ -541,11 +572,10 @@ fn open_settings_menu_item<R: Runtime>(app: &AppHandle<R>, id: &str) {
         "updates" => Some("updates"),
         _ => None,
     };
-    set_pending_settings_navigation(app, page);
+    let request = set_pending_settings_navigation(app, page);
     show_settings(app);
-    if let Some(page) = page {
-        let _ = app.emit("open-settings-page", page);
-    }
+    // Ordinary Settings is a cancellation revision, including for in-flight IPC.
+    let _ = app.emit("open-settings-page", request);
 }
 
 fn show_settings<R: Runtime>(app: &AppHandle<R>) {
@@ -587,10 +617,17 @@ mod tests {
         let received = Arc::new(Mutex::new(Vec::new()));
         let observed = Arc::clone(&received);
         let _listener = app.listen("open-settings-page", move |event| {
-            observed.lock().unwrap().push(event.payload().to_owned());
+            observed.lock().unwrap().push(
+                serde_json::from_str::<serde_json::Value>(event.payload()).unwrap()["page"]
+                    .as_str()
+                    .map(str::to_owned),
+            );
         });
         open_settings_menu_item(app.handle(), "diagnostics");
-        assert_eq!(*received.lock().unwrap(), vec!["\"diagnostics\""]);
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![Some("diagnostics".to_owned())]
+        );
         assert_eq!(
             take_pending_settings_navigation(app.handle()),
             Some("diagnostics")
@@ -603,6 +640,21 @@ mod tests {
             take_pending_settings_navigation(app.handle()),
             Some("updates")
         );
+    }
+
+    #[tokio::test]
+    async fn ordinary_settings_revisions_cancel_already_consumed_navigation() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        open_settings_menu_item(app.handle(), "diagnostics");
+        let in_flight = take_settings_navigation_request(app.handle()).unwrap();
+        open_settings_menu_item(app.handle(), "settings");
+        let cancelled = take_settings_navigation_request(app.handle()).unwrap();
+        assert!(cancelled.revision > in_flight.revision);
+        assert_eq!(in_flight.page, Some("diagnostics"));
+        assert_eq!(cancelled.page, None);
     }
 
     #[tokio::test]
@@ -660,7 +712,13 @@ mod tests {
             for button in [MouseButton::Right, MouseButton::Middle] {
                 open_settings_on_tray_double_click(app.handle(), button);
                 assert_eq!(
-                    *app.state::<PendingSettingsNavigation>().0.lock().unwrap(),
+                    app.state::<PendingSettingsNavigation>()
+                        .0
+                        .lock()
+                        .unwrap()
+                        .pending
+                        .as_ref()
+                        .and_then(|request| request.page),
                     Some(page)
                 );
             }

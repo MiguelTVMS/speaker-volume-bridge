@@ -20,10 +20,12 @@ for (const platform of ['macos', 'windows', 'linux']) {
       const host = window as unknown as {
         __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
       };
-      await host.__TAURI_INTERNALS__.invoke('preview_settings_navigation', { page: 'diagnostics' });
+      const request = await host.__TAURI_INTERNALS__.invoke('preview_settings_navigation', {
+        page: 'diagnostics',
+      });
       await host.__TAURI_INTERNALS__.invoke('plugin:event|emit', {
         event: 'open-settings-page',
-        payload: 'diagnostics',
+        payload: request,
       });
     });
     await expect(page.getByRole('heading', { name: 'Diagnostics', exact: true })).toBeVisible();

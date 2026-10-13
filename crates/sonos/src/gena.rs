@@ -9,7 +9,10 @@ use rand::RngExt;
 use std::{
     fmt::Write,
     net::{IpAddr, SocketAddr},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -136,8 +139,20 @@ fn parse_timeout(value: &str) -> Option<Duration> {
 pub struct CallbackListener {
     callback_url: Url,
     expected_sid: Arc<Mutex<Option<String>>>,
-    events: mpsc::Receiver<(Instant, RenderingControlNotification)>,
-    volume_observation_floor: Option<Instant>,
+    events: mpsc::Receiver<(u64, Option<String>, RenderingControlNotification)>,
+    arrivals: Arc<AtomicU64>,
+    volume_observation_floor: u64,
+    refresh_through: u64,
+    last_volume_arrival: u64,
+    delivered_sid: Option<String>,
+    last_volume_sequence: Option<u32>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for CallbackListener {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl CallbackListener {
@@ -172,15 +187,25 @@ impl CallbackListener {
         let (sender, events) = mpsc::channel(32);
         let expected = Arc::clone(&expected_sid);
         let expected_path = callback_url.path().to_owned();
-        tokio::spawn(async move {
-            while let Ok((mut stream, peer)) = listener.accept().await {
+        let arrivals = Arc::new(AtomicU64::new(0));
+        let arrival_counter = Arc::clone(&arrivals);
+        let task = tokio::spawn(async move {
+            let mut handlers = tokio::task::JoinSet::new();
+            loop {
+                let incoming = tokio::select! {
+                    incoming = listener.accept() => incoming,
+                    Some(_) = handlers.join_next(), if !handlers.is_empty() => continue,
+                };
+                let Ok((mut stream, peer)) = incoming else {
+                    break;
+                };
                 // Arrival is fixed before the child can be delayed by scheduling or I/O.
-                let received_at = Instant::now();
-                accepted(received_at);
+                let arrival = arrival_counter.fetch_add(1, Ordering::SeqCst) + 1;
+                accepted(Instant::now());
                 let sender = sender.clone();
                 let expected = Arc::clone(&expected);
                 let path = expected_path.clone();
-                tokio::spawn(async move {
+                handlers.spawn(async move {
                     let mut bytes = vec![0_u8; MAX_NOTIFY_BYTES];
                     let read = stream.read(&mut bytes).await.unwrap_or_default();
                     bytes.truncate(read);
@@ -190,7 +215,11 @@ impl CallbackListener {
                             .and_then(|(body, sequence)| {
                                 parse_rendering_control_notification(body, sequence).ok()
                             })
-                            .is_some_and(|event| sender.try_send((received_at, event)).is_ok());
+                            .is_some_and(|event| {
+                                sender
+                                    .try_send((arrival, subscription_id.clone(), event))
+                                    .is_ok()
+                            });
                     let response = if accepted {
                         "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
                     } else {
@@ -204,7 +233,13 @@ impl CallbackListener {
             callback_url,
             expected_sid,
             events,
-            volume_observation_floor: None,
+            arrivals,
+            volume_observation_floor: 0,
+            refresh_through: 0,
+            last_volume_arrival: 0,
+            delivered_sid: None,
+            last_volume_sequence: None,
+            task,
         })
     }
     pub fn callback_url(&self) -> &Url {
@@ -215,19 +250,50 @@ impl CallbackListener {
             *sid = Some(subscription.id.clone());
         }
     }
-    /// Queued volume observations predating a fresh reconciliation must not undo it.
-    /// Settings invalidations are retained independently of volume state.
-    pub fn discard_volume_observations_through(&mut self, read_completed_at: Instant) {
-        self.volume_observation_floor = Some(read_completed_at);
+    /// Read barriers use acceptance revisions, not handler completion or wall time.
+    pub fn arrival_revision(&self) -> u64 {
+        self.arrivals.load(Ordering::SeqCst)
+    }
+    pub fn complete_volume_read(&mut self, started: u64) {
+        self.volume_observation_floor = self.volume_observation_floor.max(started);
+        self.refresh_through = self.arrival_revision();
     }
     pub async fn recv(&mut self) -> Option<RenderingControlNotification> {
-        let (received_at, mut event) = self.events.recv().await?;
-        if self
-            .volume_observation_floor
-            .is_some_and(|floor| received_at <= floor)
-        {
+        let (arrival, sid, mut event) = self.events.recv().await?;
+        let current_sid = self.expected_sid.lock().ok().and_then(|sid| sid.clone());
+        if sid != current_sid {
             event.volume_state = None;
             event.volume_changed = false;
+            event.settings_changed = false;
+            return Some(event);
+        }
+        if self.delivered_sid != current_sid {
+            self.last_volume_sequence = None;
+            self.last_volume_arrival = 0;
+            self.delivered_sid = current_sid;
+        }
+        if event.volume_changed || event.volume_state.is_some() {
+            let obsolete = match (event.sequence, self.last_volume_sequence) {
+                (Some(sequence), Some(last)) => {
+                    sequence == 0 || sequence == last || sequence.wrapping_sub(last) >= (1 << 31)
+                }
+                _ => arrival <= self.last_volume_arrival,
+            };
+            if arrival <= self.volume_observation_floor || obsolete {
+                event.volume_state = None;
+                event.volume_changed = false;
+            } else {
+                self.last_volume_arrival = self.last_volume_arrival.max(arrival);
+                if event.sequence.is_some() {
+                    self.last_volume_sequence = event.sequence;
+                }
+                if arrival <= self.refresh_through {
+                    // A notification overlapping a non-atomic GET pair is not
+                    // known stale: retain an invalidation and read again.
+                    event.volume_state = None;
+                    event.volume_changed = true;
+                }
+            }
         }
         Some(event)
     }

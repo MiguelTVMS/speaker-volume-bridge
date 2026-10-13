@@ -1,45 +1,63 @@
-# ADR 0024: Coalesce local gestures before accepting speaker corrections
+# ADR 0024: Order local gestures, speaker reads and notification delivery
 
 **Status:** Accepted
 
 ## Decision
 
 The coordinator retains one newest pending local volume and a fixed 45 ms dispatch
-deadline. The native runtime keeps receiving callbacks during that interval rather
-than awaiting dispatch inside each callback. Buffered callbacks from a network
-write are collapsed to the newest user state; application echoes cannot displace
-it. Device lifecycle events still stop the session. Duplicate states do not extend
-debounce or settling. Mute changes bypass debounce and replace queued volume.
+deadline. Native callbacks continue while input is coalesced; buffered user state
+wins over application echoes. Mute bypasses debounce and supersedes queued volume.
+Duplicate input does not extend dispatch or settling. The 500 ms settling deadline
+makes a final read ready; authority stays latched until reconciliation, protecting
+both timer-first and notification-first selection. New gestures invalidate the
+previous gesture's command cache so they can reassert state after external changes.
 
-While a local volume is pending and for 500 ms after the latest local change or
-completed write, speaker events and health reads cannot overwrite local audio or
-clear pending intents. This bounds arbitration at the integration boundary using
-a monotonic clock; the pure synchronizer remains unchanged. After settling, a
-fresh speaker read reconciles final volume and mute, even with fallback polling
-disabled. Ordinary speaker changes again apply in two-way mode. One-way mode
-continues to observe speaker confirmations without applying them locally.
+Startup, settling, health polling and output changes use the same coordinator
+read-and-reconcile operation. Native local state is observed before and after a
+speaker read. If input changed, the read cannot overwrite it: the current local
+state is retained and queued for dispatch. Local application checks its observed
+baseline again immediately before writing, and rechecks mute before writing it after an
+asynchronous volume write. Device volume quantization does not masquerade as a
+new mute intent. These guards protect the asynchronous read window;
+native OS property reads and writes are separate calls, not an atomic hardware
+transaction. Polling and notifications leave the waiting snapshot intact while
+local input is authoritative. Accepted publications preserve subscription health.
 
-The runtime publishes speaker state only when the coordinator accepts an
-observation. Suppressed notifications and health reads retain the waiting snapshot,
-including its last speaker value. Completing the final read preserves subscription
-health: without an event subscription the UI reports polling fallback when enabled,
-or degraded delivery otherwise. Notification, polling and settling branches share
-the same observation-to-publication orchestration, exercised by runtime regressions.
+The callback listener assigns monotonically increasing acceptance revisions before
+spawning handlers. Each runtime reconciliation records the acceptance revision at
+its start and closes that read window only if an actual read occurred. Volume
+notifications from before the read are obsolete. Those overlapping the operation
+are ambiguous because GetVolume and GetMute are separate requests: their raw values
+are replaced by a retained invalidation, which triggers the same fresh-read path,
+even with periodic fallback polling disabled. Notifications after the window can
+be applied normally. Independent speaker-settings invalidations are preserved.
+
+Delivery rejects older completed handlers. When a sender supplies SEQ, its serial
+order takes precedence, scoped to SID; rollover from the maximum key to 1 is
+accepted and a new SID resets sequence tracking. Old-subscription queued state is
+ignored. Without SEQ, acceptance revisions order delivery. See the
+[UPnP eventing specification](https://upnp.org/specs/arch/UPnP-arch-DeviceArchitecture-v2.0-20140901.pdf).
+
+The listener owns its accept task, which owns and reaps child handlers through a
+JoinSet. Dropping a session aborts the accept task and its pending children,
+releasing sockets rather than accumulating detached listeners across reconnects.
 
 ## Tradeoffs and validation
 
-An independent speaker change during a local gesture is reconciled by the final
-read rather than applied immediately. Mapping quantization or a safety cap may
-produce one final local correction. The settling interval is bounded protection,
-not proof of event provenance; very late notifications and device disconnects
-remain hardware verification concerns. The adapter's echo suppression still runs.
+A dirty read window may require another GET pair. A fresh read batches older queued
+invalidations behind its starting revision, bounding redundant processing for a
+fixed queue. It does not infer atomic state across independent speaker actions.
+A safety cap or mapping quantization may still produce an intentional final local
+correction. One-way mode observes speaker state without applying it locally.
 
-Coordinator regressions reproduce startup, repeated input, stale notifications,
-newest-volume dispatch, immediate mute replacing queued volume, deadline stability,
-final reconciliation and later independent speaker control. The burst and mute
-regressions fail with the original coordinator. Runtime tests exercise the same
-buffer draining used by the production event loop. Native verification steps and
-coverage limits are recorded in the verification matrix.
+The normal suite covers both select orders, accepted sockets with delayed handlers,
+handler completion reordering, sender replay/rollover/SID changes, notifications
+inside GETs and during local application/publication, local input during each read
+path, health polling fences, partial volume invalidations during authority, and
+listener/child socket cleanup. The six whole-flow reproductions fail when their
+corresponding protection is removed. Verification details and native hardware
+coverage limits are in the verification matrix. Domain code remains independent
+of Tauri, networking and platform APIs.
 
 ## Core Audio listener reattachment
 
@@ -69,38 +87,3 @@ and starting exponential network backoff. Pending input for the previous endpoin
 is discarded. Two-way mode applies the speaker baseline to the new output;
 one-way mode sends the new output's local state. Actual disappearance, unreadable
 state or failed attachment still enters bounded recovery.
-
-
-## Ordering queued notifications across the final read
-
-The callback listener timestamps each connection immediately when its socket is
-accepted, before spawning its read/parse handler. That immutable arrival timestamp
-follows the observation into the queue; child scheduling and socket-read delay
-cannot move an old arrival across the read-completion boundary. The coordinator captures the completion time of each speaker read before any
-local-audio effect. Settling and output-change reconciliation use that timestamp;
-volume notifications queued at or before that boundary are stripped of
-volume state and volume-read invalidation before delivery. Independent speaker
-settings invalidations remain deliverable. This avoids a ready timer winning the
-runtime select and releasing authority ahead of an already queued stale event.
-Regressions use the real callback listener queue, deliberately execute the
-timer or output change first, and verify stale-volume rejection and later-event
-acceptance. Notifications injected during post-read local application or snapshot
-publication remain deliverable, including when fallback polling is disabled.
-Notifications arriving after the read remain normal observations; the boundary
-cannot establish the provenance of arbitrarily late network delivery.
-
-A rejected speaker observation still invalidates mismatched cached volume/mute
-commands. This does not pass stale state to the synchronizer, but allows a new
-gesture ending at a previously sent value to reassert that value after an external
-change. Core Audio channel elements are numbered cumulatively across stream
-buffers, preventing duplicate listener addresses on multi-buffer outputs.
-
-
-The 500 ms deadline makes the final read ready; it does not itself release local
-authority. Authority remains latched until the explicit settling read returns.
-Thus both timer-first and notification-first selection at the deadline preserve
-the fresh reconciliation. A failed read leaves the latch in place until session
-recovery rather than accepting stale queued state. The notification-first
-regression uses the real callback queue with fallback polling disabled and checks
-that waiting status, local volume and the settling deadline survive the stale
-event, then verifies the final read and later speaker control.

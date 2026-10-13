@@ -56,3 +56,7 @@ updates are deferred while the computer adjustment settles. A final speaker read
 then reconciles both sides, including the selected mapping and volume cap. Mute
 changes take effect immediately. A simultaneous adjustment from another speaker
 controller may therefore appear after a brief settling interval.
+
+If you adjust volume again while the bridge is checking the speaker, the newer
+adjustment takes priority. Overlapping speaker notifications cause a fresh check
+so an older read does not become the final state.

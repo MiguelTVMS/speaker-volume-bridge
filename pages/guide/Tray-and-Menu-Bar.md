@@ -50,3 +50,6 @@ The **Night schedule** checkmark means recurring scheduling is enabled. Use it t
 
 If you choose several page shortcuts while Settings starts, the most recent
 choice wins, including when opening Updates from a notification first.
+
+Opening ordinary Settings also cancels an earlier page shortcut that is still
+on its way to the window, without changing the page you are already viewing.

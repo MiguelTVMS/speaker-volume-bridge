@@ -2184,3 +2184,37 @@ The production constructor uses the same listener implementation with a no-op
 observer. This is orchestration coverage without new native hardware acceptance.
 Website review: no additional guide update needed; this restores the existing
 settling/reconciliation guarantee without changing setup or user controls.
+
+
+## Coordinated whole-flow repair, 2026-10-13
+
+This supersedes the earlier completion-time fence: notifications inside a read
+window are retained as invalidations, not discarded as old volume. Tests below
+are permanent in the normal suites and use the production coordinator, native
+port adapter, callback HTTP listener and runtime orchestration with mocked audio.
+
+| Whole-flow race | Permanent regression | Required result |
+| --- | --- | --- |
+| Local input changes while a GET is in flight | `coordinated_local_input_during_read_remains_authoritative` | Settling, health and output reads retain 70 instead of writing sampled 60; queued input then reaches speaker and publication. |
+| New speaker notification overlaps a GET | `coordinated_notifications_during_get_trigger_fresh_observation` | In all three read paths, sampled 60 is superseded by a fresh observation of notified 70 without periodic polling. |
+| Older handler completes after newer handler | `coordinated_handlers_cannot_reverse_arrival_order` | Delayed 20 cannot overwrite delivered 70. |
+| Health poll wins over an old queued callback | `coordinated_health_reads_fence_old_callbacks_and_retain_overlaps` | Fresh 60 is not replaced by queued 20. |
+| Dropped session leaves sockets/tasks alive | `coordinated_listener_drop_releases_socket_and_pending_handler` | Accept socket can be rebound and a child blocked in read is closed. |
+| Consumed navigation response outlives cancellation | `settings-navigation.test.mjs` and `navigation-ordering.spec.ts` | Ordinary Settings or newer Updates survives delayed startup Diagnostics on macOS, Windows and Linux layouts. |
+
+The six original whole-flow reproductions failed on the pre-repair PR head.
+Each permanent regression also fails when its corresponding protection is disabled;
+those deliberate failures are distinct from the final fixed-code test results.
+Additional coverage verifies SEQ replay, maximum-to-1 wrap, SID reset and stale
+old-SID packets, and preserves the earlier timer-first/notification-first, local
+apply/publication and delayed socket-handler tests. Assertions that previously
+required an overlapping raw notification now require a retained invalidation
+followed by the correct fresh state, which is the stronger behavioral contract.
+
+The navigation browser fixture holds startup IPC after consumption and releases
+it only after a newer revision is delivered; it uses no timing guess to choose
+the ordering. Native actions and cancellation revisions also have Rust tests.
+Website guides were reviewed and updated for newer-intent precedence. Existing
+native acceptance records describe earlier builds: this coordinated repair has
+portable orchestration and browser coverage, not a fresh Windows/Ubuntu hardware
+run. Native OS reads/writes are not claimed to be one atomic hardware transaction.

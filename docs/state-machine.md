@@ -27,13 +27,15 @@ arrive; only the newest pending volume is dispatched. Mute changes bypass the
 debounce and supersede queued volume. A final speaker read runs after settling
 even when fallback polling is disabled. Rejected speaker observations do not
 change the waiting UI snapshot. They still invalidate mismatched cached commands.
-Volume observations queued at or before a settling or output-change speaker read
-completes cannot overwrite its fresh state. Notifications received during later
-local-audio work remain deliverable; independent settings invalidations are retained. After settling, status remains degraded or polling
-fallback when the event subscription is unavailable. See ADR 0024.
-The coordinator does not resend a volume or mute value until it differs from
-the last sent value. When GENA delivery is healthy it polls slowly for health;
-on subscription loss it polls once per second until event delivery recovers.
+All speaker reads share local-input guards and notification read windows.
+Notifications from before a read are fenced. Notifications overlapping it remain
+invalidations for another read, rather than being assumed stale or authoritative.
+Newer local input cannot be replaced by the older read result. Notifications are
+ordered by subscription-scoped sender sequence when available, otherwise by
+acceptance revision; delayed handlers cannot reverse that order. After settling,
+status remains degraded or polling fallback when the subscription is unavailable.
+See ADR 0024. Duplicate commands are coalesced within a gesture; a new gesture
+reasserts state because the speaker may have changed externally in between.
 
 Night Mode scheduling is an independent optional controller. Disabled or unselected
 means no recurring effects. Explicit Save remains a one-shot apply operation even

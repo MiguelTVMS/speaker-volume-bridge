@@ -22,7 +22,13 @@ import { desktopPlatform } from './platform';
 import { settingCaption } from './setting-caption';
 import { sizeSelectedControls } from './select-sizing';
 import { canApplyRefresh } from './refresh-state';
-import { adjacentPage, settingsPages, type SettingsPage } from './settings-navigation';
+import {
+  adjacentPage,
+  settingsPages,
+  SettingsNavigation,
+  type SettingsPage,
+  type SettingsNavigationRequest,
+} from './settings-navigation';
 import { applySpeakerControls, type SpeakerSettings } from './speaker-controls';
 import { SliderInteraction } from './slider-interaction';
 import { LiveStatus } from './live-status';
@@ -1173,13 +1179,14 @@ if (isTauri()) {
   const openSettingsPage = (page: string | null): void => {
     if (page && settingsPages.includes(page as SettingsPage)) activatePage(page as SettingsPage);
   };
-  let settingsNavigation = Promise.resolve();
-  const consumeSettingsNavigation = (): void => {
-    settingsNavigation = settingsNavigation.then(async () => {
-      openSettingsPage(await invoke<string | null>('take_pending_settings_navigation'));
-    });
-  };
-  void listen('open-settings-page', consumeSettingsNavigation).then(consumeSettingsNavigation);
+  const settingsNavigation = new SettingsNavigation(openSettingsPage);
+  void listen<SettingsNavigationRequest>('open-settings-page', ({ payload }) => {
+    settingsNavigation.accept(payload);
+  }).then(async () => {
+    settingsNavigation.accept(
+      await invoke<SettingsNavigationRequest | null>('take_pending_settings_navigation'),
+    );
+  });
 }
 
 void invoke<ScheduleStatus>('get_schedule_status').then((status) => {

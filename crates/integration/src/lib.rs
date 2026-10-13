@@ -31,6 +31,18 @@ pub trait SonosPort: Send + Sync {
 #[async_trait]
 pub trait LocalAudioPort: Send + Sync {
     async fn apply(&self, state: LocalAudioState) -> Result<(), IntegrationError>;
+    async fn observe(&self) -> Result<Option<LocalAudioState>, IntegrationError> {
+        Ok(None)
+    }
+    /// Return newer local input instead of overwriting a changed read baseline.
+    async fn apply_observed(
+        &self,
+        state: LocalAudioState,
+        _baseline: Option<LocalAudioState>,
+    ) -> Result<Option<LocalAudioState>, IntegrationError> {
+        self.apply(state).await?;
+        Ok(None)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -78,7 +90,9 @@ pub struct Coordinator<S, A> {
     last_sent_volume: Option<SonosVolume>,
     last_sent_mute: Option<MuteState>,
     metrics: TimingMetrics,
-    last_read_completed_at: Option<Deadline>,
+    observation_baseline: Option<LocalAudioState>,
+    expected_local: Option<LocalAudioState>,
+    read_revision: u64,
 }
 
 impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
@@ -102,7 +116,9 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
             last_sent_volume: None,
             last_sent_mute: None,
             metrics: TimingMetrics::default(),
-            last_read_completed_at: None,
+            observation_baseline: None,
+            expected_local: None,
+            read_revision: 0,
         }
     }
     /// A fixed deadline lets the runtime continue receiving callbacks while coalescing.
@@ -134,9 +150,8 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
     ) -> Option<speaker_volume_bridge_domain::ConfirmedSonosState> {
         self.synchronizer.confirmed()
     }
-    /// Captured before post-read synchronization effects or local audio work.
-    pub const fn last_read_completed_at(&self) -> Option<Deadline> {
-        self.last_read_completed_at
+    pub const fn read_revision(&self) -> u64 {
+        self.read_revision
     }
     pub const fn timing_metrics(&self) -> TimingMetrics {
         self.metrics
@@ -150,25 +165,64 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
         self.local_deadline = None;
         self.last_sent_volume = None;
         self.last_sent_mute = None;
+        self.expected_local = None;
         self.reconcile_startup().await?;
-        if !self.synchronizer.two_way_synchronization() {
+        if !self.synchronizer.two_way_synchronization() && self.pending_local.is_none() {
+            let local = self.audio.observe().await?.unwrap_or(local);
             self.on_local_event(local, LocalOrigin::User, true).await?;
         }
         Ok(())
     }
     pub async fn reconcile_startup(&mut self) -> Result<(), IntegrationError> {
+        self.read_confirmation(SonosObservationSource::ExplicitRead)
+            .await
+    }
+    fn retain_local_input(&mut self, state: LocalAudioState) {
+        self.invalidate_sonos_commands();
+        self.last_local = Some(state);
+        self.expected_local = Some(state);
+        self.pending_local = Some(SyncEvent::LocalChanged {
+            state,
+            origin: LocalOrigin::User,
+            at_ms: now_ms(),
+        });
+        self.local_deadline = Some(Deadline::now());
+        self.local_authority_until = Some(Deadline::now() + LOCAL_SETTLING);
+    }
+    async fn read_confirmation(
+        &mut self,
+        source: SonosObservationSource,
+    ) -> Result<(), IntegrationError> {
+        let baseline = self.audio.observe().await?;
+        if let (Some(expected), Some(current)) = (self.expected_local, baseline)
+            && current != expected
+        {
+            self.retain_local_input(current);
+            return Ok(());
+        }
         let (volume, muted) = self.sonos.current_state().await?;
-        self.last_read_completed_at = Some(Deadline::now());
+        self.read_revision = self.read_revision.wrapping_add(1);
+        self.record_confirmation(volume, muted);
+        let current = self.audio.observe().await?;
+        if current != baseline {
+            if let Some(current) = current {
+                self.retain_local_input(current);
+            }
+            return Ok(());
+        }
         self.last_local = None;
         self.local_authority_until = None;
-        self.record_confirmation(volume, muted);
-        self.handle(SyncEvent::SonosConfirmed {
-            volume,
-            muted,
-            source: SonosObservationSource::ExplicitRead,
-            at_ms: now_ms(),
-        })
-        .await
+        self.observation_baseline = baseline;
+        let result = self
+            .handle(SyncEvent::SonosConfirmed {
+                volume,
+                muted,
+                source,
+                at_ms: now_ms(),
+            })
+            .await;
+        self.observation_baseline = None;
+        result
     }
     /// Returns whether the observation was accepted, so callers can publish only confirmed state.
     pub async fn on_sonos_event(
@@ -182,9 +236,16 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
         if self.local_is_authoritative() {
             return Ok(false);
         }
+        let baseline = self.audio.observe().await?;
+        if let (Some(expected), Some(current)) = (self.expected_local, baseline)
+            && current != expected
+        {
+            self.retain_local_input(current);
+            return Ok(false);
+        }
         self.last_local = None;
         self.local_authority_until = None;
-        self.record_confirmation(volume, muted);
+        self.observation_baseline = baseline;
         self.handle(SyncEvent::SonosConfirmed {
             volume,
             muted,
@@ -192,27 +253,22 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
             at_ms: now_ms(),
         })
         .await?;
-        Ok(true)
+        self.observation_baseline = None;
+        Ok(self.pending_local.is_none())
+    }
+    pub fn invalidate_sonos_commands(&mut self) {
+        self.last_sent_volume = None;
+        self.last_sent_mute = None;
     }
     pub fn on_subscription_lost(&mut self) {
         self.health = Health::PollingFallback;
     }
-    pub async fn poll_once(&mut self) -> Result<(), IntegrationError> {
-        let (volume, muted) = self.sonos.current_state().await?;
-        self.last_read_completed_at = Some(Deadline::now());
+    pub async fn poll_once(&mut self) -> Result<bool, IntegrationError> {
         if self.local_is_authoritative() {
-            return Ok(());
+            return Ok(false);
         }
-        self.last_local = None;
-        self.local_authority_until = None;
-        self.record_confirmation(volume, muted);
-        self.handle(SyncEvent::SonosConfirmed {
-            volume,
-            muted,
-            source: SonosObservationSource::Poll,
-            at_ms: now_ms(),
-        })
-        .await
+        self.read_confirmation(SonosObservationSource::Poll).await?;
+        Ok(self.pending_local.is_none())
     }
     pub fn next_poll_interval(&self) -> Duration {
         if self.health == Health::Healthy {
@@ -248,7 +304,11 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
         if self.last_local == Some(state) {
             return Ok(());
         }
+        if !self.local_is_authoritative() {
+            self.invalidate_sonos_commands();
+        }
         self.last_local = Some(state);
+        self.expected_local = Some(state);
         self.local_authority_until = Some(Deadline::now() + LOCAL_SETTLING);
         if mute_changed {
             // A mute gesture includes the latest volume and supersedes any queued volume.
@@ -305,7 +365,16 @@ impl<S: SonosPort, A: LocalAudioPort> Coordinator<S, A> {
             Effect::ApplyLocal(state) => {
                 self.metrics.last_command_to_confirmation =
                     self.last_command.map(|start| start.elapsed());
-                self.audio.apply(state).await
+                if let Some(newer) = self
+                    .audio
+                    .apply_observed(state, self.observation_baseline)
+                    .await?
+                {
+                    self.retain_local_input(newer);
+                } else {
+                    self.expected_local = self.audio.observe().await?;
+                }
+                Ok(())
             }
             Effect::SuppressedLocalCallback => Ok(()),
         }
@@ -439,7 +508,7 @@ mod tests {
         }
         assert!(applied.lock().unwrap().is_empty());
         tokio::time::advance(Duration::from_millis(501)).await;
-        coordinator.poll_once().await.unwrap();
+        assert!(!coordinator.poll_once().await.unwrap());
         assert!(applied.lock().unwrap().is_empty());
         assert!(coordinator.settling_deadline().is_some());
         coordinator.finish_local_adjustment().await.unwrap();

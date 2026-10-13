@@ -407,8 +407,13 @@ test('cold-start notification selects Updates after frontend subscription', asyn
     const host = window as unknown as {
       __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
     };
-    await host.__TAURI_INTERNALS__.invoke('preview_settings_navigation', { page: 'updates' });
-    await host.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'open-settings-page' });
+    const request = await host.__TAURI_INTERNALS__.invoke('preview_settings_navigation', {
+      page: 'updates',
+    });
+    await host.__TAURI_INTERNALS__.invoke('plugin:event|emit', {
+      event: 'open-settings-page',
+      payload: request,
+    });
   });
   await expect(page.getByRole('heading', { name: 'Updates', exact: true })).toBeVisible();
   expect(errors).toEqual([]);

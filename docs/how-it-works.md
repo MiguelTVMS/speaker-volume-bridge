@@ -327,3 +327,14 @@ Explicit Diagnostics and Updates tray actions retain a page destination until
 Settings acknowledges it, so opening a hidden or not-yet-ready window selects
 the requested page. Ordinary Settings preserves its selected page. See
 [ADR 0025](decisions/0025-tray-settings-navigation.md).
+
+
+## Read windows and newer intent
+
+Startup, output changes, settling and periodic health reads all pass through the
+same coordinator read path. It compares local state across network work and
+retains newer input instead of applying an obsolete speaker result. Notifications
+arriving during that work trigger a fresh observation rather than being discarded.
+The listener orders delivery and releases all its sockets when the session ends.
+Settings destinations likewise carry revisions: an ordinary Settings request can
+cancel an older destination even while its startup IPC response is in flight.

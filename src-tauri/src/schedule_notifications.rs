@@ -26,17 +26,16 @@ fn notification_activation_target(
 }
 
 pub fn activate_notification<R: Runtime>(app: &AppHandle<R>, open_updates: bool) {
-    if open_updates {
-        crate::tray::set_pending_settings_navigation(app, Some("updates"));
-    }
+    let request =
+        open_updates.then(|| crate::tray::set_pending_settings_navigation(app, Some("updates")));
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         if let Some(window) = handle.get_webview_window("main") {
             let _ = window.show();
             let _ = window.set_focus();
         }
-        if open_updates {
-            let _ = handle.emit("open-settings-page", "updates");
+        if let Some(request) = request {
+            let _ = handle.emit("open-settings-page", request);
         }
     });
 }

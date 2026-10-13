@@ -479,27 +479,20 @@ notifications. Successful output changes reconcile within the existing speaker
 session, without connection backoff. Pending input from the former output is
 discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.
 
-Diagnostics/Updates tray actions and update notifications share one pending
-destination and one serialized frontend consumer. The latest request wins during
-startup and warm event delivery. Explicit actions retain a page destination until
-Settings acknowledges it, so opening a hidden or not-yet-ready window selects
-the requested page. Ordinary Settings preserves its selected page. See
-[ADR 0025](decisions/0025-tray-settings-navigation.md).
+Settings tray actions and update notifications share one revisioned destination.
+The frontend applies events and startup IPC through a single revision gate.
+Ordinary Settings and tray left-double-click cancel even an already consumed,
+in-flight destination without changing the visible page (ADR 0025).
 
-Runtime observation publication is shared by notification, health-read and gesture-
-settling paths. Rejected observations leave the snapshot unchanged; accepted state
-is published with the current subscription availability and polling policy (ADR 0024).
+All coordinator reads share a local-state baseline guard. New input during a read
+is retained for dispatch, and native application verifies its baseline before
+writing. Runtime notification, settling, health-poll and output-change paths share
+publication and read-window handling. Rejected observations retain waiting state;
+accepted snapshots preserve subscription availability and polling policy (ADR 0024).
 
-The callback listener timestamps sockets at acceptance, before child-handler
-scheduling, reads or parsing, and carries that timestamp into the observation queue. Gesture and output-change reconciliation set
-a volume-observation cutoff at the fresh speaker read completion, before local
-audio application or snapshot publication. Independent settings invalidations and
-newer notifications remain deliverable (ADR 0024). Core Audio
-stream channel elements are cumulative across buffers to keep registrations unique.
-
-Tray left-double-click and the ordinary Settings menu share navigation handling,
-so both cancel unconsumed explicit page requests during startup (ADR 0025).
-
-The local-authority deadline schedules reconciliation; authority remains latched
-until its explicit speaker read returns, protecting either select ordering at the
-deadline (ADR 0024).
+The callback listener assigns acceptance revisions before child-handler scheduling.
+Read windows fence older volume and retain overlapping notifications as fresh-read
+invalidations. Sender sequence and subscription identity order valid notifications;
+acceptance order is the fallback when no sequence is supplied. Independent settings
+invalidations survive volume fencing. Session-owned tasks release accept and child
+sockets on drop. Core Audio channel elements remain cumulative across buffers.

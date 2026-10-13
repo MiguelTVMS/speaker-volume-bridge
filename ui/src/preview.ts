@@ -18,8 +18,8 @@ const backend = createDemoBackend({
   hour12: params.has('hour12') ? params.get('hour12') === 'true' : null,
   locale: params.get('locale'),
 });
-let pendingUpdateNavigation = params.get('pendingUpdates') === 'true';
-let pendingSettingsNavigation = params.get('pendingSettingsPage');
+let pendingSettingsNavigation =
+  params.get('pendingSettingsPage') ?? (params.get('pendingUpdates') === 'true' ? 'updates' : null);
 mockIPC(
   (command, args) => {
     if (command === 'take_pending_settings_navigation') {
@@ -27,10 +27,9 @@ mockIPC(
       pendingSettingsNavigation = null;
       return pending;
     }
-    if (command === 'take_pending_update_navigation') {
-      const pending = pendingUpdateNavigation;
-      pendingUpdateNavigation = false;
-      return pending;
+    if (command === 'preview_settings_navigation') {
+      pendingSettingsNavigation = (args as { page: string | null }).page;
+      return null;
     }
     if (command === 'ui_demo_enabled') return true;
     if (command === 'ui_demo_platform') return new URLSearchParams(location.search).get('ui');

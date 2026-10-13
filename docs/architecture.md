@@ -479,7 +479,9 @@ notifications. Successful output changes reconcile within the existing speaker
 session, without connection backoff. Pending input from the former output is
 discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.
 
-Explicit Diagnostics and Updates tray actions retain a page destination until
+Diagnostics/Updates tray actions and update notifications share one pending
+destination and one serialized frontend consumer. The latest request wins during
+startup and warm event delivery. Explicit actions retain a page destination until
 Settings acknowledges it, so opening a hidden or not-yet-ready window selects
 the requested page. Ordinary Settings preserves its selected page. See
 [ADR 0025](decisions/0025-tray-settings-navigation.md).

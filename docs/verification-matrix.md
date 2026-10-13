@@ -2153,3 +2153,18 @@ is disabled. The regression fails with the time-expiring authority check restore
 and passes with latched authority. It runs in the normal workspace suite.
 Website review: no additional guide changes needed; this repairs the documented
 settling guarantee without changing setup or user-facing controls.
+
+
+## Update-notification and tray navigation ordering
+
+The production-action regression activates an update notification before frontend
+subscription, then selects Diagnostics from the tray. Only Diagnostics may be
+consumed, once. Reverse ordering selects Updates; ordinary Settings and tray
+left-double-click clear an earlier notification destination. Existing update
+activation regressions now exercise the same shared pending destination and event.
+Browser tests reproduce notification-then-Diagnostics startup on macOS, Windows
+and Linux layouts. These fail with the original independent pending consumers
+and preview backend restored, and pass with the unified slot and serialized
+consumer. Existing cold/warm notification and tray browser coverage remains.
+Native notification delivery and OS startup scheduling are outside these tests;
+this change has no new manual native acceptance claim.

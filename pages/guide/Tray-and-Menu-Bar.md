@@ -47,3 +47,6 @@ On Ubuntu, tray visibility depends on the desktop environment's app-indicator su
 Supported controls load asynchronously at startup without requiring an initial click. Slow responses do not block the interface, and results from a previously selected speaker are discarded. Speaker notifications and backup refreshes keep controls current.
 
 The **Night schedule** checkmark means recurring scheduling is enabled. Use it to toggle the saved schedule; open Settings → **Night schedule** to edit the grid. Disabling it leaves the current Night sound value unchanged and remains possible when the speaker is unavailable. While a scheduled period is active, disable the schedule before turning Night sound off manually.
+
+If you choose several page shortcuts while Settings starts, the most recent
+choice wins, including when opening Updates from a notification first.

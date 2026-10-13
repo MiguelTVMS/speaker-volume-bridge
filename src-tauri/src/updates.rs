@@ -2228,7 +2228,7 @@ mod tests {
         let _state_listener = app.listen("update-status-changed", move |_| {
             observed_state.fetch_add(1, Ordering::SeqCst);
         });
-        let _navigation_listener = app.listen("open-updates", move |_| {
+        let _navigation_listener = app.listen("open-settings-page", move |_| {
             observed_navigation.fetch_add(1, Ordering::SeqCst);
         });
         crate::schedule_wake::wake(app.handle());
@@ -2264,7 +2264,7 @@ mod tests {
         let _status_listener = app.listen("update-status-changed", move |_| {
             observed_status.fetch_add(1, Ordering::SeqCst);
         });
-        let _open_listener = app.listen("open-updates", move |_| {
+        let _open_listener = app.listen("open-settings-page", move |_| {
             observed_open.fetch_add(1, Ordering::SeqCst);
         });
 

@@ -528,16 +528,20 @@ pub fn take_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>) -> Optio
         .take()
 }
 
+pub fn set_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>, page: Option<&'static str>) {
+    *app.state::<PendingSettingsNavigation>()
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = page;
+}
+
 fn open_settings_menu_item<R: Runtime>(app: &AppHandle<R>, id: &str) {
     let page = match id {
         "diagnostics" => Some("diagnostics"),
         "updates" => Some("updates"),
         _ => None,
     };
-    *app.state::<PendingSettingsNavigation>()
-        .0
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = page;
+    set_pending_settings_navigation(app, page);
     show_settings(app);
     if let Some(page) = page {
         let _ = app.emit("open-settings-page", page);
@@ -613,6 +617,35 @@ mod tests {
             open_settings_menu_item(app.handle(), "settings");
             assert_eq!(take_pending_settings_navigation(app.handle()), None);
         }
+    }
+
+    #[tokio::test]
+    async fn notification_and_tray_share_latest_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        // Actual update-notification activation precedes frontend subscription.
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        // Reversed order, ordinary Settings, and double-click use the same slot.
+        open_settings_menu_item(app.handle(), "diagnostics");
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("updates")
+        );
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_menu_item(app.handle(), "settings");
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_on_tray_double_click(app.handle(), MouseButton::Left);
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
     }
 
     #[tokio::test]

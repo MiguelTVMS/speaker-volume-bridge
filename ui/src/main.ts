@@ -1173,22 +1173,13 @@ if (isTauri()) {
   const openSettingsPage = (page: string | null): void => {
     if (page && settingsPages.includes(page as SettingsPage)) activatePage(page as SettingsPage);
   };
-  const consumeSettingsNavigation = async (): Promise<void> => {
-    openSettingsPage(await invoke<string | null>('take_pending_settings_navigation'));
+  let settingsNavigation = Promise.resolve();
+  const consumeSettingsNavigation = (): void => {
+    settingsNavigation = settingsNavigation.then(async () => {
+      openSettingsPage(await invoke<string | null>('take_pending_settings_navigation'));
+    });
   };
-  void listen<string>('open-settings-page', ({ payload }) => {
-    openSettingsPage(payload);
-    void invoke<string | null>('take_pending_settings_navigation');
-  }).then(consumeSettingsNavigation);
-  const consumeUpdateNavigation = async (): Promise<void> => {
-    if (await invoke<boolean>('take_pending_update_navigation')) {
-      activatePage('updates');
-    }
-  };
-  void listen('open-updates', () => {
-    activatePage('updates');
-    void invoke<boolean>('take_pending_update_navigation');
-  }).then(consumeUpdateNavigation);
+  void listen('open-settings-page', consumeSettingsNavigation).then(consumeSettingsNavigation);
 }
 
 void invoke<ScheduleStatus>('get_schedule_status').then((status) => {

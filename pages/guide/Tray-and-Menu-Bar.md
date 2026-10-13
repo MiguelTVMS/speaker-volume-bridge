@@ -16,7 +16,7 @@ The menu shows:
 
 - **State: Connected** or **State: Disconnected**.
 - The selected speaker name and cached volume when available.
-- Shortcuts to **Settings** and **Diagnostics**.
+- Shortcuts to **Settings** and **Diagnostics**. Diagnostics opens its page directly, including when Settings is closed.
 - Supported Sonos speaker controls.
 - A checked **Night schedule** toggle directly above **Night sound**.
 - **Quit**.
@@ -33,6 +33,9 @@ Open [Diagnostics](/guide/Diagnostics-and-Troubleshooting.html) when the binary 
 
 ## Closing and quitting
 
+Double-click the tray icon with the left mouse button to open ordinary Settings.
+This also cancels an earlier page shortcut that is still waiting for startup.
+
 Closing the Settings window hides it. Synchronization continues in the background.
 
 Choose **Quit** from the tray or menu-bar menu to stop the runtime completely.
@@ -44,3 +47,9 @@ On Ubuntu, tray visibility depends on the desktop environment's app-indicator su
 Supported controls load asynchronously at startup without requiring an initial click. Slow responses do not block the interface, and results from a previously selected speaker are discarded. Speaker notifications and backup refreshes keep controls current.
 
 The **Night schedule** checkmark means recurring scheduling is enabled. Use it to toggle the saved schedule; open Settings → **Night schedule** to edit the grid. Disabling it leaves the current Night sound value unchanged and remains possible when the speaker is unavailable. While a scheduled period is active, disable the schedule before turning Night sound off manually.
+
+If you choose several page shortcuts while Settings starts, the most recent
+choice wins, including when opening Updates from a notification first.
+
+Opening ordinary Settings also cancels an earlier page shortcut that is still
+on its way to the window, without changing the page you are already viewing.

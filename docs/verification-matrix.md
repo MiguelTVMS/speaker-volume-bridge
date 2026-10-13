@@ -1,5 +1,28 @@
 # Hardware verification matrix
 
+## Local volume settling regression, 2026-10-12
+
+Before the fix, native observation captured repeated output callbacks and volume
+reversals during a rapid adjustment. Runtime logs also recorded output-device
+unavailability and reconnects; the arbitration fix does not establish a repair
+for device disconnects.
+
+Automated coverage: coordinator startup followed by repeated local input, stale
+speaker events, latest-volume dispatch, immediate mute superseding queued volume,
+deadline stability, a final read and subsequent independent speaker control. Burst
+and mute regressions fail on the original implementation. Runtime callback
+draining is exercised through the production helper.
+
+Manual reproduction: launch the source build with a selected writable native
+output, two-way mode and a real speaker. Repeatedly raise volume using the keyboard
+or system slider, then stop. Repeat while lowering. Verify intermediate values
+are not replayed after stopping and there is no repeated reversal. Toggle mute
+during adjustment; verify no older queued volume restores the previous mute.
+After settling, adjust volume from the speaker controller and verify the computer
+follows. Repeat with fallback polling disabled, a piecewise mapping and the
+safety cap. Native post-fix acceptance is pending; CI cannot establish hardware
+latency, audible behavior or disconnect recovery.
+
 ## Windows ARM64 native acceptance follow-up, 2026-10-12
 
 PR #214 was already merged when this run began. Its exact head was checked in an
@@ -1950,3 +1973,259 @@ quit the application completely, activate a previously delivered update toast,
 and verify Settings opens Updates. Repeat with the app running and Settings hidden
 on Devices. The automated test covers shared lifecycle orchestration; actual
 Windows launch and WebView subscription timing still require this manual check.
+
+## Core Audio listener registration regression, 2026-10-12
+
+Native read-only probing reproduced illegal-operation status when adding the
+same property, callback and context twice. Removing the first registration before
+adding its replacement succeeded. The worker's original replacement order was
+reintroduced temporarily; the regular reattachment regression failed with the
+same status. The corrected ordering passes. Transactional registration tests fail
+each registration position and verify complete rollback of successful additions.
+
+Read-only native verification command:
+`cargo test -p speaker-volume-bridge-platform-audio native_same_output_reattachment -- --ignored`.
+An optional `SVB_NATIVE_AUDIO_DEVICE` environment variable selects a persistent
+output UID; otherwise the default output must support writable software volume.
+The test repeatedly executes the production replacement path and checks that every
+replacement listener remains registered. It passed locally on the configured output
+for three consecutive replacements. It does not change volume or mute.
+
+The fixed source app and observer were restarted. Initial attachment and speaker
+subscription succeeded; no listener-registration errors were present in either
+captured stderr stream at that check. A subsequent user adjustment produced live volume callbacks with no
+listener-registration errors. Separate false-reconnect handling is covered below.
+
+Manual callback reproduction: launch the fixed native app, keep the same selected
+output, trigger a normal device/default-output notification, then adjust system
+volume. Verify callbacks still arrive, no listener-registration errors occur,
+and the speaker follows. The native registration test does not establish USB
+hardware stability or audible latency. Post-restart interactive acceptance remains
+separate from registration coverage.
+
+## False audio reconnect regression, 2026-10-12
+
+The old runtime classified a successful output reattachment as device failure.
+Core Audio also reattached unchanged fixed outputs after unrelated topology
+notifications. Automated tests now cover unchanged healthy outputs, unreadable
+outputs, actual replacement, preservation of coordinator subscription health and
+both direction policies without replaying pending input from the former output.
+The unchanged-output regression fails when unconditional reattachment is restored.
+
+Native read-only command:
+`cargo test -p speaker-volume-bridge-platform-audio native_unchanged_output_notifications -- --ignored`.
+Select an optional writable output via `SVB_NATIVE_AUDIO_DEVICE`. It starts the
+production controller and sends five topology notifications through the worker,
+using FIFO state reads to verify completion. No lifecycle failure/change event
+may be emitted for the unchanged output. No volume or mute is written.
+Manual follow-up: keep a fixed output selected, change an unrelated default output
+or device, and verify the speaker remains connected. Change the selected output
+in follow-default mode and verify direction policy reconciles without backoff.
+Physical unplug/replug and prolonged USB stability remain separate hardware checks.
+
+## Diagnostics tray destination, 2026-10-12
+
+Rust regression invokes the production Diagnostics menu action before frontend
+subscription, consumes its retained destination once, and verifies warm delivery
+and the newest explicit menu selection. Rendered browser tests verify the
+Diagnostics heading becomes visible on macOS, Windows and Linux for both cold
+and warm events. Manual native check: select Devices, close Settings, choose
+Diagnostics from the tray/menu bar and verify Diagnostics opens. Repeat while
+Settings is visible on another page. The user confirmed the rebuilt native
+context-menu action opens Diagnostics directly.
+
+## Windows and Ubuntu native build checks, 2026-10-12
+
+The same committed source and built frontend were copied into isolated local
+source directories in Windows 11 ARM64 and Ubuntu 26.04 ARM64 virtual machines.
+Both passed `cargo fmt --check`, `cargo test --workspace`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo build -p speaker-volume-bridge --features tauri/custom-protocol`.
+Windows passed 192 tests; Ubuntu passed 190. Platform-specific ignored hardware
+tests were not counted as passed. Windows ARM64 required the installed Clang
+compiler to be selected for the native cryptography dependency. Ubuntu package
+fixture tests required the normal `022` umask.
+
+The Windows production Core Audio probe started and read the active output state.
+The rebuilt Windows application also started in the interactive desktop session
+and remained responsive.
+The Ubuntu application stayed running after launch in the logged-in Wayland
+session, with PipeWire's PulseAudio interface available. These checks establish
+native compilation, automated regressions and startup. The user subsequently
+confirmed that Windows Diagnostics and Updates tray actions open correctly and
+that Windows volume behavior works correctly. Physical output replacement and
+end-to-end speaker reconnect acceptance remain unverified on both guests.
+Ubuntu live follow-up and user-confirmed tray acceptance are recorded below.
+Website review: no update needed for this verification-only addition; existing
+user guidance and supported behavior are unchanged.
+
+
+Ubuntu live follow-up: with the source app connected and a fixed output selected,
+two small rapid volume sequences (24%, 25%, 24%, 26%) each returned to the starting
+26% and remained there for all 30 post-gesture samples. A guest-local probe using
+`LinuxAudioController::start` and its production subscription received all four
+state callbacks in sequence, with no unavailable event. App logs showed no new
+listener failure or session restart during these gestures. This verifies the
+observed guest output settling and native callback delivery, not audible latency
+or physical USB reconnection. Desktop automation could observe but could not
+send clicks; the user subsequently confirmed that both Diagnostics and Updates
+from the Ubuntu tray open their corresponding Settings pages correctly.
+With the same fixed output selected, a temporary virtual output was created,
+made default, then the original default was restored and the temporary output
+removed. App logs recorded no audio failure, new attachment or speaker
+subscription restart. This covers unrelated default-output topology changes;
+it does not cover disappearance of the selected physical output.
+
+
+## Runtime observation publication regressions
+
+The production session delegates notification, polling and settling publication to
+shared async orchestration. Runtime regressions start a real coordinator with a
+speaker baseline, enqueue local input, dispatch it, and process observations both
+before dispatch and during settling. Suppressed stale observations must not invoke
+the snapshot publisher; after the final read, normal speaker events must publish
+accepted state. Another regression completes local gestures with subscription
+present, subscription absent with fallback enabled, and absent with fallback
+disabled; each must publish the corresponding status and confirmed volume.
+Both regressions fail when their original faulty publication behavior is restored.
+These run in the normal workspace suite without native audio or a GUI and cover
+shared production orchestration, rather than only the coordinator's decisions.
+
+
+## Follow-up queue, cache, stream and cold-navigation regressions
+
+The runtime queue regression sends a notification through the real callback HTTP
+listener, waits for its acknowledgement, and executes the ready settling timer
+before receiving the queued notification. The fresh read remains authoritative,
+settings invalidations survive, and a later notification can still update volume.
+The cache regression performs startup, a successful volume/mute write, a new local
+gesture, a rejected differing external observation and a final gesture matching
+the previous command; both desired values must be reasserted before settling.
+The macOS regression supplies two stereo AudioBuffers, includes an unwritable
+channel, and exercises unique cumulative elements through listener registration.
+The tray regression invokes Diagnostics/Updates followed by ordinary Settings
+without consuming the first request. No stale destination may remain.
+Each test fails when its corresponding faulty behavior is restored. All run in
+the normal suite; the Core Audio stream test runs on macOS CI without hardware.
+Website review: existing behavior guidance remains accurate. These corrections
+close race and device-layout gaps without changing supported setup or user flows.
+
+
+## Fresh-read cutoff timing and output-change ordering
+
+Production reconciliation uses the coordinator timestamp captured immediately
+when the speaker read returns, before local-audio effects. A regression suspends
+local application and, separately, the snapshot's local-state read, then delivers
+a newer notification through the real HTTP callback queue. With fallback polling
+disabled, that notification must survive the cutoff and update audio and published
+state without a later poll. The output-change regression queues an older callback,
+then executes production output reconciliation first; the old volume is fenced,
+settings invalidations survive, and a later notification is accepted. Both tests
+fail with the corresponding late cutoff or missing output-change cutoff restored.
+These tests run in the regular workspace suite without native audio hardware.
+Website review: no guide update needed; this corrects ordering guarantees without
+changing the documented behavior, setup or user flow.
+
+
+## Cold-start tray double-click navigation
+
+The regression selects Diagnostics or Updates, leaves its destination unconsumed,
+then invokes the production tray double-click action. Left double-click must clear
+the pending request; right and middle double-clicks must retain it. The test fails
+with the original direct window-showing path and passes with shared ordinary
+Settings handling. It runs in the workspace suite with the mock Tauri runtime.
+Manual coverage: before frontend initialization completes, select an explicit
+tray destination and then left-double-click the tray. Ordinary Settings should
+open without later navigation to the superseded destination. This precise native
+startup interaction has automated orchestration coverage, not new manual acceptance.
+
+
+## Notification-first settling deadline regression
+
+With a real callback listener, the regression completes startup, dispatches local
+input, advances to the settling deadline and queues a stale speaker notification.
+It invokes the production notification orchestration before settling, reproducing
+the opposite ordering to the timer-first regression. Waiting publication, local
+volume and the settling deadline must remain intact. The production settling
+operation must perform a fresh read and release authority; a later independent
+notification must then update local audio and published state. Fallback polling
+is disabled. The regression fails with the time-expiring authority check restored
+and passes with latched authority. It runs in the normal workspace suite.
+Website review: no additional guide changes needed; this repairs the documented
+settling guarantee without changing setup or user-facing controls.
+
+
+## Update-notification and tray navigation ordering
+
+The production-action regression activates an update notification before frontend
+subscription, then selects Diagnostics from the tray. Only Diagnostics may be
+consumed, once. Reverse ordering selects Updates; ordinary Settings and tray
+left-double-click clear an earlier notification destination. Existing update
+activation regressions now exercise the same shared pending destination and event.
+Browser tests reproduce notification-then-Diagnostics startup on macOS, Windows
+and Linux layouts. These fail with the original independent pending consumers
+and preview backend restored, and pass with the unified slot and serialized
+consumer. Existing cold/warm notification and tray browser coverage remains.
+Native notification delivery and OS startup scheduling are outside these tests;
+this change has no new manual native acceptance claim.
+
+
+## Socket acceptance versus delayed notification handling
+
+The production listener timestamps acceptance before spawning its child handler.
+A feature-gated acceptance observer, enabled only for tests, provides a deterministic
+barrier on that same production path. The runtime regression opens a connection,
+waits for observed acceptance, holds its request bytes across the real shared
+settling/output-change reconciliation, and only then lets the handler read and
+parse the stale notification. Its volume state must be fenced, independent
+settings invalidations retained, and a later connection accepted with polling
+disabled. The regression fails with the original handler-time timestamp restored.
+The production constructor uses the same listener implementation with a no-op
+observer. This is orchestration coverage without new native hardware acceptance.
+Website review: no additional guide update needed; this restores the existing
+settling/reconciliation guarantee without changing setup or user controls.
+
+
+## Coordinated whole-flow repair, 2026-10-13
+
+This supersedes the earlier completion-time fence: notifications inside a read
+window are retained as invalidations, not discarded as old volume. Tests below
+are permanent in the normal suites and use the production coordinator, native
+port adapter, callback HTTP listener and runtime orchestration with mocked audio.
+
+| Whole-flow race | Permanent regression | Required result |
+| --- | --- | --- |
+| Local input changes while a GET is in flight | `coordinated_local_input_during_read_remains_authoritative` | Settling, health and output reads retain 70 instead of writing sampled 60; queued input then reaches speaker and publication. |
+| New speaker notification overlaps a GET | `coordinated_notifications_during_get_trigger_fresh_observation` | In all three read paths, sampled 60 is superseded by a fresh observation of notified 70 without periodic polling. |
+| Older handler completes after newer handler | `coordinated_handlers_cannot_reverse_arrival_order` | Delayed 20 cannot overwrite delivered 70. |
+| Health poll wins over an old queued callback | `coordinated_health_reads_fence_old_callbacks_and_retain_overlaps` | Fresh 60 is not replaced by queued 20. |
+| Dropped session leaves sockets/tasks alive | `coordinated_listener_drop_releases_socket_and_pending_handler` | Accept socket can be rebound and a child blocked in read is closed. |
+| Consumed navigation response outlives cancellation | `settings-navigation.test.mjs` and `navigation-ordering.spec.ts` | Ordinary Settings or newer Updates survives delayed startup Diagnostics on macOS, Windows and Linux layouts. |
+
+The six original whole-flow reproductions failed on the pre-repair PR head.
+Each permanent regression also fails when its corresponding protection is disabled;
+those deliberate failures are distinct from the final fixed-code test results.
+Additional coverage verifies SEQ replay, maximum-to-1 wrap, SID reset and stale
+old-SID packets, and preserves the earlier timer-first/notification-first, local
+apply/publication and delayed socket-handler tests. Assertions that previously
+required an overlapping raw notification now require a retained invalidation
+followed by the correct fresh state, which is the stronger behavioral contract.
+
+The navigation browser fixture holds startup IPC after consumption and releases
+it only after a newer revision is delivered; it uses no timing guess to choose
+the ordering. Native actions and cancellation revisions also have Rust tests.
+Website guides were reviewed and updated for newer-intent precedence. Existing
+native acceptance records describe earlier builds: this coordinated repair has
+portable orchestration and browser coverage, not a fresh Windows/Ubuntu hardware
+run. Native OS reads/writes are not claimed to be one atomic hardware transaction.
+
+### Warm navigation acknowledgement
+
+Native regression `warm_navigation_acknowledgement_survives_frontend_restart`
+checks warm delivery cleanup and an older acknowledgement racing a newer request.
+Browser coverage repeats the startup consumer after warm delivery while keeping
+the native preview backend alive on all three layouts. Manual reproduction: open
+Diagnostics from the tray while Settings is running, navigate elsewhere, recreate
+the WebView within the same native process and confirm Diagnostics is not replayed.
+A full preview document reload resets its mock native state, so the regression
+retains that backend explicitly; actual native WebView recreation is not automated.

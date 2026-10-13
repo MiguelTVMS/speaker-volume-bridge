@@ -16,13 +16,26 @@ through a stable Core Audio event-context GUID; macOS compares it with a
 short-lived expected write using an adapter-configured tolerance; Ubuntu uses
 the PulseAudio-compatible `pactl` event stream with short-lived expected-write
 tracking. A Sonos
-confirmation always clears pending intents. It wins over any requested value
-only when two-way synchronization is enabled.
+confirmation accepted by the coordinator clears pending intents. During a local
+gesture the coordinator defers speaker corrections until a fresh read after
+500 ms of settling. Local authority stays latched until that read returns, even
+if a notification branch runs first at the deadline. Accepted confirmations apply
+locally only in two-way mode.
 
-Volume changes are debounced and coalesced; mute changes bypass the debounce.
-The coordinator does not resend a volume or mute value until it differs from
-the last sent value. When GENA delivery is healthy it polls slowly for health;
-on subscription loss it polls once per second until event delivery recovers.
+Volume changes use a fixed 45 ms dispatch deadline while callbacks continue to
+arrive; only the newest pending volume is dispatched. Mute changes bypass the
+debounce and supersede queued volume. A final speaker read runs after settling
+even when fallback polling is disabled. Rejected speaker observations do not
+change the waiting UI snapshot. They still invalidate mismatched cached commands.
+All speaker reads share local-input guards and notification read windows.
+Notifications from before a read are fenced. Notifications overlapping it remain
+invalidations for another read, rather than being assumed stale or authoritative.
+Newer local input cannot be replaced by the older read result. Notifications are
+ordered by subscription-scoped sender sequence when available, otherwise by
+acceptance revision; delayed handlers cannot reverse that order. After settling,
+status remains degraded or polling fallback when the subscription is unavailable.
+See ADR 0024. Duplicate commands are coalesced within a gesture; a new gesture
+reasserts state because the speaker may have changed externally in between.
 
 Night Mode scheduling is an independent optional controller. Disabled or unselected
 means no recurring effects. Explicit Save remains a one-shot apply operation even
@@ -107,3 +120,8 @@ remain validation artifacts retained in CI and never create installation actions
 GitHub release-page fallback, version/policy guards and Store delegation remain
 unchanged. Native sandboxed replacement acceptance is pending; see
 [ADR 0023](decisions/0023-macos-updater-artifacts.md).
+
+Healthy unchanged macOS outputs retain their listeners on unrelated topology
+notifications. Successful output changes reconcile within the existing speaker
+session, without connection backoff. Pending input from the former output is
+discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.

@@ -14,5 +14,8 @@ speaker-volume-bridge-synchronization = { path = "../synchronization" }
 thiserror.workspace = true
 tokio.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
 [lints]
 workspace = true

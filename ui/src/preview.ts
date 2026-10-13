@@ -1,3 +1,4 @@
+import type { SettingsNavigationRequest } from './settings-navigation';
 // Development-only entry point. Vite's production build includes index.html only.
 // All commands are mocked: this preview cannot discover or modify real devices.
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -18,13 +19,43 @@ const backend = createDemoBackend({
   hour12: params.has('hour12') ? params.get('hour12') === 'true' : null,
   locale: params.get('locale'),
 });
-let pendingUpdateNavigation = params.get('pendingUpdates') === 'true';
+let pendingSettingsNavigation =
+  params.get('pendingSettingsPage') ?? (params.get('pendingUpdates') === 'true' ? 'updates' : null);
+let navigationRevision = 1;
+let pendingNavigationRequest: SettingsNavigationRequest | null = pendingSettingsNavigation
+  ? { revision: navigationRevision, page: pendingSettingsNavigation }
+  : null;
+let releaseHeldNavigation: (() => void) | null = null;
 mockIPC(
   (command, args) => {
-    if (command === 'take_pending_update_navigation') {
-      const pending = pendingUpdateNavigation;
-      pendingUpdateNavigation = false;
+    if (command === 'take_pending_settings_navigation') {
+      const pending = pendingNavigationRequest;
+      pendingNavigationRequest = null;
+      if (params.get('holdNavigation') === 'true') {
+        return new Promise((resolve) => {
+          releaseHeldNavigation = () => resolve(pending);
+        });
+      }
       return pending;
+    }
+    if (command === 'acknowledge_settings_navigation') {
+      if (pendingNavigationRequest?.revision === (args as { revision: number }).revision)
+        pendingNavigationRequest = null;
+      return null;
+    }
+    if (command === 'preview_navigation_held') return releaseHeldNavigation !== null;
+    if (command === 'preview_release_navigation') {
+      releaseHeldNavigation?.();
+      releaseHeldNavigation = null;
+      return null;
+    }
+    if (command === 'preview_settings_navigation') {
+      pendingSettingsNavigation = (args as { page: string | null }).page;
+      pendingNavigationRequest = {
+        revision: ++navigationRevision,
+        page: pendingSettingsNavigation,
+      };
+      return pendingNavigationRequest;
     }
     if (command === 'ui_demo_enabled') return true;
     if (command === 'ui_demo_platform') return new URLSearchParams(location.search).get('ui');

@@ -771,6 +771,14 @@ pub async fn set_disable_loudness_during_night_schedule(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
-pub fn take_pending_update_navigation(app: AppHandle) -> bool {
-    crate::schedule_notifications::take_pending_update_navigation(&app)
+pub fn take_pending_settings_navigation(
+    app: AppHandle,
+) -> Option<crate::tray::SettingsNavigationRequest> {
+    crate::tray::take_settings_navigation_request(&app)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn acknowledge_settings_navigation(app: AppHandle, revision: u64) {
+    crate::tray::acknowledge_settings_navigation(&app, revision);
 }

@@ -18,9 +18,10 @@ use tauri::Emitter;
 use tokio::sync::Mutex as AsyncMutex;
 use url::Url;
 
-pub const CATALOG_URL: &str = "https://svb.miguel.ms/updates/v1/catalog.json";
-pub const PRERELEASE_CATALOG_URL: &str = "https://svb.miguel.ms/updates/v2/catalog.json";
-const MAX_CATALOG_BYTES: usize = 256 * 1024;
+pub const RELEASES_URL: &str =
+    "https://api.github.com/repos/MiguelTVMS/speaker-volume-bridge/releases";
+const MAX_RELEASE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_RELEASE_PAGES: u32 = 10;
 #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with the repository's pinned Rust.
 const SUCCESS_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -51,6 +52,7 @@ pub enum UpdatePhase {
     UpdateAvailable,
     Unavailable,
     Unsupported,
+    StoreManaged,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -63,6 +65,7 @@ pub struct UpdateStatus {
     pub edition: String,
     pub last_successful_check: Option<u64>,
     pub action: Option<OpenUrlAction>,
+    pub download_action: Option<OpenUrlAction>,
     pub message: Option<String>,
     pub automatic_checks: bool,
     pub update_notifications: bool,
@@ -85,10 +88,10 @@ pub struct OpenUrlAction {
 impl OpenUrlAction {
     fn validate(self) -> Result<Self, UpdateError> {
         if self.kind != "open_url" {
-            return Err(UpdateError::InvalidCatalog("unsupported action"));
+            return Err(UpdateError::InvalidRelease("unsupported action"));
         }
         let parsed =
-            Url::parse(&self.url).map_err(|_| UpdateError::InvalidCatalog("invalid action URL"))?;
+            Url::parse(&self.url).map_err(|_| UpdateError::InvalidRelease("invalid action URL"))?;
         if parsed.scheme() != "https"
             || !parsed.username().is_empty()
             || parsed.password().is_some()
@@ -97,7 +100,7 @@ impl OpenUrlAction {
                 Some("svb.miguel.ms" | "github.com" | "apps.microsoft.com" | "apps.apple.com")
             )
         {
-            return Err(UpdateError::InvalidCatalog("untrusted action URL"));
+            return Err(UpdateError::InvalidRelease("untrusted action URL"));
         }
         Ok(self)
     }
@@ -110,6 +113,8 @@ pub struct UpdatePreferences {
     pub update_notifications: bool,
     pub last_successful_check: Option<u64>,
     pub last_attempted_check: Option<u64>,
+    pub consecutive_failures: u8,
+    pub attempt_target: Option<CachedTarget>,
     pub last_notified_target: Option<String>,
     pub notified_targets: Vec<String>,
     pub cached_offer: Option<CachedOffer>,
@@ -118,6 +123,8 @@ pub struct UpdatePreferences {
     pub generation: u64,
     pub stable_source_available: Option<bool>,
     pub preview_source_available: Option<bool>,
+    #[serde(default)]
+    pub update_source: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -145,6 +152,8 @@ impl Default for UpdatePreferences {
             update_notifications: true,
             last_successful_check: None,
             last_attempted_check: None,
+            consecutive_failures: 0,
+            attempt_target: None,
             last_notified_target: None,
             notified_targets: Vec::new(),
             cached_offer: None,
@@ -153,6 +162,7 @@ impl Default for UpdatePreferences {
             generation: 0,
             stable_source_available: None,
             preview_source_available: None,
+            update_source: Some("github_releases_v1".into()),
         }
     }
 }
@@ -197,46 +207,119 @@ impl UpdatePersistence for FileUpdatePersistence {
 }
 
 #[async_trait]
-pub trait CatalogTransport: Send + Sync {
+pub trait ReleaseTransport: Send + Sync {
     async fn fetch(&self) -> Result<Vec<u8>, UpdateError>;
     async fn fetch_policy(&self, _policy: UpdatePolicy) -> Result<Vec<u8>, UpdateError> {
         self.fetch().await
     }
 }
 
-pub struct HttpCatalogTransport(reqwest::Client);
-impl HttpCatalogTransport {
+pub struct HttpReleaseTransport {
+    client: reqwest::Client,
+    endpoint: String,
+    retry_after: AtomicU64,
+}
+impl HttpReleaseTransport {
     pub fn new() -> Result<Self, UpdateError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::limited(3))
             .build()?;
-        Ok(Self(client))
+        Ok(Self {
+            client,
+            endpoint: RELEASES_URL.into(),
+            retry_after: AtomicU64::new(0),
+        })
+    }
+    fn request(&self, _policy: UpdatePolicy) -> reqwest::RequestBuilder {
+        self.page_request(1)
+    }
+    fn page_request(&self, page: u32) -> reqwest::RequestBuilder {
+        self.client
+            .get(format!("{}?per_page=100&page={page}", self.endpoint))
+            .header(reqwest::header::USER_AGENT, "Speaker-Volume-Bridge")
+            .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2026-03-10")
     }
 }
 #[async_trait]
-impl CatalogTransport for HttpCatalogTransport {
+impl ReleaseTransport for HttpReleaseTransport {
     async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
         self.fetch_policy(UpdatePolicy::Stable).await
     }
     async fn fetch_policy(&self, policy: UpdatePolicy) -> Result<Vec<u8>, UpdateError> {
-        let url = match policy {
-            UpdatePolicy::Stable => CATALOG_URL,
-            UpdatePolicy::Prereleases => PRERELEASE_CATALOG_URL,
-        };
-        let response = self.0.get(url).send().await?.error_for_status()?;
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
-        {
-            return Err(UpdateError::InvalidCatalog("catalog too large"));
+        if SystemUpdateClock.now() < self.retry_after.load(Ordering::SeqCst) {
+            return Err(UpdateError::RateLimited);
         }
-        let bytes = response.bytes().await?;
-        if bytes.len() > MAX_CATALOG_BYTES {
-            return Err(UpdateError::InvalidCatalog("catalog too large"));
+        let mut releases = Vec::new();
+        let mut total = 0;
+        for page in 1..=MAX_RELEASE_PAGES {
+            let request = if page == 1 {
+                self.request(policy)
+            } else {
+                self.page_request(page)
+            };
+            let response = request.send().await?;
+            if let Some(until) = rate_limit_deadline(
+                response.status(),
+                response.headers(),
+                SystemUpdateClock.now(),
+            ) {
+                self.retry_after.store(until, Ordering::SeqCst);
+                return Err(UpdateError::RateLimited);
+            }
+            let mut response = response.error_for_status()?;
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                total += chunk.len();
+                if total > MAX_RELEASE_BYTES {
+                    return Err(UpdateError::InvalidRelease("release response too large"));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let mut decoder = serde_json::Deserializer::from_slice(&bytes);
+            let unique = UniqueJson::deserialize(&mut decoder)?.0;
+            decoder.end()?;
+            let values = unique
+                .as_array()
+                .ok_or(UpdateError::InvalidRelease("invalid release list"))?;
+            let complete = values.len() < 100;
+            releases.extend(values.iter().cloned());
+            if complete {
+                let bytes = serde_json::to_vec(&releases)?;
+                if bytes.len() > MAX_RELEASE_BYTES {
+                    return Err(UpdateError::InvalidRelease("release response too large"));
+                }
+                return Ok(bytes);
+            }
         }
-        Ok(bytes.to_vec())
+        Err(UpdateError::InvalidRelease(
+            "release pagination limit exceeded",
+        ))
     }
+}
+
+fn rate_limit_deadline(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    now: u64,
+) -> Option<u64> {
+    // Secondary limits can omit Retry-After while the primary quota remains.
+    // Conservatively cool down every forbidden response without reading its body.
+    if status != reqwest::StatusCode::TOO_MANY_REQUESTS && status != reqwest::StatusCode::FORBIDDEN
+    {
+        return None;
+    }
+    let number = |name| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+    };
+    Some(
+        now.saturating_add(number("retry-after").unwrap_or(60).max(60))
+            .max(number("x-ratelimit-reset").unwrap_or(0)),
+    )
 }
 
 pub trait UpdateClock: Send + Sync {
@@ -253,18 +336,21 @@ impl UpdateClock for SystemUpdateClock {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
-    #[error("update catalog is unavailable")]
+    #[error("release information is unavailable")]
     Network(#[from] reqwest::Error),
     #[error("update state I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("update state is invalid: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("invalid update catalog: {0}")]
-    InvalidCatalog(&'static str),
+    #[error("invalid release information: {0}")]
+    InvalidRelease(&'static str),
+    #[error("GitHub rate limit reached; try again later")]
+    RateLimited,
     #[error("update state is unavailable")]
     State,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Catalog {
@@ -272,6 +358,7 @@ struct Catalog {
     generated_at: String,
     entries: Vec<CatalogEntry>,
 }
+#[cfg(test)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CatalogEntry {
@@ -285,6 +372,38 @@ struct CatalogEntry {
     action: OpenUrlAction,
     #[serde(default)]
     classification: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    draft: bool,
+    prerelease: bool,
+    published_at: Option<String>,
+    html_url: String,
+    assets: Vec<GitHubAsset>,
+}
+#[derive(Deserialize)]
+struct GitHubAsset {
+    name: String,
+    state: String,
+    size: u64,
+    browser_download_url: String,
+}
+
+fn release_asset_name(distribution: &InstalledDistribution) -> Option<&'static str> {
+    use ApplicationArchitecture::{Aarch64, X86_64};
+    use DistributionEdition::{Debian, DirectMacos, DirectWindows};
+    // The official unqualified DMG is built on the ARM macOS release runner.
+    // It does not establish support for an Intel installation.
+    match (distribution.edition, distribution.architecture) {
+        (DirectMacos, Aarch64) => Some("speaker-volume-bridge-macos.dmg"),
+        (DirectWindows, X86_64) => Some("speaker-volume-bridge-windows-x64-unsigned.exe"),
+        (DirectWindows, Aarch64) => Some("speaker-volume-bridge-windows-arm64-unsigned.exe"),
+        (Debian, X86_64) => Some("speaker-volume-bridge-linux-x64.deb"),
+        (Debian, Aarch64) => Some("speaker-volume-bridge-linux-arm64.deb"),
+        _ => None,
+    }
 }
 
 struct UniqueJson(serde_json::Value);
@@ -360,9 +479,20 @@ impl<'de> Deserialize<'de> for UniqueJson {
     }
 }
 
+// Fixed native Store destinations never come from release metadata or frontend input.
+fn store_url(edition: DistributionEdition) -> Option<&'static str> {
+    match edition {
+        DistributionEdition::MicrosoftStore => {
+            Some("ms-windows-store://pdp/?ProductId=9N7JKGXCMST0")
+        }
+        DistributionEdition::MacAppStore => Some("macappstore://showUpdatesPage"),
+        _ => None,
+    }
+}
+
 pub struct UpdateService {
     distribution: InstalledDistribution,
-    transport: Arc<dyn CatalogTransport>,
+    transport: Arc<dyn ReleaseTransport>,
     clock: Arc<dyn UpdateClock>,
     persistence: Arc<dyn UpdatePersistence>,
     preferences: Mutex<UpdatePreferences>,
@@ -372,16 +502,39 @@ pub struct UpdateService {
     in_flight: AsyncMutex<()>,
     request_sequence: AtomicU64,
     completed_generation: AtomicU64,
+    automatic_ready: AtomicBool,
 }
 
 impl UpdateService {
     pub fn new(
         distribution: InstalledDistribution,
-        transport: Arc<dyn CatalogTransport>,
+        transport: Arc<dyn ReleaseTransport>,
         clock: Arc<dyn UpdateClock>,
         persistence: Arc<dyn UpdatePersistence>,
     ) -> Result<Self, UpdateError> {
         let mut preferences = persistence.load(distribution.check_supported)?;
+        if preferences
+            .attempt_target
+            .as_ref()
+            .is_some_and(|target| target != &policy_target(&distribution, preferences.policy))
+        {
+            preferences.last_attempted_check = None;
+            preferences.consecutive_failures = 0;
+            preferences.attempt_target = None;
+        }
+        if preferences.update_source.as_deref() != Some("github_releases_v1") {
+            preferences.cached_offer = None;
+            preferences.freshness_target = None;
+            preferences.last_successful_check = None;
+            preferences.last_attempted_check = None;
+            preferences.consecutive_failures = 0;
+            preferences.attempt_target = None;
+            preferences.stable_source_available = None;
+            preferences.preview_source_available = None;
+            preferences.update_source = Some("github_releases_v1".into());
+            preferences.generation += 1;
+            persistence.save(&preferences)?;
+        }
         if !distribution.prerelease_supported() && preferences.policy != UpdatePolicy::Stable {
             preferences.policy = UpdatePolicy::Stable;
             preferences.cached_offer = None;
@@ -406,9 +559,17 @@ impl UpdateService {
             && !cached_offer_valid_for_policy(offer, &distribution, preferences.policy)
         {
             preferences.cached_offer = None;
+            preferences.freshness_target = None;
             persistence.save(&preferences)?;
         }
-        let phase = if !distribution.check_supported {
+        let phase = if store_url(distribution.edition).is_some() {
+            preferences.automatic_checks = false;
+            preferences.cached_offer = None;
+            preferences.last_successful_check = None;
+            preferences.freshness_target = None;
+            persistence.save(&preferences)?;
+            UpdatePhase::StoreManaged
+        } else if !distribution.check_supported {
             UpdatePhase::Unsupported
         } else if preferences.cached_offer.is_some() {
             UpdatePhase::UpdateAvailable
@@ -446,7 +607,11 @@ impl UpdateService {
             in_flight: AsyncMutex::new(()),
             request_sequence: AtomicU64::new(0),
             completed_generation: AtomicU64::new(0),
+            automatic_ready: AtomicBool::new(true),
         })
+    }
+    pub fn store_action(&self) -> Result<&'static str, UpdateError> {
+        store_url(self.distribution.edition).ok_or(UpdateError::State)
     }
     pub fn status(&self) -> Result<UpdateStatus, UpdateError> {
         let preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
@@ -471,6 +636,17 @@ impl UpdateService {
                 || status.last_successful_check.is_none_or(|last| {
                     self.clock.now().saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()
                 }));
+        status.download_action =
+            if status.phase == UpdatePhase::UpdateAvailable && !status.offer_stale {
+                status.available_version.as_deref().and_then(|version| {
+                    let action = status.action.as_ref()?;
+                    (action.url == release_page(version))
+                        .then(|| self.download_action(version).ok())
+                        .flatten()
+                })
+            } else {
+                None
+            };
         Ok(status)
     }
     pub fn preferences(&self) -> Result<UpdatePreferences, UpdateError> {
@@ -490,6 +666,8 @@ impl UpdateService {
         next.cached_offer = None;
         next.last_successful_check = None;
         next.last_attempted_check = None;
+        next.consecutive_failures = 0;
+        next.attempt_target = None;
         next.freshness_target = None;
         self.persistence.save(&next)?;
         *preferences = next;
@@ -502,7 +680,9 @@ impl UpdateService {
     }
     pub fn set_automatic_checks(&self, enabled: bool) -> Result<(), UpdateError> {
         let mut preferences = self.preferences.lock().map_err(|_| UpdateError::State)?;
-        preferences.automatic_checks = enabled && self.distribution.check_supported;
+        preferences.automatic_checks = enabled
+            && self.distribution.check_supported
+            && store_url(self.distribution.edition).is_none();
         self.persistence.save(&preferences)
     }
     pub fn set_update_notifications(&self, enabled: bool) -> Result<(), UpdateError> {
@@ -606,15 +786,50 @@ impl UpdateService {
     pub fn finish_open(&self) {
         self.opening.store(false, Ordering::SeqCst);
     }
+    fn download_action(&self, version: &str) -> Result<OpenUrlAction, UpdateError> {
+        let parsed = Version::parse(version).map_err(|_| UpdateError::State)?;
+        if parsed.to_string() != version || !self.distribution.check_supported {
+            return Err(UpdateError::State);
+        }
+        let name = release_asset_name(&self.distribution).ok_or(UpdateError::State)?;
+        OpenUrlAction {
+            kind: "open_url".into(),
+            url: format!("https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v{version}/{name}"),
+        }
+        .validate()
+    }
+    /// The renderer supplies only an offer identity, never a download destination.
+    pub fn claim_download_generation(
+        &self,
+        version: &str,
+        generation: u64,
+    ) -> Result<OpenUrlAction, UpdateError> {
+        let download = self.download_action(version)?;
+        self.claim_offer_generation(version, &release_page(version), generation)?;
+        Ok(download)
+    }
     pub fn automatic_due(&self) -> bool {
+        if !self.automatic_ready.load(Ordering::SeqCst) {
+            return false;
+        }
         let Ok(preferences) = self.preferences.lock() else {
             return false;
         };
         let now = self.clock.now();
-        preferences.automatic_checks
+        // Every automatic trigger, including wake and restart, shares this budget.
+        // After three retries, wait a day; explicit manual checks remain available.
+        let retry_delay = match preferences.consecutive_failures {
+            0 | 1 => 60,
+            2 => 300,
+            3 => 1800,
+            _ => SUCCESS_INTERVAL.as_secs(),
+        };
+        store_url(self.distribution.edition).is_none()
+            && self.distribution.check_supported
+            && preferences.automatic_checks
             && preferences
                 .last_attempted_check
-                .is_none_or(|last| now.saturating_sub(last) >= 60)
+                .is_none_or(|last| now.saturating_sub(last) >= retry_delay)
             && (preferences.freshness_target.as_ref()
                 != Some(&policy_target(&self.distribution, preferences.policy))
                 || preferences
@@ -622,7 +837,7 @@ impl UpdateService {
                     .is_none_or(|last| now.saturating_sub(last) >= SUCCESS_INTERVAL.as_secs()))
     }
     pub async fn check(&self, manual: bool) -> UpdateStatus {
-        if !self.distribution.check_supported {
+        if store_url(self.distribution.edition).is_some() || !self.distribution.check_supported {
             return self.status().unwrap_or_default();
         }
         let sequence = self.request_sequence.load(Ordering::SeqCst);
@@ -639,7 +854,17 @@ impl UpdateService {
             return self.status().unwrap_or_default();
         }
         let now = self.clock.now();
-        if self.begin_check(observed.generation, now).is_err() {
+        if let Err(error) = self.begin_check(observed.generation, now) {
+            if let Ok(preferences) = self.preferences.lock()
+                && preferences.generation == observed.generation
+                && let Ok(mut status) = self.status.lock()
+            {
+                if status.phase != UpdatePhase::UpdateAvailable {
+                    status.phase = UpdatePhase::Unavailable;
+                }
+                status.check_failed = true;
+                status.message = manual.then(|| error.to_string());
+            }
             return self.status().unwrap_or_default();
         }
         let result = self
@@ -669,6 +894,7 @@ impl UpdateService {
         let status = match result {
             Ok(mut status) => {
                 {
+                    preferences.consecutive_failures = 0;
                     preferences.last_successful_check = Some(now);
                     preferences.cached_offer = status
                         .available_version
@@ -687,6 +913,8 @@ impl UpdateService {
                 status
             }
             Err(error) => {
+                preferences.consecutive_failures =
+                    preferences.consecutive_failures.saturating_add(1);
                 let mut cached = self
                     .status
                     .lock()
@@ -712,8 +940,11 @@ impl UpdateService {
         if preferences.generation != generation {
             return Err(UpdateError::State);
         }
-        preferences.last_attempted_check = Some(now);
-        self.persistence.save(&preferences)?;
+        let mut next = preferences.clone();
+        next.last_attempted_check = Some(now);
+        next.attempt_target = Some(policy_target(&self.distribution, next.policy));
+        self.persistence.save(&next)?;
+        *preferences = next;
         let mut checking = self.status.lock().map_err(|_| UpdateError::State)?.clone();
         checking.phase = if checking.available_version.is_some() {
             UpdatePhase::UpdateAvailable
@@ -734,8 +965,103 @@ impl UpdateService {
         bytes: &[u8],
         policy: UpdatePolicy,
     ) -> Result<UpdateStatus, UpdateError> {
-        if bytes.len() > MAX_CATALOG_BYTES {
-            return Err(UpdateError::InvalidCatalog("catalog too large"));
+        if bytes.len() > MAX_RELEASE_BYTES {
+            return Err(UpdateError::InvalidRelease("release response too large"));
+        }
+        let mut decoder = serde_json::Deserializer::from_slice(bytes);
+        let unique = UniqueJson::deserialize(&mut decoder)?.0;
+        decoder.end()?;
+        // Retain the former contract fixtures for lifecycle regressions only.
+        // Production accepts the GitHub release array exclusively.
+        #[cfg(test)]
+        if unique.is_object() {
+            return self.evaluate_catalog_policy(bytes, policy);
+        }
+        let releases: Vec<GitHubRelease> = serde_json::from_value(unique)?;
+        let asset_name = release_asset_name(&self.distribution);
+        let installed = Version::parse(&self.distribution.version)
+            .map_err(|_| UpdateError::InvalidRelease("invalid installed version"))?;
+        let mut selected: Option<(Version, OpenUrlAction)> = None;
+        for release in releases {
+            if release.draft || (policy == UpdatePolicy::Stable && release.prerelease) {
+                continue;
+            }
+            let Some(version) = release
+                .tag_name
+                .strip_prefix('v')
+                .and_then(|tag| Version::parse(tag).ok())
+            else {
+                continue;
+            };
+            if !release.prerelease && !version.pre.is_empty() {
+                continue;
+            }
+            if release
+                .published_at
+                .as_deref()
+                .is_none_or(|time| time.parse::<jiff::Timestamp>().is_err())
+                || release.html_url != release_page(&version.to_string())
+            {
+                continue;
+            }
+            let Some(name) = asset_name else {
+                continue;
+            };
+            let matching: Vec<_> = release
+                .assets
+                .iter()
+                .filter(|asset| asset.name == name)
+                .collect();
+            if matching.len() != 1 {
+                continue;
+            }
+            let asset = matching[0];
+            let expected = format!(
+                "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/{}/{name}",
+                release.tag_name
+            );
+            if asset.state != "uploaded"
+                || asset.size == 0
+                || asset.browser_download_url != expected
+            {
+                continue;
+            }
+            if selected
+                .as_ref()
+                .is_none_or(|(current, _)| version.cmp_precedence(current).is_gt())
+            {
+                selected = Some((
+                    version,
+                    OpenUrlAction {
+                        kind: "open_url".into(),
+                        url: release.html_url,
+                    }
+                    .validate()?,
+                ));
+            }
+        }
+        let Some((version, action)) = selected else {
+            let mut status = self.base_status(UpdatePhase::Unavailable);
+            status.message =
+                Some("No compatible public release is available. Check again later.".into());
+            return Ok(status);
+        };
+        if !version.cmp_precedence(&installed).is_gt() {
+            return Ok(self.base_status(UpdatePhase::UpToDate));
+        }
+        let mut status = self.base_status(UpdatePhase::UpdateAvailable);
+        status.available_version = Some(version.to_string());
+        status.action = Some(action);
+        Ok(status)
+    }
+    #[cfg(test)]
+    fn evaluate_catalog_policy(
+        &self,
+        bytes: &[u8],
+        policy: UpdatePolicy,
+    ) -> Result<UpdateStatus, UpdateError> {
+        if bytes.len() > MAX_RELEASE_BYTES {
+            return Err(UpdateError::InvalidRelease("catalog too large"));
         }
         let mut decoder = serde_json::Deserializer::from_slice(bytes);
         let unique = UniqueJson::deserialize(&mut decoder)?.0;
@@ -744,7 +1070,7 @@ impl UpdateService {
         if catalog.schema_version != if policy == UpdatePolicy::Stable { 1 } else { 2 }
             || catalog.generated_at.parse::<jiff::Timestamp>().is_err()
         {
-            return Err(UpdateError::InvalidCatalog("unsupported schema"));
+            return Err(UpdateError::InvalidRelease("unsupported schema"));
         }
         let mut targets = std::collections::HashSet::new();
         for entry in &catalog.entries {
@@ -760,7 +1086,7 @@ impl UpdateService {
                     None
                 },
             )) {
-                return Err(UpdateError::InvalidCatalog("duplicate target"));
+                return Err(UpdateError::InvalidRelease("duplicate target"));
             }
         }
         let target = target_key(&self.distribution);
@@ -784,9 +1110,9 @@ impl UpdateService {
             return Ok(status);
         };
         let available = Version::parse(&entry.version)
-            .map_err(|_| UpdateError::InvalidCatalog("invalid semantic version"))?;
+            .map_err(|_| UpdateError::InvalidRelease("invalid semantic version"))?;
         let installed = Version::parse(&self.distribution.version)
-            .map_err(|_| UpdateError::InvalidCatalog("invalid installed version"))?;
+            .map_err(|_| UpdateError::InvalidRelease("invalid installed version"))?;
         if !available.cmp_precedence(&installed).is_gt() {
             return Ok(self.base_status(UpdatePhase::UpToDate));
         }
@@ -806,21 +1132,22 @@ impl UpdateService {
     }
 }
 
+#[cfg(test)]
 fn validate_entry(entry: &CatalogEntry, policy: UpdatePolicy) -> Result<(), UpdateError> {
     let expected_os = match entry.edition.as_str() {
         "direct_macos" | "mac_app_store" => "macos",
         "direct_windows" | "microsoft_store" => "windows",
         "debian" => "linux",
-        _ => return Err(UpdateError::InvalidCatalog("unsupported edition")),
+        _ => return Err(UpdateError::InvalidRelease("unsupported edition")),
     };
     if entry.os != expected_os {
-        return Err(UpdateError::InvalidCatalog("unsupported platform"));
+        return Err(UpdateError::InvalidRelease("unsupported platform"));
     }
     if !matches!(entry.architecture.as_str(), "aarch64" | "x86_64") {
-        return Err(UpdateError::InvalidCatalog("unsupported architecture"));
+        return Err(UpdateError::InvalidRelease("unsupported architecture"));
     }
     let version = Version::parse(&entry.version)
-        .map_err(|_| UpdateError::InvalidCatalog("invalid semantic version"))?;
+        .map_err(|_| UpdateError::InvalidRelease("invalid semantic version"))?;
     let valid = if policy == UpdatePolicy::Stable {
         entry.channel == "stable"
             && version.pre.is_empty()
@@ -839,18 +1166,18 @@ fn validate_entry(entry: &CatalogEntry, policy: UpdatePolicy) -> Result<(), Upda
         }
     };
     if !valid {
-        return Err(UpdateError::InvalidCatalog("invalid stable version"));
+        return Err(UpdateError::InvalidRelease("invalid stable version"));
     }
     entry
         .published_at
         .parse::<jiff::Timestamp>()
-        .map_err(|_| UpdateError::InvalidCatalog("invalid publication time"))?;
+        .map_err(|_| UpdateError::InvalidRelease("invalid publication time"))?;
     if entry.release_notes.is_empty() || entry.release_notes.len() > 16 * 1024 {
-        return Err(UpdateError::InvalidCatalog("invalid release notes"));
+        return Err(UpdateError::InvalidRelease("invalid release notes"));
     }
     entry.action.clone().validate()?;
     if policy == UpdatePolicy::Prereleases && entry.action.url != release_page(&entry.version) {
-        return Err(UpdateError::InvalidCatalog(
+        return Err(UpdateError::InvalidRelease(
             "preview action must open exact release",
         ));
     }
@@ -936,7 +1263,7 @@ fn cached_offer_valid_for_policy(
         }
         && (policy == UpdatePolicy::Prereleases || available.pre.is_empty())
         && offer.action.clone().validate().is_ok()
-        && (policy == UpdatePolicy::Stable || offer.action.url == release_page(&offer.version))
+        && offer.action.url == release_page(&offer.version)
 }
 
 const fn edition_name(edition: DistributionEdition) -> &'static str {
@@ -955,12 +1282,14 @@ const fn edition_name(edition: DistributionEdition) -> &'static str {
 pub struct UpdateManager {
     service: Arc<UpdateService>,
     task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    stopped: Arc<AtomicBool>,
 }
 impl UpdateManager {
     pub fn new(service: Arc<UpdateService>) -> Self {
         Self {
             service,
             task: Mutex::new(None),
+            stopped: Arc::new(AtomicBool::new(false)),
         }
     }
     pub fn service(&self) -> &Arc<UpdateService> {
@@ -978,37 +1307,43 @@ impl UpdateManager {
         }
     }
     pub fn start(&self, app: &tauri::AppHandle) {
+        self.start_with_sleep(app, tokio::time::sleep);
+    }
+
+    // Inject only the timer; lifecycle ownership and check delivery remain shared
+    // with production startup so tests can drive every scheduling boundary.
+    fn start_with_sleep<R, S, F>(&self, app: &tauri::AppHandle<R>, sleep: S)
+    where
+        R: tauri::Runtime,
+        S: Fn(Duration) -> F + Send + 'static,
+        F: std::future::Future<Output = ()> + Send,
+    {
         let Ok(mut task) = self.task.lock() else {
             return;
         };
         if task.is_some() {
             return;
         }
+        self.service.automatic_ready.store(false, Ordering::SeqCst);
         let service = Arc::clone(&self.service);
         let app_handle = app.clone();
+        let stopped = Arc::clone(&self.stopped);
         *task = Some(tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(30)).await;
-            #[allow(clippy::duration_suboptimal_units)] // Keep compatibility with pinned Rust.
-            let backoff = [
-                Duration::from_secs(60),
-                Duration::from_secs(5 * 60),
-                Duration::from_secs(30 * 60),
-            ];
+            sleep(Duration::from_secs(30)).await;
+            if stopped.load(Ordering::SeqCst) {
+                return;
+            }
+            service.automatic_ready.store(true, Ordering::SeqCst);
             loop {
-                if service.automatic_due() {
-                    let status = run_check_and_deliver(&app_handle, &service, false).await;
-                    if status.check_failed {
-                        for delay in backoff {
-                            tokio::time::sleep(delay).await;
-                            let status = run_check_and_deliver(&app_handle, &service, false).await;
-                            if !status.check_failed {
-                                break;
-                            }
-                        }
-                    }
+                if stopped.load(Ordering::SeqCst) {
+                    return;
                 }
-                #[allow(clippy::duration_suboptimal_units)]
-                tokio::time::sleep(Duration::from_secs(60)).await;
+                if service.automatic_due() {
+                    run_check_and_deliver(&app_handle, &service, false).await;
+                }
+                // The service owns the persisted deadline. A second retry loop
+                // here would add delays after restarts or intervening wake checks.
+                sleep(Duration::from_secs(60)).await;
             }
         }));
     }
@@ -1070,6 +1405,10 @@ where
 }
 impl Drop for UpdateManager {
     fn drop(&mut self) {
+        // Abort is cooperative; a currently polling ready timer must also see
+        // shutdown before it can begin another catalog request.
+        self.stopped.store(true, Ordering::SeqCst);
+        self.service.automatic_ready.store(false, Ordering::SeqCst);
         if let Ok(mut task) = self.task.lock()
             && let Some(task) = task.take()
         {
@@ -1099,14 +1438,14 @@ mod tests {
         calls: AtomicUsize,
     }
     #[async_trait]
-    impl CatalogTransport for FakeTransport {
+    impl ReleaseTransport for FakeTransport {
         async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
             self.result
                 .lock()
                 .unwrap()
                 .clone()
-                .map_err(UpdateError::InvalidCatalog)
+                .map_err(UpdateError::InvalidRelease)
         }
     }
     #[derive(Default)]
@@ -1135,7 +1474,7 @@ mod tests {
         }
     }
     fn catalog(version: &str) -> Vec<u8> {
-        format!(r#"{{"schemaVersion":1,"generatedAt":"2026-10-04T00:00:00Z","entries":[{{"edition":"direct_macos","channel":"stable","os":"macos","architecture":"aarch64","version":"{version}","publishedAt":"2026-10-04T00:00:00Z","releaseNotes":"Notes","action":{{"type":"open_url","url":"https://svb.miguel.ms/guide/Upgrading.html"}}}}]}}"#).into_bytes()
+        format!(r#"{{"schemaVersion":1,"generatedAt":"2026-10-04T00:00:00Z","entries":[{{"edition":"direct_macos","channel":"stable","os":"macos","architecture":"aarch64","version":"{version}","publishedAt":"2026-10-04T00:00:00Z","releaseNotes":"Notes","action":{{"type":"open_url","url":"https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v{version}"}}}}]}}"#).into_bytes()
     }
     fn service(
         bytes: Vec<u8>,
@@ -1152,6 +1491,449 @@ mod tests {
             ),
             transport,
         )
+    }
+
+    #[tokio::test]
+    async fn store_managed_production_paths_never_discover_or_notify() {
+        for edition in [
+            DistributionEdition::MicrosoftStore,
+            DistributionEdition::MacAppStore,
+        ] {
+            let mut installed = distribution();
+            installed.edition = edition;
+            let persistence = Arc::new(MemoryPersistence::default());
+            // Reproduce an existing catalog client's enabled automatic preference.
+            *persistence.0.lock().unwrap() = Some(UpdatePreferences {
+                automatic_checks: true,
+                last_successful_check: Some(99),
+                ..UpdatePreferences::default()
+            });
+            let transport = Arc::new(FakeTransport {
+                result: Mutex::new(Err("Store must not contact releases")),
+                calls: AtomicUsize::new(0),
+            });
+            let service = Arc::new(
+                UpdateService::new(
+                    installed.clone(),
+                    transport.clone(),
+                    Arc::new(FakeClock(AtomicU64::new(100))),
+                    persistence.clone(),
+                )
+                .unwrap(),
+            );
+            let app = tauri::test::mock_builder()
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .unwrap();
+            service.set_automatic_checks(true).unwrap();
+            UpdateManager::wake_service(app.handle(), service.clone()).await;
+            let manual = run_check_and_deliver_with(
+                app.handle(),
+                &service,
+                true,
+                || async { panic!("Store must not request notification permission") },
+                |_| async { panic!("Store must not notify") },
+            )
+            .await;
+            assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+            assert!(!service.automatic_due());
+            assert_eq!(manual.phase, UpdatePhase::StoreManaged);
+            assert!(manual.action.is_none());
+            assert!(manual.download_action.is_none());
+            assert!(
+                service
+                    .claim_download_generation("2.0.0", manual.generation)
+                    .is_err()
+            );
+            assert!(manual.available_version.is_none());
+            assert!(manual.last_successful_check.is_none());
+            assert!(service.set_policy(UpdatePolicy::Prereleases).is_err());
+            let expected = if edition == DistributionEdition::MicrosoftStore {
+                "ms-windows-store://pdp/?ProductId=9N7JKGXCMST0"
+            } else {
+                "macappstore://showUpdatesPage"
+            };
+            assert_eq!(service.store_action().unwrap(), expected);
+            assert!(
+                service
+                    .claim_offer_generation("2.0.0", expected, manual.generation)
+                    .is_err()
+            );
+            let manager = UpdateManager::new(service);
+            let (tick, mut ticks) = tokio::sync::mpsc::unbounded_channel();
+            manager.start_with_sleep(app.handle(), move |duration| {
+                let tick = tick.clone();
+                async move {
+                    tick.send(duration).unwrap();
+                    if duration != Duration::from_secs(30) {
+                        std::future::pending::<()>().await;
+                    }
+                }
+            });
+            assert_eq!(ticks.recv().await.unwrap(), Duration::from_secs(30));
+            assert_eq!(ticks.recv().await.unwrap(), Duration::from_secs(60));
+            drop(manager);
+            assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+            let restarted = UpdateService::new(
+                installed,
+                transport,
+                Arc::new(FakeClock(AtomicU64::new(101))),
+                persistence,
+            )
+            .unwrap();
+            assert_eq!(restarted.status().unwrap().phase, UpdatePhase::StoreManaged);
+            assert!(!restarted.status().unwrap().automatic_checks);
+        }
+        let (direct, _) = service(
+            Vec::new(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        assert!(direct.store_action().is_err());
+    }
+
+    #[tokio::test]
+    async fn failed_attempt_persistence_after_policy_change_is_visible_and_retryable() {
+        struct FalliblePersistence {
+            memory: MemoryPersistence,
+            fail: AtomicBool,
+        }
+        impl UpdatePersistence for FalliblePersistence {
+            fn load(&self, automatic: bool) -> Result<UpdatePreferences, UpdateError> {
+                self.memory.load(automatic)
+            }
+            fn save(&self, preferences: &UpdatePreferences) -> Result<(), UpdateError> {
+                if self.fail.load(Ordering::SeqCst) {
+                    return Err(UpdateError::State);
+                }
+                self.memory.save(preferences)
+            }
+        }
+        let persistence = Arc::new(FalliblePersistence {
+            memory: MemoryPersistence::default(),
+            fail: AtomicBool::new(false),
+        });
+        let transport = Arc::new(FakeTransport {
+            result: Mutex::new(Ok(serde_json::to_vec(&vec![public_release(
+                "2.0.0", false,
+            )])
+            .unwrap())),
+            calls: AtomicUsize::new(0),
+        });
+        let service = UpdateService::new(
+            distribution(),
+            transport.clone(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence.clone(),
+        )
+        .unwrap();
+        service.set_policy(UpdatePolicy::Prereleases).unwrap();
+        persistence.fail.store(true, Ordering::SeqCst);
+        let failed = service.check(true).await;
+        assert_eq!(failed.phase, UpdatePhase::Unavailable);
+        assert!(failed.check_failed);
+        assert!(failed.message.is_some());
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+        persistence.fail.store(false, Ordering::SeqCst);
+        assert_eq!(
+            service.check(true).await.phase,
+            UpdatePhase::UpdateAvailable
+        );
+    }
+
+    #[tokio::test]
+    async fn wake_and_restart_share_bounded_failure_backoff_with_background_checks() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (service, transport) = service(Vec::new(), clock.clone(), persistence.clone());
+        *transport.result.lock().unwrap() = Err("offline");
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        assert!(service.check(false).await.check_failed);
+        for (attempt, delay) in [60, 300, 1800, 86400].into_iter().enumerate() {
+            clock.0.fetch_add(delay - 1, Ordering::SeqCst);
+            UpdateManager::wake_service(app.handle(), service.clone()).await;
+            assert_eq!(
+                transport.calls.load(Ordering::SeqCst),
+                attempt + 1,
+                "wake bypassed the retry budget"
+            );
+            let restarted = UpdateService::new(
+                distribution(),
+                transport.clone(),
+                clock.clone(),
+                persistence.clone(),
+            )
+            .unwrap();
+            assert!(
+                !restarted.automatic_due(),
+                "restart bypassed the retry budget"
+            );
+            clock.0.fetch_add(1, Ordering::SeqCst);
+            UpdateManager::wake_service(app.handle(), service.clone()).await;
+            assert_eq!(transport.calls.load(Ordering::SeqCst), attempt + 2);
+        }
+        // A deliberate manual retry remains usable during the daily cooldown.
+        *transport.result.lock().unwrap() =
+            Ok(serde_json::to_vec(&vec![public_release("2.0.0", false)]).unwrap());
+        assert_eq!(
+            service.check(true).await.phase,
+            UpdatePhase::UpdateAvailable
+        );
+        assert!(!service.automatic_due());
+    }
+
+    #[tokio::test]
+    async fn restarted_production_scheduler_retries_from_persisted_failure_count() {
+        for (failures, cooldown, retry_delay) in [(1, 60, 300), (2, 300, 1800)] {
+            let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+            let persistence = Arc::new(MemoryPersistence::default());
+            let (initial, transport) = service(Vec::new(), clock.clone(), persistence.clone());
+            *transport.result.lock().unwrap() = Err("offline");
+            for _ in 0..failures {
+                initial.check(true).await;
+            }
+            clock.0.store(100 + cooldown, Ordering::SeqCst);
+            let restarted = Arc::new(
+                UpdateService::new(
+                    distribution(),
+                    transport.clone(),
+                    clock.clone(),
+                    persistence,
+                )
+                .unwrap(),
+            );
+            let app = tauri::test::mock_builder()
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .unwrap();
+            let manager = UpdateManager::new(restarted);
+            let (sender, mut timers) = tokio::sync::mpsc::unbounded_channel();
+            manager.start_with_sleep(app.handle(), move |delay| {
+                let (resume, wait) = tokio::sync::oneshot::channel();
+                sender.send((delay, resume)).unwrap();
+                async move {
+                    let _ = wait.await;
+                }
+            });
+            let (delay, resume) = timers.recv().await.unwrap();
+            assert_eq!(delay.as_secs(), 30);
+            clock.0.fetch_add(30, Ordering::SeqCst);
+            resume.send(()).unwrap();
+            for elapsed in (0..=retry_delay).step_by(60) {
+                let (delay, resume) = tokio::time::timeout(Duration::from_secs(5), timers.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    transport.calls.load(Ordering::SeqCst),
+                    failures + 1 + usize::from(elapsed == retry_delay)
+                );
+                assert_eq!(
+                    delay.as_secs(),
+                    60,
+                    "worker added its own retry cycle after restart"
+                );
+                if elapsed == retry_delay {
+                    drop(manager);
+                    break;
+                }
+                clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
+                resume.send(()).unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn production_scheduler_delays_retries_once_and_cancels_on_shutdown() {
+        async fn boundary(
+            timers: &mut tokio::sync::mpsc::UnboundedReceiver<(
+                Duration,
+                tokio::sync::oneshot::Sender<()>,
+            )>,
+        ) -> (Duration, tokio::sync::oneshot::Sender<()>) {
+            tokio::time::timeout(Duration::from_secs(5), timers.recv())
+                .await
+                .unwrap()
+                .unwrap()
+        }
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let (service, transport) = service(
+            serde_json::to_vec(&vec![public_release("2.0.0", false)]).unwrap(),
+            clock.clone(),
+            Arc::new(MemoryPersistence::default()),
+        );
+        *transport.result.lock().unwrap() = Err("offline");
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let manager = UpdateManager::new(service);
+        let (sender, mut timers) = tokio::sync::mpsc::unbounded_channel();
+        let timer = move |delay| {
+            let (resume, wait) = tokio::sync::oneshot::channel();
+            sender.send((delay, resume)).unwrap();
+            async move {
+                let _ = wait.await;
+            }
+        };
+        manager.start_with_sleep(app.handle(), timer.clone());
+        manager.start_with_sleep(app.handle(), timer);
+        let (delay, resume) = boundary(&mut timers).await;
+        assert_eq!(delay, Duration::from_secs(30));
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+        UpdateManager::wake_service(app.handle(), manager.service().clone()).await;
+        assert_eq!(
+            transport.calls.load(Ordering::SeqCst),
+            0,
+            "wake bypassed startup delay"
+        );
+        assert!(
+            timers.try_recv().is_err(),
+            "duplicate start created a worker"
+        );
+        clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
+        resume.send(()).unwrap();
+        for elapsed in (0..=2220).step_by(60) {
+            let (delay, resume) = boundary(&mut timers).await;
+            assert_eq!(delay.as_secs(), 60);
+            let expected = 1
+                + usize::from(elapsed >= 60)
+                + usize::from(elapsed >= 360)
+                + usize::from(elapsed >= 2160);
+            assert_eq!(
+                transport.calls.load(Ordering::SeqCst),
+                expected,
+                "worker bypassed the service retry deadline"
+            );
+            if elapsed == 2220 {
+                drop(manager);
+                // Releasing the timer after shutdown must never fetch again.
+                let _ = resume.send(());
+                assert!(
+                    tokio::time::timeout(Duration::from_secs(5), timers.recv())
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+                assert_eq!(transport.calls.load(Ordering::SeqCst), 4);
+                return;
+            }
+            clock.0.fetch_add(delay.as_secs(), Ordering::SeqCst);
+            resume.send(()).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn production_scheduler_shutdown_ready_timer_cannot_begin_check() {
+        struct WorkerDropped(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for WorkerDropped {
+            fn drop(&mut self) {
+                let _ = self.0.take().unwrap().send(());
+            }
+        }
+        let (service, transport) = service(
+            serde_json::to_vec(&vec![public_release("2.0.0", false)]).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let manager = UpdateManager::new(service);
+        let (entered, wait_entered) = tokio::sync::oneshot::channel();
+        let entered = Mutex::new(Some(entered));
+        let (release, wait_release) = std::sync::mpsc::channel();
+        let wait_release = Mutex::new(wait_release);
+        let (dropped, wait_dropped) = tokio::sync::oneshot::channel();
+        let worker_dropped = WorkerDropped(Some(dropped));
+        manager.start_with_sleep(app.handle(), move |_| {
+            let _keep_alive = &worker_dropped;
+            let first = entered.lock().unwrap().take();
+            // Hold the worker inside its current poll while shutdown occurs.
+            // Abort cannot interrupt that poll, and the timer then becomes ready.
+            let is_first = first.is_some();
+            if let Some(entered) = first {
+                entered.send(()).unwrap();
+                wait_release.lock().unwrap().recv().unwrap();
+            }
+            async move {
+                if !is_first {
+                    std::future::pending::<()>().await;
+                }
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(5), wait_entered)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(manager);
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), wait_dropped)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn production_scheduler_shutdown_cancels_in_flight_transport() {
+        struct CancelOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for CancelOnDrop {
+            fn drop(&mut self) {
+                if let Some(sender) = self.0.take() {
+                    let _ = sender.send(());
+                }
+            }
+        }
+        struct PendingTransport {
+            entered: tokio::sync::Notify,
+            cancelled: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+        #[async_trait]
+        impl ReleaseTransport for PendingTransport {
+            async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
+                let _guard = CancelOnDrop(self.cancelled.lock().unwrap().take());
+                self.entered.notify_one();
+                std::future::pending().await
+            }
+        }
+        let (cancelled, wait) = tokio::sync::oneshot::channel();
+        let transport = Arc::new(PendingTransport {
+            entered: tokio::sync::Notify::new(),
+            cancelled: Mutex::new(Some(cancelled)),
+        });
+        let persistence = Arc::new(MemoryPersistence::default());
+        let service = Arc::new(
+            UpdateService::new(
+                distribution(),
+                transport.clone(),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                persistence.clone(),
+            )
+            .unwrap(),
+        );
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let manager = UpdateManager::new(service);
+        manager.start_with_sleep(app.handle(), |_| async {});
+        tokio::time::timeout(Duration::from_secs(5), transport.entered.notified())
+            .await
+            .unwrap();
+        drop(manager);
+        tokio::time::timeout(Duration::from_secs(5), wait)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            persistence
+                .0
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .last_successful_check
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1189,6 +1971,39 @@ mod tests {
             .0
             .store(100 + SUCCESS_INTERVAL.as_secs(), Ordering::Relaxed);
         assert!(restarted.automatic_due());
+    }
+
+    #[tokio::test]
+    async fn restart_rejects_stable_cache_pointing_at_a_different_release() {
+        let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (initial, transport) = service(
+            serde_json::to_vec(&vec![public_release("2.0.0", false)]).unwrap(),
+            clock.clone(),
+            persistence.clone(),
+        );
+        let offered = initial.check(true).await;
+        for url in [
+            release_page("3.0.0"),
+            "https://svb.miguel.ms/guide/Upgrading.html".into(),
+        ] {
+            let mut saved = initial.preferences().unwrap();
+            saved.cached_offer.as_mut().unwrap().action.url = url;
+            persistence.save(&saved).unwrap();
+            let restarted = UpdateService::new(
+                distribution(),
+                transport.clone(),
+                clock.clone(),
+                persistence.clone(),
+            )
+            .unwrap();
+            assert!(restarted.status().unwrap().action.is_none());
+            assert!(
+                restarted
+                    .claim_download_generation("2.0.0", offered.generation)
+                    .is_err()
+            );
+        }
     }
 
     #[tokio::test]
@@ -1299,7 +2114,7 @@ mod tests {
             cached_offer: Some(cached_offer(
                 "2.0.0",
                 Some(this_target()),
-                "https://svb.miguel.ms/guide/Upgrading.html",
+                "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0",
             )),
             ..UpdatePreferences::default()
         });
@@ -1413,7 +2228,7 @@ mod tests {
         let _state_listener = app.listen("update-status-changed", move |_| {
             observed_state.fetch_add(1, Ordering::SeqCst);
         });
-        let _navigation_listener = app.listen("open-updates", move |_| {
+        let _navigation_listener = app.listen("open-settings-page", move |_| {
             observed_navigation.fetch_add(1, Ordering::SeqCst);
         });
         crate::schedule_wake::wake(app.handle());
@@ -1449,7 +2264,7 @@ mod tests {
         let _status_listener = app.listen("update-status-changed", move |_| {
             observed_status.fetch_add(1, Ordering::SeqCst);
         });
-        let _open_listener = app.listen("open-updates", move |_| {
+        let _open_listener = app.listen("open-settings-page", move |_| {
             observed_open.fetch_add(1, Ordering::SeqCst);
         });
 
@@ -1608,7 +2423,7 @@ mod tests {
         let bytes = String::from_utf8(catalog("2.0.0"))
             .unwrap()
             .replace(
-                "https://svb.miguel.ms/guide/Upgrading.html",
+                "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0",
                 "file:///tmp/run",
             )
             .into_bytes();
@@ -1635,7 +2450,7 @@ mod tests {
         let manual = service.check(true).await;
         assert_eq!(
             manual.message.as_deref(),
-            Some("invalid update catalog: offline")
+            Some("invalid release information: offline")
         );
         *transport.result.lock().unwrap() = Ok(catalog("2.0.0"));
         clock.0.store(102, Ordering::Relaxed);
@@ -1689,23 +2504,35 @@ mod tests {
         assert!(active.dismiss("2.0.1").is_err());
         assert!(
             active
-                .claim_offer("1.9.0", "https://svb.miguel.ms/guide/Upgrading.html")
+                .claim_offer(
+                    "1.9.0",
+                    "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0"
+                )
                 .is_err()
         );
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
+                .claim_offer(
+                    "2.0.0",
+                    "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0"
+                )
                 .is_ok()
         );
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
+                .claim_offer(
+                    "2.0.0",
+                    "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0"
+                )
                 .is_err()
         );
         active.finish_open();
         assert!(
             active
-                .claim_offer("2.0.0", "https://svb.miguel.ms/guide/Upgrading.html")
+                .claim_offer(
+                    "2.0.0",
+                    "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v2.0.0"
+                )
                 .is_ok()
         );
     }
@@ -1715,6 +2542,608 @@ mod tests {
         let preferences: UpdatePreferences = serde_json::from_str("{}").unwrap();
         assert!(preferences.update_notifications);
     }
+    #[test]
+    fn production_requests_use_anonymous_release_api() {
+        let transport = HttpReleaseTransport::new().unwrap();
+        for policy in [UpdatePolicy::Stable, UpdatePolicy::Prereleases] {
+            let request = transport.request(policy).build().unwrap();
+            assert_eq!(request.url().host_str(), Some("api.github.com"));
+            assert_eq!(
+                request.url().path(),
+                "/repos/MiguelTVMS/speaker-volume-bridge/releases"
+            );
+            assert!(
+                !request
+                    .headers()
+                    .contains_key(reqwest::header::AUTHORIZATION)
+            );
+            assert!(request.headers().contains_key(reqwest::header::USER_AGENT));
+        }
+    }
+
+    fn public_release(version: &str, prerelease: bool) -> serde_json::Value {
+        serde_json::json!({
+            "tag_name": format!("v{version}"), "draft": false, "prerelease": prerelease,
+            "published_at": "2026-10-07T00:00:00Z", "html_url": release_page(version),
+            "assets": [{"name": "speaker-volume-bridge-macos.dmg", "state": "uploaded", "size": 100,
+                "browser_download_url": format!("https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v{version}/speaker-volume-bridge-macos.dmg")}]
+        })
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)] // Keep the full selection/restart/action sequence together for each package target.
+    async fn download_offers_select_exact_packages_and_keep_notification_and_page_actions() {
+        for (edition, architecture, asset) in [
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::Aarch64,
+                "speaker-volume-bridge-macos.dmg",
+            ),
+            (
+                DistributionEdition::DirectWindows,
+                ApplicationArchitecture::X86_64,
+                "speaker-volume-bridge-windows-x64-unsigned.exe",
+            ),
+            (
+                DistributionEdition::DirectWindows,
+                ApplicationArchitecture::Aarch64,
+                "speaker-volume-bridge-windows-arm64-unsigned.exe",
+            ),
+            (
+                DistributionEdition::Debian,
+                ApplicationArchitecture::X86_64,
+                "speaker-volume-bridge-linux-x64.deb",
+            ),
+            (
+                DistributionEdition::Debian,
+                ApplicationArchitecture::Aarch64,
+                "speaker-volume-bridge-linux-arm64.deb",
+            ),
+        ] {
+            let mut installed = distribution();
+            installed.edition = edition;
+            installed.architecture = architecture;
+            let release = |version, preview| {
+                let mut release = public_release(version, preview);
+                release["assets"][0]["name"] = asset.into();
+                release["assets"][0]["browser_download_url"] = format!("https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v{version}/{asset}").into();
+                release
+            };
+            let transport = Arc::new(FakeTransport {
+                result: Mutex::new(Ok(serde_json::to_vec(&vec![
+                    release("2.1.0", true),
+                    release("2.0.0", false),
+                ])
+                .unwrap())),
+                calls: AtomicUsize::new(0),
+            });
+            let persistence = Arc::new(MemoryPersistence::default());
+            let clock = Arc::new(FakeClock(AtomicU64::new(100)));
+            let client = UpdateService::new(
+                installed.clone(),
+                transport.clone(),
+                clock.clone(),
+                persistence.clone(),
+            )
+            .unwrap();
+            let status = client.check(true).await;
+            assert_eq!(status.available_version.as_deref(), Some("2.0.0"));
+            let url = format!(
+                "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v2.0.0/{asset}"
+            );
+            assert_eq!(status.download_action.as_ref().unwrap().url, url);
+            assert!(client.claim_notification(&status).unwrap());
+            assert!(!client.claim_notification(&status).unwrap());
+            client.dismiss("2.0.0").unwrap();
+            assert!(client.status().unwrap().download_action.is_some());
+            assert!(
+                client
+                    .claim_download_generation("2.1.0", status.generation)
+                    .is_err()
+            );
+            assert_eq!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .unwrap()
+                    .url,
+                url
+            );
+            assert!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .is_err()
+            );
+            client.finish_open();
+            let restored =
+                UpdateService::new(installed, transport, clock.clone(), persistence).unwrap();
+            assert_eq!(restored.status().unwrap().download_action.unwrap().url, url);
+            assert!(
+                !restored
+                    .claim_notification(&restored.status().unwrap())
+                    .unwrap()
+            );
+            clock
+                .0
+                .store(100 + SUCCESS_INTERVAL.as_secs(), Ordering::Relaxed);
+            assert!(client.status().unwrap().download_action.is_none());
+            assert!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .is_err()
+            );
+            client.set_policy(UpdatePolicy::Prereleases).unwrap();
+            assert!(client.status().unwrap().download_action.is_none());
+            assert!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .is_err()
+            );
+            let preview = client.check(true).await;
+            assert_eq!(preview.available_version.as_deref(), Some("2.1.0"));
+            assert_eq!(
+                client
+                    .claim_download_generation("2.1.0", preview.generation)
+                    .unwrap()
+                    .url,
+                preview.download_action.unwrap().url
+            );
+            client.finish_open();
+            assert_eq!(
+                client
+                    .claim_offer_generation("2.1.0", &release_page("2.1.0"), preview.generation)
+                    .unwrap()
+                    .url,
+                release_page("2.1.0")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_or_foreign_assets_never_offer_downloads() {
+        for assets in [
+            serde_json::json!([]),
+            serde_json::json!([{
+                "name": "speaker-volume-bridge-macos.dmg", "size": 100, "state": "uploaded",
+                "browser_download_url": "https://example.com/foreign.dmg"
+            }]),
+        ] {
+            let mut release = public_release("2.0.0", false);
+            release["assets"] = assets;
+            let (client, _) = service(
+                serde_json::to_vec(&vec![release]).unwrap(),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                Arc::new(MemoryPersistence::default()),
+            );
+            let status = client.check(true).await;
+            assert_eq!(status.phase, UpdatePhase::Unavailable);
+            assert!(status.download_action.is_none());
+            assert!(
+                client
+                    .claim_download_generation("2.0.0", status.generation)
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn release_api_service_selects_policy_by_version_and_opens_exact_page() {
+        let releases = serde_json::to_vec(&vec![
+            public_release("1.6.0", false),
+            public_release("1.8.1", true),
+            public_release("1.8.0", false),
+        ])
+        .unwrap();
+        let (client, _) = service(
+            releases,
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        let stable = client.check(true).await;
+        assert_eq!(stable.available_version.as_deref(), Some("1.8.0"));
+        assert_eq!(
+            client
+                .claim_offer("1.8.0", &release_page("1.8.0"))
+                .unwrap()
+                .url,
+            release_page("1.8.0")
+        );
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        let preview = client.check(true).await;
+        assert_eq!(preview.available_version.as_deref(), Some("1.8.1"));
+        assert_eq!(preview.action.unwrap().url, release_page("1.8.1"));
+    }
+
+    #[tokio::test]
+    async fn updater_artifacts_preserve_release_page_policy_and_do_not_create_install_offers() {
+        let mut stable = public_release("1.8.0", false);
+        let mut preview = public_release("1.8.1", true);
+        for release in [&mut stable, &mut preview] {
+            let version = release["tag_name"].as_str().unwrap().to_owned();
+            for name in [
+                "speaker-volume-bridge-macos-aarch64.app.tar.gz",
+                "speaker-volume-bridge-macos-aarch64.app.tar.gz.sig",
+                "speaker-volume-bridge-macos-aarch64.updater.json",
+            ] {
+                release["assets"].as_array_mut().unwrap().push(serde_json::json!({
+                    "name": name, "state": "uploaded", "size": 100,
+                    "browser_download_url": format!(
+                        "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/{version}/{name}"
+                    )
+                }));
+            }
+        }
+        let (client, transport) = service(
+            serde_json::to_vec(&vec![stable, preview.clone()]).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        assert_eq!(
+            client.check(true).await.available_version.as_deref(),
+            Some("1.8.0")
+        );
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        let offer = client.check(true).await;
+        assert_eq!(offer.available_version.as_deref(), Some("1.8.1"));
+        assert_eq!(offer.action.unwrap().url, release_page("1.8.1"));
+        assert!(client.claim_offer("1.8.1", &release_page("1.8.1")).is_ok());
+        client.finish_open();
+        client.set_policy(UpdatePolicy::Stable).unwrap();
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        preview["assets"].as_array_mut().unwrap().remove(0);
+        *transport.result.lock().unwrap() = Ok(serde_json::to_vec(&vec![preview]).unwrap());
+        assert!(client.check(true).await.available_version.is_none());
+    }
+
+    #[tokio::test]
+    async fn release_api_rejects_ineligible_packages_and_preserves_saved_policy() {
+        let mut draft = public_release("9.0.0", false);
+        draft["draft"] = true.into();
+        let mut missing = public_release("8.0.0", false);
+        missing["assets"] = serde_json::json!([]);
+        let mut foreign = public_release("7.0.0", false);
+        foreign["html_url"] = "https://github.com/other/repo/releases/tag/v7.0.0".into();
+        let mut incomplete = public_release("6.0.0", false);
+        incomplete["assets"][0]["state"] = "new".into();
+        let persistence = Arc::new(MemoryPersistence::default());
+        let (client, transport) = service(
+            serde_json::to_vec(&vec![
+                draft,
+                missing,
+                foreign,
+                incomplete,
+                public_release("1.8.1", true),
+                public_release("1.8.0", false),
+            ])
+            .unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            persistence.clone(),
+        );
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        assert_eq!(
+            client.check(true).await.available_version.as_deref(),
+            Some("1.8.1")
+        );
+        let restored = UpdateService::new(
+            distribution(),
+            transport.clone(),
+            Arc::new(FakeClock(AtomicU64::new(101))),
+            persistence,
+        )
+        .unwrap();
+        assert_eq!(restored.status().unwrap().policy, UpdatePolicy::Prereleases);
+        assert_eq!(
+            restored.status().unwrap().available_version.as_deref(),
+            Some("1.8.1")
+        );
+        *transport.result.lock().unwrap() = Err("rate limited");
+        let failure = restored.check(true).await;
+        assert!(failure.check_failed);
+        assert_eq!(failure.available_version.as_deref(), Some("1.8.1"));
+        restored.set_policy(UpdatePolicy::Stable).unwrap();
+        *transport.result.lock().unwrap() =
+            Ok(serde_json::to_vec(&vec![public_release("1.7.1", false)]).unwrap());
+        assert_eq!(restored.check(true).await.phase, UpdatePhase::UpToDate);
+    }
+
+    #[test]
+    fn release_api_source_migration_discards_old_catalog_freshness() {
+        let persistence = Arc::new(MemoryPersistence::default());
+        let old = UpdatePreferences {
+            automatic_checks: false,
+            update_notifications: false,
+            policy: UpdatePolicy::Prereleases,
+            update_source: None,
+            last_successful_check: Some(100),
+            last_attempted_check: Some(100),
+            freshness_target: Some(policy_target(&distribution(), UpdatePolicy::Prereleases)),
+            notified_targets: vec!["previous-notice".into()],
+            ..UpdatePreferences::default()
+        };
+        *persistence.0.lock().unwrap() = Some(old);
+        let (client, _) = service(
+            serde_json::to_vec(&vec![public_release("1.8.1", true)]).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(101))),
+            persistence,
+        );
+        let preferences = client.preferences().unwrap();
+        assert_eq!(preferences.policy, UpdatePolicy::Prereleases);
+        assert!(!preferences.automatic_checks);
+        assert!(!preferences.update_notifications);
+        assert!(preferences.last_successful_check.is_none());
+        assert!(preferences.freshness_target.is_none());
+        assert_eq!(preferences.notified_targets, ["previous-notice"]);
+    }
+
+    #[test]
+    fn release_api_rate_limit_respects_reset_and_retry_after() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-ratelimit-remaining", "0".parse().unwrap());
+        headers.insert("x-ratelimit-reset", "1000".parse().unwrap());
+        assert_eq!(
+            rate_limit_deadline(reqwest::StatusCode::FORBIDDEN, &headers, 100),
+            Some(1000)
+        );
+        headers.insert("retry-after", "1200".parse().unwrap());
+        assert_eq!(
+            rate_limit_deadline(reqwest::StatusCode::TOO_MANY_REQUESTS, &headers, 100),
+            Some(1300)
+        );
+        assert_eq!(
+            rate_limit_deadline(reqwest::StatusCode::OK, &headers, 100),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn release_api_production_transport_paginates_before_service_selection() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for (page, data) in [
+                (1, vec![public_release("1.6.0", false); 100]),
+                (
+                    2,
+                    vec![
+                        public_release("1.8.1", true),
+                        public_release("1.8.0", false),
+                    ],
+                ),
+            ] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    socket.read_exact(&mut byte).await.unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap().to_lowercase();
+                assert!(request.contains(&format!("per_page=100&page={page}")));
+                assert!(request.contains("user-agent: speaker-volume-bridge"));
+                assert!(!request.contains("authorization:"));
+                let body = serde_json::to_vec(&data).unwrap();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(header.as_bytes()).await.unwrap();
+                socket.write_all(&body).await.unwrap();
+            }
+        });
+        let mut transport = HttpReleaseTransport::new().unwrap();
+        transport.endpoint = format!("http://{address}/releases");
+        let client = UpdateService::new(
+            distribution(),
+            Arc::new(transport),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        )
+        .unwrap();
+        assert_eq!(
+            client.check(true).await.available_version.as_deref(),
+            Some("1.8.0")
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn release_api_production_transport_does_not_repeat_rate_limited_requests() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).await.unwrap();
+                request.push(byte[0]);
+            }
+            socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 120\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+        });
+        let mut transport = HttpReleaseTransport::new().unwrap();
+        transport.endpoint = format!("http://{address}/releases");
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+        server.await.unwrap();
+        // The server no longer exists. A second network request would fail differently.
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+    }
+
+    #[tokio::test]
+    async fn release_api_production_transport_cools_down_headerless_secondary_limit() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).await.unwrap();
+                request.push(byte[0]);
+            }
+            socket.write_all(b"HTTP/1.1 403 Forbidden\r\nX-RateLimit-Remaining: 100\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+        });
+        let mut transport = HttpReleaseTransport::new().unwrap();
+        transport.endpoint = format!("http://{address}/releases");
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+        server.await.unwrap();
+        assert!(transport.retry_after.load(Ordering::SeqCst) >= SystemUpdateClock.now() + 59);
+        // The server no longer exists. A second network request would fail differently.
+        assert!(matches!(
+            transport.fetch().await,
+            Err(UpdateError::RateLimited)
+        ));
+    }
+
+    #[test]
+    fn release_api_never_infers_store_or_intel_macos_availability() {
+        for (edition, architecture) in [
+            (
+                DistributionEdition::MicrosoftStore,
+                ApplicationArchitecture::Aarch64,
+            ),
+            (
+                DistributionEdition::MacAppStore,
+                ApplicationArchitecture::Aarch64,
+            ),
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::X86_64,
+            ),
+        ] {
+            let mut installed = distribution();
+            installed.edition = edition;
+            installed.architecture = architecture;
+            assert!(release_asset_name(&installed).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn verified_backfill_uses_production_client_for_version_policy_and_target_selection() {
+        let stable = include_bytes!("../../tests/fixtures/update-catalog/backfill-v1.json");
+        let preview = include_bytes!("../../tests/fixtures/update-catalog/backfill-v2.json");
+        for (edition, architecture, version, policy, expected) in [
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::Aarch64,
+                "1.8.0",
+                UpdatePolicy::Stable,
+                UpdatePhase::UpToDate,
+            ),
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::Aarch64,
+                "1.7.1",
+                UpdatePolicy::Stable,
+                UpdatePhase::UpdateAvailable,
+            ),
+            (
+                DistributionEdition::DirectWindows,
+                ApplicationArchitecture::X86_64,
+                "1.7.1",
+                UpdatePolicy::Prereleases,
+                UpdatePhase::UpdateAvailable,
+            ),
+            (
+                DistributionEdition::Debian,
+                ApplicationArchitecture::Aarch64,
+                "1.8.0",
+                UpdatePolicy::Prereleases,
+                UpdatePhase::UpToDate,
+            ),
+            (
+                DistributionEdition::DirectMacos,
+                ApplicationArchitecture::X86_64,
+                "1.7.1",
+                UpdatePolicy::Stable,
+                UpdatePhase::Unavailable,
+            ),
+            (
+                DistributionEdition::MacAppStore,
+                ApplicationArchitecture::Aarch64,
+                "1.7.1",
+                UpdatePolicy::Stable,
+                UpdatePhase::StoreManaged,
+            ),
+        ] {
+            let mut package = distribution();
+            package.edition = edition;
+            package.architecture = architecture;
+            package.version = version.into();
+            let transport = Arc::new(FakeTransport {
+                result: Mutex::new(Ok(if policy == UpdatePolicy::Stable {
+                    stable.to_vec()
+                } else {
+                    preview.to_vec()
+                })),
+                calls: AtomicUsize::new(0),
+            });
+            let client = UpdateService::new(
+                package,
+                transport.clone(),
+                Arc::new(FakeClock(AtomicU64::new(100))),
+                Arc::new(MemoryPersistence::default()),
+            )
+            .unwrap();
+            if policy == UpdatePolicy::Prereleases {
+                client.set_policy(policy).unwrap();
+            }
+            let status = client.check(true).await;
+            assert_eq!(
+                status.phase, expected,
+                "{edition:?}/{architecture:?}/{version}/{policy:?}"
+            );
+            assert_eq!(
+                transport.calls.load(Ordering::Relaxed),
+                usize::from(expected != UpdatePhase::StoreManaged)
+            );
+            if expected == UpdatePhase::UpdateAvailable {
+                assert_eq!(status.available_version.as_deref(), Some("1.8.0"));
+                let action = status.action.unwrap();
+                assert_eq!(
+                    action.url,
+                    if policy == UpdatePolicy::Stable {
+                        "https://svb.miguel.ms/guide/Upgrading.html".to_owned()
+                    } else {
+                        release_page("1.8.0")
+                    }
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn verified_backfill_retains_preview_only_beta_for_the_production_client() {
+        let preview = include_bytes!("../../tests/fixtures/update-catalog/backfill-v2.json");
+        // The prerelease-inclusive backfill retains the verified Beta even
+        // though the newer GA currently wins semantic precedence.
+        let mut beta: serde_json::Value = serde_json::from_slice(preview).unwrap();
+        beta["entries"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|entry| entry["classification"] == "Beta");
+        let (client, _) = service(
+            serde_json::to_vec(&beta).unwrap(),
+            Arc::new(FakeClock(AtomicU64::new(100))),
+            Arc::new(MemoryPersistence::default()),
+        );
+        client.set_policy(UpdatePolicy::Prereleases).unwrap();
+        assert_eq!(
+            client.check(true).await.available_version.as_deref(),
+            Some("1.7.4")
+        );
+    }
+
     fn preview_fixture() -> Vec<u8> {
         include_bytes!("../../tests/fixtures/update-catalog/release-policy.json").to_vec()
     }
@@ -1823,7 +3252,9 @@ mod tests {
                     DistributionEdition::DirectMacos
                         | DistributionEdition::DirectWindows
                         | DistributionEdition::Debian
-                ) && architecture != ApplicationArchitecture::Unknown;
+                ) && architecture != ApplicationArchitecture::Unknown
+                    && (edition != DistributionEdition::DirectMacos
+                        || architecture == ApplicationArchitecture::Aarch64);
                 let service = UpdateService::new(
                     package,
                     Arc::new(FakeTransport {
@@ -1849,7 +3280,7 @@ mod tests {
         calls: AtomicUsize,
     }
     #[async_trait]
-    impl CatalogTransport for GatedPolicyTransport {
+    impl ReleaseTransport for GatedPolicyTransport {
         async fn fetch(&self) -> Result<Vec<u8>, UpdateError> {
             self.fetch_policy(UpdatePolicy::Stable).await
         }

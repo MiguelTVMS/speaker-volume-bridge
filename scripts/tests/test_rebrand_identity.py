@@ -7,6 +7,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 class RebrandIdentityTests(unittest.TestCase):
+    def test_package_inspector_identity_is_documented_through_production_check(self):
+        import subprocess
+        import sys
+        subprocess.run([sys.executable, str(ROOT / 'scripts/check-legacy-identifiers.py')], check=True, capture_output=True)
+
+    def test_legacy_allowlist_updates_are_not_excluded_from_packaging_ci(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        triggers = workflow.split('permissions:', 1)[0]
+        self.assertNotIn('      - "docs/**"', triggers)
+        self.assertIn("              - 'docs/legacy-identifiers.json'", workflow)
+
     def test_store_and_settings_identities_are_preserved(self):
         config = json.loads((ROOT / 'src-tauri/tauri.conf.json').read_text())
         self.assertEqual(config['identifier'], 'ms.miguel.sonosvolumebridge.desktop')

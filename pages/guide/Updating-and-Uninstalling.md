@@ -16,10 +16,10 @@ If your installed app is still called **Sonos Volume Bridge**, start with [Upgra
 
 ## In-app update checks
 
-Recognized release installations can check the public project catalog for an
+Recognized direct-release installations can query the GitHub Releases API for an
 edition- and architecture-compatible update. Open **Updates** in Settings to run
 a manual check, change automatic checks or native notifications, and open the
-validated release or Store page. The app does not download or install packages.
+validated release page. Store editions must use the Store that installed them. The app does not download or install packages.
 See [Update checks](/guide/Updates.html) for timing, privacy, and distribution
 rules.
 
@@ -59,11 +59,33 @@ Remove the application through Ubuntu's software manager or package manager. Rem
 
 Use the store that installed the app to check for updates. GitHub publication and Store certification are separate, so a store installation may remain on an earlier version after v{{ site.data.release.version }} becomes available as a direct download.
 
-The in-app catalog treats each Store and direct-download edition independently.
-It never redirects one edition to an unverified package for another channel.
+The in-app checker does not offer Store updates or infer Store availability from
+direct-release packages. Use the Store to check for updates to its edition.
 
 ## Switching distribution channels
 
 Direct-download and store editions can be separate applications with separate data. Before installing a Mac App Store edition, remove the direct-download edition. Settings are not migrated automatically, so select the speaker and audio preferences again.
 
 After any channel change, verify the selected speaker, selected output, highest speaker volume, and two-way synchronization before normal use.
+
+## Store delegation and migration from catalog clients
+
+Recognized Microsoft Store and Mac App Store editions show **Updates are managed
+by the Store**. **Open Microsoft Store** opens this product in Microsoft Store;
+**Open Mac App Store** opens the Store's Updates page. Check, automatic-check,
+notification and release-policy controls are unavailable for Store editions.
+Startup, periodic, wake and manual calls make no GitHub discovery requests and
+never infer Store availability from direct-download releases. The Store owns
+update installation and notification behavior.
+
+Existing catalog-based direct clients need a **one-time manual upgrade** to a
+future released version containing GitHub Releases discovery. Download the correct
+edition and architecture from the official release page, quit the current app,
+and install it using the platform instructions. Keep application data to preserve
+settings. Old clients cannot discover this redesign through the retired catalog
+pipeline; no redirect, catalog backfill or silent source switch is provided.
+After upgrading, verify the installed version and edition in Updates and run a
+manual check. The new client discards old catalog offers and check freshness while
+preserving release-policy and notification preferences. Store clients upgrade
+through their existing Store when that version becomes available. This readiness
+work does not publish that version or implement self-installation.

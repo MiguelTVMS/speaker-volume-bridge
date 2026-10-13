@@ -26,14 +26,16 @@ fn notification_activation_target(
 }
 
 pub fn activate_notification<R: Runtime>(app: &AppHandle<R>, open_updates: bool) {
+    let request =
+        open_updates.then(|| crate::tray::set_pending_settings_navigation(app, Some("updates")));
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         if let Some(window) = handle.get_webview_window("main") {
             let _ = window.show();
             let _ = window.set_focus();
         }
-        if open_updates {
-            let _ = handle.emit("open-updates", ());
+        if let Some(request) = request {
+            let _ = handle.emit("open-settings-page", request);
         }
     });
 }
@@ -292,6 +294,7 @@ pub async fn send<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
 
 #[cfg(windows)]
 #[allow(dead_code)] // Production-only delivery; orchestration tests inject a notification sink.
+#[allow(clippy::unused_async)] // Shared async interface; other native adapters await delivery.
 pub async fn send_update<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
     if let Err(error) = windows::notifier(
         &app.config().identifier,
@@ -384,6 +387,7 @@ pub fn install_windows<R: Runtime>(app: &AppHandle<R>) {
 #[cfg(test)]
 mod tests {
     use super::{ScheduleNotice, schedule_body};
+    use tauri::Manager;
 
     #[test]
     fn platform_notification_metadata_distinguishes_updates_from_settings() {
@@ -422,15 +426,44 @@ mod tests {
         let app = tauri::test::mock_builder()
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
+        app.manage(crate::tray::PendingSettingsNavigation::default());
         let openings = Arc::new(AtomicUsize::new(0));
         let observed = openings.clone();
-        let _listener = app.listen("open-updates", move |_| {
+        let _listener = app.listen("open-settings-page", move |_| {
             observed.fetch_add(1, Ordering::SeqCst);
         });
         super::activate_notification(app.handle(), false);
         assert_eq!(openings.load(Ordering::SeqCst), 0);
         super::activate_notification(app.handle(), true);
         assert_eq!(openings.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn cold_start_update_activation_survives_until_frontend_subscribes() {
+        use tauri::Listener;
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(crate::tray::PendingSettingsNavigation::default());
+        // Production activation happens before the frontend has any listener.
+        super::activate_notification(app.handle(), true);
+        // Ordinary schedule activation must not overwrite the pending destination.
+        super::activate_notification(app.handle(), false);
+        let _listener = app.listen("open-settings-page", |_| {});
+        assert_eq!(
+            crate::tray::take_pending_settings_navigation(app.handle()),
+            Some("updates")
+        );
+        assert_eq!(
+            crate::tray::take_pending_settings_navigation(app.handle()),
+            None
+        );
+        // Warm activation uses the same acknowledgement path.
+        super::activate_notification(app.handle(), true);
+        assert_eq!(
+            crate::tray::take_pending_settings_navigation(app.handle()),
+            Some("updates")
+        );
     }
 
     #[cfg(target_os = "linux")]

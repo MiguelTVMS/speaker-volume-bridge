@@ -43,5 +43,6 @@
   "src-tauri/tauri.conf.json": "Preserved installation, store, startup or notification identity and migration targets.",
   "src-tauri/windows/installer.nsi": "Preserved installation, store, startup or notification identity and migration targets.",
   "scripts/tests/test-windows-install-directory.ps1": "Isolated regression fixtures for legacy default folder migration.",
-  "docs/removing-old-app.md": "Manual uninstall and optional clean-reset instructions for the former product."
+  "docs/removing-old-app.md": "Manual uninstall and optional clean-reset instructions for the former product.",
+  "scripts/release-catalog.py": "Inspect the preserved macOS bundle identity when verifying public packages; changing it would break installed-package recognition and upgrade continuity."
 }

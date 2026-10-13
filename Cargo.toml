@@ -7,11 +7,12 @@ members = [
     "crates/sonos",
     "crates/synchronization",
     "crates/test-support",
+    "crates/updater-artifact",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "1.8.0"
+version = "1.9.1"
 edition = "2024"
 rust-version = "1.98.1"
 license = "MIT"
@@ -49,3 +50,5 @@ return_self_not_must_use = "allow"
 glib = { path = "patches/glib-0.18.5" }
 
 tauri-plugin-single-instance = { path = "patches/tauri-plugin-single-instance-2.4.5" }
+
+tauri-plugin-updater = { path = "patches/tauri-plugin-updater-2.10.0" }

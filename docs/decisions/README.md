@@ -25,3 +25,15 @@ This folder stores decision records. Keep one record per important design choice
 
 - [0018-rebrand-and-legacy-protection](0018-rebrand-and-legacy-protection.md)
 - [0019-distribution-aware-updates](0019-distribution-aware-updates.md)
+
+- [0020-independent-catalog-delivery](0020-independent-catalog-delivery.md)
+
+- [0021-github-release-updates](0021-github-release-updates.md)
+
+- [0022-release-workflow-inputs](0022-release-workflow-inputs.md)
+
+- [0023-macos-updater-artifacts](0023-macos-updater-artifacts.md)
+
+- [0024-volume-gesture-settling](0024-volume-gesture-settling.md)
+
+- [0025-tray-settings-navigation](0025-tray-settings-navigation.md)

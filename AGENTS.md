@@ -48,6 +48,7 @@ Contributions are expected to be done from a fork and synchronized through pull 
 ## Gitflow is the project workflow
 
 - This project uses Gitflow.
+- Future GitHub Release titles contain only the version tag, such as `v1.6.1`.
 - Primary long-lived branches are `develop` and `main`.
 - Feature and fix branches use:
   - `feat/<topic>` for new capabilities.
@@ -57,12 +58,19 @@ Contributions are expected to be done from a fork and synchronized through pull 
 - Hot fixes use `hotfix/<topic>` and are merged into both `main` and `develop`.
 - Use merge flow that keeps `main` stable and `develop` the integration branch for next work.
 
-## Optional GitHub issue path
+## GitHub issues and PR review threads
 
-This project can use issues, but it is optional.
-
+- Always link implementation PRs to their tracking issues using closing keywords
+  such as `Closes #<issue>`. Create a focused issue when none exists, after applying
+  the security rules below. Do not claim closure for incomplete acceptance work.
+- Close linked issues only after an approved merge completes their scope. GitHub
+  automatically processes closing keywords when merged into the default branch;
+  for completed work merged into `develop`, verify closure and close the issue
+  explicitly when necessary. Closing an unmerged PR does not complete an issue.
+- Always resolve PR review threads after their concerns are fixed or a response
+  settles them. A response alone does not settle an outstanding requested change;
+  keep disputed or incomplete concerns open and explain the remaining work.
 - Keep each issue limited to implementation coordination only.
-- If you use an issue, apply the security rules below before creating or updating it.
 
 ## Security and data hygiene for external updates
 

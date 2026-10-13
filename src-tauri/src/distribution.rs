@@ -61,14 +61,17 @@ impl InstalledDistribution {
             architecture,
             channel: ReleaseChannel::Stable,
             published_classification: None,
-            check_supported: matches!(
-                edition,
-                DistributionEdition::DirectMacos
-                    | DistributionEdition::DirectWindows
-                    | DistributionEdition::MicrosoftStore
-                    | DistributionEdition::MacAppStore
-                    | DistributionEdition::Debian
-            ),
+            check_supported: match edition {
+                DistributionEdition::DirectMacos => {
+                    architecture == ApplicationArchitecture::Aarch64
+                }
+                DistributionEdition::DirectWindows | DistributionEdition::Debian => matches!(
+                    architecture,
+                    ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+                ),
+                DistributionEdition::MicrosoftStore | DistributionEdition::MacAppStore => true,
+                _ => false,
+            },
             direct_install_supported: false,
         }
     }
@@ -76,14 +79,14 @@ impl InstalledDistribution {
     pub fn prerelease_supported(&self) -> bool {
         self.check_supported
             && matches!(
-                self.edition,
-                DistributionEdition::DirectMacos
-                    | DistributionEdition::DirectWindows
-                    | DistributionEdition::Debian
-            )
-            && matches!(
-                self.architecture,
-                ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+                (self.edition, self.architecture),
+                (
+                    DistributionEdition::DirectMacos,
+                    ApplicationArchitecture::Aarch64
+                ) | (
+                    DistributionEdition::DirectWindows | DistributionEdition::Debian,
+                    ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+                )
             )
     }
     pub const fn edition_key(&self) -> &'static str {
@@ -160,7 +163,16 @@ impl InstalledDistributionResolver {
     pub fn from_runtime(resource_dir: &Path, development: bool) -> Self {
         let provenance = fs::read(resource_dir.join("distribution.json"))
             .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+            .and_then(|bytes| serde_json::from_slice::<PackageProvenance>(&bytes).ok())
+            .filter(|value| match value.edition {
+                ProvenanceEdition::DirectMacos | ProvenanceEdition::MacAppStore => {
+                    cfg!(target_os = "macos")
+                }
+                ProvenanceEdition::DirectWindows | ProvenanceEdition::MicrosoftStore => {
+                    cfg!(windows)
+                }
+                ProvenanceEdition::Debian => cfg!(target_os = "linux"),
+            });
         Self {
             provenance,
             evidence: platform_evidence(resource_dir),
@@ -484,6 +496,170 @@ mod tests {
             ApplicationArchitecture::X86_64,
         );
         assert_eq!(result.architecture, ApplicationArchitecture::X86_64);
+    }
+
+    #[test]
+    fn runtime_resolver_rejects_foreign_platform_provenance() {
+        let resources = tempfile::tempdir().unwrap();
+        let edition = if cfg!(target_os = "macos") {
+            "direct_windows"
+        } else {
+            "direct_macos"
+        };
+        fs::write(
+            resources.path().join("distribution.json"),
+            format!(
+                r#"{{"schemaVersion":1,"edition":"{edition}","publisher":"{OFFICIAL_PUBLISHER}"}}"#
+            ),
+        )
+        .unwrap();
+        let resolver = InstalledDistributionResolver::from_runtime(resources.path(), false);
+        let installed = resolve_at_startup(&resolver);
+        assert_eq!(installed.edition, DistributionEdition::Unknown);
+        assert!(!installed.check_supported);
+    }
+
+    // Run the production startup resolver in a subprocess so the test's package
+    // database and PATH cannot affect other tests or the user's installed app.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn debian_package_startup_probe() {
+        let Some(resources) = std::env::var_os("SVB_TEST_DEBIAN_RESOURCES") else {
+            return;
+        };
+        let installed = resolve_at_startup(&InstalledDistributionResolver::from_runtime(
+            Path::new(&resources),
+            false,
+        ));
+        assert_eq!(installed.edition, DistributionEdition::Debian);
+        assert!(installed.check_supported);
+        assert!(installed.prerelease_supported());
+        assert_eq!(installed.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(installed.architecture, application_architecture());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_bundle_metadata_enables_updates_through_production_startup() {
+        use std::{fmt::Write, os::unix::fs::PermissionsExt, process::Command};
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("package");
+        let control_dir = root.join("DEBIAN");
+        fs::create_dir_all(&control_dir).unwrap();
+        let resources = root.join("usr/lib/speaker-volume-bridge");
+        fs::create_dir_all(&resources).unwrap();
+        fs::write(
+            resources.join("distribution.json"),
+            include_str!("../distribution/debian.json"),
+        )
+        .unwrap();
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let linux: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.linux.conf.json")).unwrap();
+        let homepage = linux["bundle"]["homepage"]
+            .as_str()
+            .or_else(|| base["bundle"]["homepage"].as_str());
+        let mut control = format!(
+            "Package: speaker-volume-bridge\nVersion: {}\nArchitecture: {}\nMaintainer: Test\nDescription: startup regression fixture\n",
+            env!("CARGO_PKG_VERSION"),
+            if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "amd64"
+            }
+        );
+        if let Some(homepage) = homepage {
+            writeln!(control, "Homepage: {homepage}").unwrap();
+        }
+        fs::write(control_dir.join("control"), control).unwrap();
+        let deb = fixture.path().join("package.deb");
+        assert!(
+            Command::new("dpkg-deb")
+                .args(["--build", "--root-owner-group"])
+                .arg(&root)
+                .arg(&deb)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        let metadata = Command::new("dpkg-deb")
+            .arg("--field")
+            .arg(&deb)
+            .output()
+            .unwrap();
+        assert!(metadata.status.success());
+        // Register the actual packaged control record in a fixture database.
+        // dpkg-query remains real; no canned command response is used.
+        let database = fixture.path().join("database");
+        fs::create_dir(&database).unwrap();
+        fs::write(
+            database.join("status"),
+            format!(
+                "Status: install ok installed\n{}\n",
+                String::from_utf8(metadata.stdout).unwrap()
+            ),
+        )
+        .unwrap();
+        let bin = fixture.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        let query = bin.join("dpkg-query");
+        fs::write(
+            &query,
+            "#!/bin/sh\nexec /usr/bin/dpkg-query --admindir=\"$SVB_TEST_DEBIAN_DATABASE\" \"$@\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&query, fs::Permissions::from_mode(0o755)).unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "distribution::tests::debian_package_startup_probe",
+                "--nocapture",
+            ])
+            .env("PATH", &bin)
+            .env("SVB_TEST_DEBIAN_DATABASE", &database)
+            .env("SVB_TEST_DEBIAN_RESOURCES", &resources)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn startup_resolver_excludes_unsupported_application_architectures() {
+        for (edition, architecture) in [
+            (
+                ProvenanceEdition::DirectMacos,
+                ApplicationArchitecture::X86_64,
+            ),
+            (
+                ProvenanceEdition::DirectMacos,
+                ApplicationArchitecture::Unknown,
+            ),
+            (
+                ProvenanceEdition::DirectWindows,
+                ApplicationArchitecture::Unknown,
+            ),
+            (ProvenanceEdition::Debian, ApplicationArchitecture::Unknown),
+        ] {
+            let resolver = InstalledDistributionResolver::from_evidence(
+                Some(edition),
+                PlatformEvidence {
+                    official_debian_package: true,
+                    ..PlatformEvidence::default()
+                },
+                false,
+                architecture,
+            );
+            let installed = resolve_at_startup(&resolver);
+            assert!(!installed.check_supported);
+            assert!(!installed.prerelease_supported());
+        }
     }
 
     #[test]

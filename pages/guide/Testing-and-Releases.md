@@ -55,7 +55,7 @@ Record only non-sensitive model, operating-system, firmware, and pass/fail infor
 
 ## Release flow
 
-The Release workflow runs from `develop`, increments the single Cargo workspace version, validates that exact commit, builds Windows x64/ARM64 installers, an Apple Silicon macOS DMG, and Ubuntu x64/ARM64 Debian packages, creates the annotated version tag, and publishes GitHub release assets. Microsoft Store submission is opt-in for GA releases after GitHub publication. Mac App Store package creation is also opt-in and does not submit to Apple automatically.
+The Release workflow runs from `develop`, increments the single Cargo workspace version, validates that exact commit, builds Windows x64/ARM64 installers, an Apple Silicon macOS DMG, and Ubuntu x64/ARM64 Debian packages, creates the annotated version tag, and publishes GitHub release assets. With Stable enabled, Push MS Store submits the Microsoft Store package and Push Apple Store builds the signed package and uploads it to App Store Connect. Both uploads require successful GitHub Release publication first and their existing approvals. Apple upload does not submit the build for review or establish public Store availability. Select **Manually release this version** in App Store Connect before submitting for review, so approval does not automatically publish the app.
 
 Release channels are:
 
@@ -84,3 +84,50 @@ Before a guide update:
 3. Use the released tag as the source of truth for features, settings, defaults, assets, and limitations.
 4. Recheck issue state before changing any limitation link.
 5. Update the version banner and validate all internal and external links.
+
+## Historical independent catalog activation
+
+This section describes legacy manual catalog tooling only. New builds discover
+updates through the anonymous GitHub Releases API and do not require catalog
+credentials, bootstrap or delivery. Automatic proposals, scheduled reconciliation
+and develop website deployments are retired; current website delivery uses main.
+
+Catalog updates require verified public packages, normal pull-request checks and
+human approval. The former delivery path used develop while retaining the last
+approved GA website. When the GA source is already published, a workflow-only hosting promotion
+preserves that website and its displayed version. Approved GA content left
+unserved by a failed deployment uses the normal recovery path; it does not publish another application release.
+
+Initial activation requires an exact verified copy of the served GA website.
+Missing retained artifacts or hosting transformations that change HTML bytes
+leave activation pending until reviewed recovery and full comparison succeed.
+Catalog delivery and installed-app verification are separate acceptance steps.
+
+Hosting workflow definitions require validation against approved develop even
+when a promotion includes other content. Adding documentation or application
+files cannot exempt those definitions from their approval checks.
+
+## Release workflow inputs
+
+The release workflow asks for Version (Major, Minor or Fix, default Fix), Stable
+(default off), Sign Apple Pack (default on), Push Apple Store (default off), then
+Push MS Store (default off). Stable off publishes a Beta prerelease; Stable on
+publishes GA. Both Store push options run only for stable releases. Apple upload
+requires a signed Store package and does not establish Store approval or public
+availability. Turning off Sign Apple Pack produces an unsigned macOS direct
+package; it does not remove the signing requirement for a Store package.
+Release dispatch publishes publicly, so complete native acceptance beforehand.
+
+## macOS updater artifacts
+
+Direct macOS updater archive checks are separate from native upgrade acceptance.
+Packaging and signature checks alone do not prove replacement, preserved settings,
+login registration or working synchronization after relaunch. Until those checks
+pass, the app retains its release-page action and manual installation guidance.
+Future release titles use only the version tag.
+
+An optional signing-verification run exercises a test-only native updater in a
+disposable account. Its test packages preserve the app's normal identity and must
+not be installed over a user's normal installation. A hosted check does not prove
+physical speaker operation or login-session behavior. Production builds keep the
+release-page action while this acceptance remains incomplete.

@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-04T23:26:33Z",
+  "entries": [
+    {
+      "edition": "debian",
+      "os": "linux",
+      "architecture": "aarch64",
+      "version": "1.7.4",
+      "classification": "Beta",
+      "channel": "prereleases",
+      "publishedAt": "2026-10-04T22:56:58Z",
+      "releaseNotes": "Public Beta release 1.7.4.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.7.4"
+      }
+    },
+    {
+      "edition": "debian",
+      "os": "linux",
+      "architecture": "x86_64",
+      "version": "1.7.4",
+      "classification": "Beta",
+      "channel": "prereleases",
+      "publishedAt": "2026-10-04T22:56:58Z",
+      "releaseNotes": "Public Beta release 1.7.4.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.7.4"
+      }
+    },
+    {
+      "edition": "debian",
+      "os": "linux",
+      "architecture": "aarch64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0"
+      }
+    },
+    {
+      "edition": "debian",
+      "os": "linux",
+      "architecture": "x86_64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0"
+      }
+    },
+    {
+      "edition": "direct_macos",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "1.7.4",
+      "classification": "Beta",
+      "channel": "prereleases",
+      "publishedAt": "2026-10-04T22:56:58Z",
+      "releaseNotes": "Public Beta release 1.7.4.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.7.4"
+      }
+    },
+    {
+      "edition": "direct_macos",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0"
+      }
+    },
+    {
+      "edition": "direct_windows",
+      "os": "windows",
+      "architecture": "aarch64",
+      "version": "1.7.4",
+      "classification": "Beta",
+      "channel": "prereleases",
+      "publishedAt": "2026-10-04T22:56:58Z",
+      "releaseNotes": "Public Beta release 1.7.4.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.7.4"
+      }
+    },
+    {
+      "edition": "direct_windows",
+      "os": "windows",
+      "architecture": "x86_64",
+      "version": "1.7.4",
+      "classification": "Beta",
+      "channel": "prereleases",
+      "publishedAt": "2026-10-04T22:56:58Z",
+      "releaseNotes": "Public Beta release 1.7.4.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.7.4"
+      }
+    },
+    {
+      "edition": "direct_windows",
+      "os": "windows",
+      "architecture": "aarch64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0"
+      }
+    },
+    {
+      "edition": "direct_windows",
+      "os": "windows",
+      "architecture": "x86_64",
+      "version": "1.8.0",
+      "classification": "GA",
+      "channel": "stable",
+      "publishedAt": "2026-10-04T23:26:33Z",
+      "releaseNotes": "Public GA release 1.8.0.",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0"
+      }
+    }
+  ]
+}

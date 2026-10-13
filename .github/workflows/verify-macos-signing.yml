@@ -2,6 +2,11 @@ name: Verify macOS Signing
 
 on:
   workflow_dispatch:
+    inputs:
+      updater_acceptance:
+        description: Build a signed updater probe pair and run native acceptance
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -77,22 +82,75 @@ jobs:
           chmod 600 "$api_key_path"
           echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
       - name: Build, sign, notarize, and staple the app
+        if: ${{ !inputs.updater_acceptance }}
         run: cargo tauri build --bundles app --config src-tauri/tauri.direct.conf.json
       - name: Verify the signed and notarized app
+        if: ${{ !inputs.updater_acceptance }}
         run: |
           app_path='target/release/bundle/macos/Speaker Volume Bridge.app'
           ./scripts/verify-macos-artifact.sh direct "$app_path"
           xcrun stapler validate "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
       - name: Archive the verified app bundle
+        if: ${{ !inputs.updater_acceptance }}
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
             'target/release/bundle/macos/Speaker Volume Bridge.app' \
             "speaker-volume-bridge-${GITHUB_SHA}-macos-verification.zip"
       - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.updater_acceptance }}
         with:
           name: macos-signing-verification
           path: speaker-volume-bridge-*-macos-verification.zip
+          if-no-files-found: error
+      - name: Build signed native updater acceptance packages
+        if: ${{ inputs.updater_acceptance }}
+        run: bash scripts/build-macos-updater-acceptance.sh "$RUNNER_TEMP/updater-acceptance"
+      - name: Run the native sandboxed updater in Applications
+        if: ${{ inputs.updater_acceptance }}
+        id: native_probe
+        continue-on-error: true
+        env:
+          SVB_DISPOSABLE_NATIVE_ACCOUNT: '1'
+        run: |
+          old_version="$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/updater-acceptance/versions.json"))["old"])')"
+          python3 scripts/run-macos-updater-acceptance.py \
+            "$RUNNER_TEMP/updater-acceptance/$old_version/Speaker Volume Bridge.app" \
+            "$RUNNER_TEMP/updater-acceptance/candidate" \
+            '/Applications/Speaker Volume Bridge.app' "$RUNNER_TEMP/native-updater-result"
+      - name: Summarize native acceptance without claiming unavailable checks
+        if: ${{ inputs.updater_acceptance && always() }}
+        env:
+          PROBE_OUTCOME: ${{ steps.native_probe.outcome }}
+        run: |
+          if [ "$PROBE_OUTCOME" = success ]; then
+            echo 'Native replacement, relaunch and application-settings continuity: passed.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Native replacement acceptance: failed or unavailable. Retain the release-page fallback.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo 'Real speaker synchronization, login-session launch and unsupported destinations: not verified by this runner.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Archive only signed test packages and public verification material
+        if: ${{ inputs.updater_acceptance && always() }}
+        run: |
+          output="$RUNNER_TEMP/updater-acceptance"
+          test ! -f "$output/temporary-updater.key"
+          mkdir -p acceptance-artifacts
+          for app in "$output"/*/'Speaker Volume Bridge.app'; do
+            test -d "$app"
+            version="$(basename "$(dirname "$app")")"
+            ditto -c -k --sequesterRsrc --keepParent "$app" "acceptance-artifacts/native-acceptance-$version.zip"
+          done
+          cp "$output/candidate/"*.app.tar.gz* acceptance-artifacts/
+          if [ -f "$RUNNER_TEMP/native-updater-result/native-summary.json" ]; then
+            cp "$RUNNER_TEMP/native-updater-result/native-summary.json" acceptance-artifacts/
+          fi
+          cp "$output/candidate/manifest.json" "$output/temporary-updater.key.pub" "$output/versions.json" acceptance-artifacts/
+      - uses: actions/upload-artifact@v7
+        if: ${{ inputs.updater_acceptance && always() }}
+        with:
+          name: macos-native-updater-acceptance
+          path: acceptance-artifacts/*
+          retention-days: 7
           if-no-files-found: error
       - name: Remove temporary Apple credentials
         if: always()

@@ -1,4 +1,4 @@
-#[cfg(any(not(target_os = "macos"), test))]
+#[cfg(any(target_os = "linux", test))]
 pub const fn registration_name(demo: bool) -> &'static str {
     if demo {
         "sonos-volume-bridge-ui-demo"

@@ -81,11 +81,46 @@ pub async fn set_update_notifications(enabled: bool, app: AppHandle) -> Result<b
         .ok_or_else(|| "Update checking is unavailable".to_owned())?
         .service()
         .clone();
+    if service.store_action().is_ok() {
+        return Err("Update notifications are managed by the Store".into());
+    }
     let permitted = !enabled || crate::schedule_notifications::permitted(&app, true).await;
     service
         .set_update_notifications(enabled && permitted)
         .map_err(|error| error.to_string())?;
     Ok(enabled && permitted)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn open_update_store(app: AppHandle) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let url = manager
+        .service()
+        .store_action()
+        .map_err(|_| "Store updates are unavailable for this edition".to_owned())?;
+    open_url_with_system(url)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
+pub fn open_update_download(
+    version: String,
+    generation: u64,
+    app: AppHandle,
+) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let action = manager
+        .service()
+        .claim_download_generation(&version, generation)
+        .map_err(|_| "That download offer changed. Check again before downloading.".to_owned())?;
+    let result = open_url_with_system(&action.url);
+    manager.service().finish_open();
+    result
 }
 
 #[tauri::command]
@@ -169,6 +204,11 @@ fn open_url_with_system(_: &str) -> Result<(), String> {
 #[tauri::command]
 pub fn get_system_hour12() -> Option<bool> {
     crate::clock_format::hour12()
+}
+
+#[tauri::command]
+pub fn get_system_locale() -> Option<String> {
+    crate::clock_format::locale()
 }
 
 #[tauri::command]
@@ -727,4 +767,18 @@ pub async fn set_disable_loudness_during_night_schedule(
         .store(true, std::sync::atomic::Ordering::Relaxed);
     drop(gate);
     get_snapshot(state)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
+pub fn take_pending_settings_navigation(
+    app: AppHandle,
+) -> Option<crate::tray::SettingsNavigationRequest> {
+    crate::tray::take_settings_navigation_request(&app)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn acknowledge_settings_navigation(app: AppHandle, revision: u64) {
+    crate::tray::acknowledge_settings_navigation(&app, revision);
 }

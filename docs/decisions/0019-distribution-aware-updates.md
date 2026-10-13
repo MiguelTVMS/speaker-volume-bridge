@@ -1,8 +1,28 @@
 # 0019: Distribution-aware update catalog and phase-one checks
 
+The catalog transport/delivery decision is superseded for new builds by [ADR 0021](0021-github-release-updates.md). Historical catalog tooling is retained; legacy delivery and redirects are outside the current rollout scope. Existing
+catalog clients require a one-time manual upgrade; see
+[upgrade guidance](../rebrand-upgrade.md). Catalog activation is not a readiness
+prerequisite for GitHub Releases discovery.
+
+
 ## Status
 
 Accepted for phase 1.
+
+### Debian packaging and startup recognition
+
+The Linux Tauri bundle explicitly supplies the canonical repository Homepage.
+The runtime's Debian evidence query requires this control field as well as the
+expected package name, then combines it with bundled provenance. A package with
+no Homepage remains unknown; the fix supplies the missing packaging evidence
+instead of weakening recognition for custom packages. A normal-suite Linux
+regression builds real Debian control metadata from the bundle configuration,
+registers that control record in an isolated fixture database, and enters the
+production startup resolver with real `dpkg-query` in a subprocess. It fails
+without the Homepage and passes with it. Native packaging additionally checks
+the actual Tauri-generated Debian package. No installed package is retroactively
+reclassified; affected older versions require manual upgrade.
 
 ## Decision
 
@@ -142,3 +162,24 @@ never current. Unsupported policy or changed cache target is normalized conserva
 on restart without modifying speaker settings or notification/automatic preferences.
 Persisted notice history includes edition/OS/architecture/version but excludes policy
 so a GA reachable in both feeds notifies once, including after intervening previews. All network and platform work stays in the shell.
+
+## Independent publication follow-up (issue #183)
+
+[ADR 0020](0020-independent-catalog-delivery.md) replaces the manual one-target
+proposal/site-promotion flow with verified public package orchestration, approved
+develop PRs and independent catalog composition over retained GA website bytes.
+The consumer URLs, release policy and open-page-only actions remain unchanged.
+
+### Production scheduler verification
+
+The application manager owns one background task. Only the timer is injected for
+lifecycle tests; request, delivery, task ownership and cancellation use production
+orchestration. Delayed startup, bounded retry waits, repeated start and shutdown
+are checked through this path, including cancellation of an in-flight transport.
+These tests do not establish installed-package or OS notification acceptance.
+
+Task abort is cooperative. Manager shutdown first publishes an explicit stop flag
+and the scheduler checks it at request boundaries, including a timer that became
+ready within an already running poll. A deterministic production lifecycle test
+fails with abort alone and passes with the stop flag; a separate pending-transport
+regression confirms cancellation still occurs.

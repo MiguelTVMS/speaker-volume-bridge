@@ -30,12 +30,12 @@ reject foreign, duplicate, missing or escaping entries. AppleDouble sidecars are
 excluded, matching Tauri's tar layout. Extended attributes are not a portable
 archive contract; final extracted-bundle Apple acceptance must be tested natively.
 
-The offline verifier uses pinned minisign-verify 0.2.5, the signature library used
-by the inspected updater 2.10.0 source. This is an operator packaging tool and does
+The offline verifier uses pinned minisign-verify 0.3.0 and base64 0.23.1. The
+inspected updater 2.10.0 source retains its own minisign-verify 0.2.5 dependency. This is an operator packaging tool and does
 not register an updater plugin, frontend permission or installation command.
 The normal build does not register an updater plugin. The opt-in
 `native-updater-acceptance` feature pins updater 2.10.0 for native tests only.
-Tauri itself is 2.12.1.
+Tauri itself is 2.12.2.
 
 The payload and its detached signature are mandatory. The audit descriptor binds
 the package version, direct edition, ARM64 target, filenames and digest, but is

@@ -39,6 +39,11 @@ pub struct UiSnapshot {
 
 pub struct AppState {
     pub store: ConfigStore,
+    pub speaker_gate: tokio::sync::Mutex<()>,
+    pub schedule_status: Mutex<crate::night_schedule::ScheduleStatus>,
+    pub schedule_refresh: std::sync::atomic::AtomicBool,
+    pub schedule_reconcile: std::sync::atomic::AtomicBool,
+    pub schedule_stopped: std::sync::atomic::AtomicBool,
     pub configuration: Mutex<AppConfiguration>,
     pub snapshot: Arc<Mutex<UiSnapshot>>,
     runtime: RuntimeManager,
@@ -60,6 +65,11 @@ impl AppState {
         Self {
             camera: crate::camera::CameraAutomation::new(configuration.clone()),
             store,
+            speaker_gate: tokio::sync::Mutex::new(()),
+            schedule_status: Mutex::default(),
+            schedule_refresh: std::sync::atomic::AtomicBool::new(false),
+            schedule_reconcile: std::sync::atomic::AtomicBool::new(true),
+            schedule_stopped: std::sync::atomic::AtomicBool::new(false),
             configuration: Mutex::new(configuration.clone()),
             snapshot: Arc::new(Mutex::new(UiSnapshot {
                 runtime_generation: 0,
@@ -84,6 +94,12 @@ impl AppState {
         }
     }
     pub fn start_runtime(&self, app: AppHandle) {
+        if self
+            .schedule_stopped
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return;
+        }
         let Ok(configuration) = self.configuration.lock().map(|value| value.clone()) else {
             return;
         };
@@ -91,6 +107,8 @@ impl AppState {
             .restart(configuration, Arc::clone(&self.snapshot), app);
     }
     pub fn stop_runtime(&self) {
+        self.schedule_stopped
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         self.runtime.stop();
     }
 }

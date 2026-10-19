@@ -1,5 +1,8 @@
 {
   "bundle": {
+    "resources": {
+      "distribution/mac-app-store.json": "distribution.json"
+    },
     "macOS": {
       "entitlements": "./Entitlements.appstore.plist",
       "files": {

@@ -1,6 +1,6 @@
 //! Adapter-agnostic synchronization state machine.
 
-use sonos_volume_bridge_domain::{
+use speaker_volume_bridge_domain::{
     ConfirmedSonosState, LocalAudioState, LocalOrigin, MappingError, MuteState, PendingIntent,
     SonosVolume, SuppressionDecision, SyncState, VolumeMapping,
 };
@@ -68,6 +68,9 @@ impl Synchronizer {
             pending_mute: None,
             state: SyncState::Connecting,
         })
+    }
+    pub const fn two_way_synchronization(&self) -> bool {
+        self.two_way_synchronization
     }
     pub const fn state(&self) -> SyncState {
         self.state
@@ -163,7 +166,7 @@ impl Synchronizer {
 
     pub fn classify_expected_local_callback(
         &self,
-        expected: sonos_volume_bridge_domain::ExpectedLocalWrite,
+        expected: speaker_volume_bridge_domain::ExpectedLocalWrite,
         observed: LocalAudioState,
         now_ms: u64,
     ) -> SuppressionDecision {
@@ -174,7 +177,7 @@ impl Synchronizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sonos_volume_bridge_domain::NormalizedVolume;
+    use speaker_volume_bridge_domain::NormalizedVolume;
     fn v(value: u8) -> NormalizedVolume {
         NormalizedVolume::new(value).unwrap()
     }
@@ -189,6 +192,90 @@ mod tests {
     }
     fn sync() -> Synchronizer {
         Synchronizer::new(VolumeMapping::Linear, s(55), true, true, false).unwrap()
+    }
+    #[test]
+    fn echoes_never_write_back_across_modes_mappings_and_observation_sources() {
+        use speaker_volume_bridge_domain::MappingPoint;
+        for mapping in [
+            VolumeMapping::Linear,
+            VolumeMapping::CappedLinear { maximum: s(60) },
+            VolumeMapping::Piecewise {
+                points: vec![
+                    MappingPoint {
+                        local: v(0),
+                        sonos: s(0),
+                    },
+                    MappingPoint {
+                        local: v(50),
+                        sonos: s(20),
+                    },
+                    MappingPoint {
+                        local: v(100),
+                        sonos: s(80),
+                    },
+                ],
+            },
+        ] {
+            for two_way in [false, true] {
+                for sync_mute in [false, true] {
+                    for mute_zero in [false, true] {
+                        let mut machine = Synchronizer::new(
+                            mapping.clone(),
+                            s(55),
+                            sync_mute,
+                            two_way,
+                            mute_zero,
+                        )
+                        .unwrap();
+                        for source in [
+                            SonosObservationSource::ExplicitRead,
+                            SonosObservationSource::Event,
+                            SonosObservationSource::Poll,
+                        ] {
+                            let effects = machine
+                                .handle(SyncEvent::SonosConfirmed {
+                                    volume: s(24),
+                                    muted: MuteState(true),
+                                    source,
+                                    at_ms: 1,
+                                })
+                                .unwrap();
+                            assert_eq!(effects.len(), usize::from(two_way));
+                            for echo in [local(0), local(24), local(55)] {
+                                for _ in 0..3 {
+                                    assert_eq!(
+                                        machine
+                                            .handle(SyncEvent::LocalChanged {
+                                                state: echo,
+                                                origin: LocalOrigin::Application,
+                                                at_ms: 2,
+                                            })
+                                            .unwrap(),
+                                        vec![Effect::SuppressedLocalCallback]
+                                    );
+                                }
+                            }
+                            for origin in [LocalOrigin::User, LocalOrigin::Unknown] {
+                                assert!(
+                                    machine
+                                        .handle(SyncEvent::LocalChanged {
+                                            state: local(30),
+                                            origin,
+                                            at_ms: 3,
+                                        })
+                                        .unwrap()
+                                        .iter()
+                                        .any(|effect| matches!(
+                                            effect,
+                                            Effect::RequestSonosVolume(_)
+                                        ))
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     #[test]
     fn startup_confirmation_only_applies_sonos_state() {
@@ -299,7 +386,7 @@ mod tests {
                 at_ms: 2,
             })
             .unwrap();
-        assert!(effects.is_empty());
+        assert_eq!(effects, []);
         assert_eq!(machine.confirmed().unwrap().volume, s(35));
         assert_eq!(machine.state(), SyncState::Synchronized);
     }

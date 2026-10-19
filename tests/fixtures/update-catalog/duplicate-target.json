@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-04T12:00:00Z",
+  "entries": [
+    {
+      "edition": "direct_macos",
+      "channel": "stable",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "2.0.0",
+      "publishedAt": "2026-10-04T12:00:00Z",
+      "releaseNotes": "A verified public release.",
+      "action": {
+        "type": "open_url",
+        "url": "https://example.invalid/downloads"
+      }
+    },
+    {
+      "edition": "direct_macos",
+      "channel": "stable",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "2.0.1",
+      "publishedAt": "2026-10-04T12:00:00Z",
+      "releaseNotes": "A verified public release.",
+      "action": {
+        "type": "open_url",
+        "url": "https://example.invalid/downloads"
+      }
+    },
+    {
+      "edition": "direct_macos",
+      "channel": "stable",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "2.0.1",
+      "publishedAt": "2026-10-04T12:00:00Z",
+      "releaseNotes": "A verified public release.",
+      "action": {
+        "type": "open_url",
+        "url": "https://example.invalid/downloads"
+      }
+    }
+  ]
+}

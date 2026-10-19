@@ -1,6 +1,6 @@
 //! Camera adapters never expose device identifiers or capture media.
-use sonos_volume_bridge_domain::camera::CameraObservation;
-use sonos_volume_bridge_integration::camera::CameraPort;
+use speaker_volume_bridge_domain::camera::CameraObservation;
+use speaker_volume_bridge_integration::camera::CameraPort;
 
 #[cfg(all(target_os = "macos", feature = "camera-automation-macos"))]
 mod macos;
@@ -9,6 +9,17 @@ mod windows;
 
 #[cfg(any(test, all(windows, feature = "camera-automation-windows")))]
 mod inventory;
+#[cfg(any(test, all(windows, feature = "camera-automation-windows")))]
+mod query;
+
+#[cfg(any(test, all(windows, feature = "camera-automation-windows")))]
+fn worker_observation_unavailable() -> CameraObservation {
+    use speaker_volume_bridge_domain::camera::{CameraActivity, CameraAvailability};
+    CameraObservation {
+        activity: CameraActivity::Unknown,
+        availability: CameraAvailability::Unavailable,
+    }
+}
 #[cfg(any(test, all(target_os = "macos", feature = "camera-automation-macos")))]
 mod observer;
 
@@ -45,7 +56,7 @@ impl CameraPort for Unsupported {
 ))]
 mod worker {
     use super::{CameraObservation, CameraPort};
-    use sonos_volume_bridge_domain::camera::{CameraActivity, CameraAvailability};
+    use speaker_volume_bridge_domain::camera::{CameraActivity, CameraAvailability};
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::{Duration, Instant};
 

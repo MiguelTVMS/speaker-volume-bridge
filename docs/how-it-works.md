@@ -1,6 +1,6 @@
-# How SonosVolumeBridge works
+# How SpeakerVolumeBridge works
 
-SonosVolumeBridge keeps one speaker and one local audio endpoint synchronized.
+SpeakerVolumeBridge keeps one speaker and one local audio endpoint synchronized.
 
 ## End-to-end flow
 
@@ -42,6 +42,47 @@ first if it still matches the selected UDN.
 
 At runtime startup, the selected endpoint is attached and the synchronizer is seeded
 with the latest Sonos read.
+
+Update discovery separately resolves the installed distribution at application
+startup. Direct packages, Store packages and Debian packages carry different
+package metadata even when they reuse the same executable. OS evidence must agree:
+a Store-signed Windows package, App Store receipt, or official Debian package
+registration is required for those editions. Ambiguous/custom packages remain
+unknown and do not affect speaker startup.
+
+The Debian bundle includes the repository Homepage used by the startup resolver
+alongside its package registration and bundled provenance. Older packages missing
+that field remain unknown; they need a manual upgrade to a corrected package.
+
+New builds of recognized direct and Debian installations query the anonymous GitHub Releases
+API 30 seconds after startup by default and no more than once per 24 hours after a
+successful check. Stable only excludes prereleases; Include prereleases considers
+both stable releases and prereleases. Offers require a compatible published asset
+and open the exact validated release page. Responses and pagination are bounded,
+and rate-limit responses postpone further requests. Manual checks bypass freshness
+but join an in-flight request. The persisted
+record contains only the preference, last attempt/success times, and last-notified
+edition/version. Background failures remain quiet and never change audio behavior;
+manual failures are visible and retryable. Debug, demo, custom and ambiguous
+packages do not check automatically.
+
+The Updates page shows the installed version and distribution, last successful
+check and every checker state. The check date and time follow the desktop's
+regional format, local time zone and 12/24-hour preference, refreshed when
+Settings regains focus. An available offer remains discoverable after
+Later or notification denial. The persisted Update notifications switch suppresses
+native update notices independently from automatic checks; enabling it is the
+only update flow that may request OS permission. Open release is enabled only for the exact
+validated offer; the shell rechecks version and URL immediately before invoking
+the operating system's default HTTPS handler. No browser opens at startup and no
+package is downloaded or installed automatically.
+
+For a fresh compatible offer, Download update opens the selected installer asset
+in the default browser. The user completes installation manually. Open release
+remains available for release notes or download trouble. The sidebar shows an
+available-version notice independently of OS notification permission. Later hides
+that notice but keeps both actions on Updates. Downloads use the same policy,
+version, edition, architecture and freshness guards as release-page actions.
 
 ## Synchronization strategy
 
@@ -89,6 +130,9 @@ do not create write loops.
 Settings can be saved on first launch with Start at login disabled. The login
 service is contacted only when that option changes, so login-service errors do
 not block unrelated settings updates.
+On macOS, disabling an already-absent login item also saves successfully. If
+macOS refuses to remove an entry that remains registered, Settings explains how
+to remove it through System Settings and keeps the previous saved preference.
 
 Speaker sound controls update from local Sonos RenderingControl push notifications.
 Settings-only events no longer require accompanying volume/mute fields. The app
@@ -135,3 +179,179 @@ synchronization running. Settings and tray distinguish authoritative speech stat
 from the automation source and show cleanup warnings.
 
 Read [privacy and restoration limits](camera-automation-privacy.md) before enabling.
+## Night Mode schedule
+
+Open **Night schedule** to edit one global schedule for the speaker selected on
+Devices. The schedule only acts on compatible speakers. Switching speakers applies
+the same schedule to the new selection without changing the previous speaker.
+An unavailable or unsupported selection pauses scheduling and preserves the grid.
+
+The gray editor shows Monday–Sunday rows and 48 half-hour columns across the full
+day. Labels appear every three hours, through 21:00/9 PM, without repeating
+midnight at the end. Hover tooltips appear after 100 ms. Click or press Space to
+toggle a cell; arrow keys move between cells. Dragging creates a rectangle: starting
+on an empty cell selects the whole rectangle; starting on a selected cell clears
+it. Overlapping cells all take that same state. Dragging back shrinks the rectangle
+and restores cells outside it to their state before the gesture.
+
+**Save schedule** stores the grid and immediately applies its current block: on
+inside a selected block, off outside. This one-shot action works even when recurring
+scheduling is disabled and can be repeated without editing the grid. **Cancel**
+restores the saved grid; **Clear all** edits the draft until saved. Background reads
+and speaker selection changes preserve unsaved drafts.
+
+**Enable schedule** saves immediately. During selected periods, the scheduler keeps
+Night Mode on and rejects manual off. Disable scheduling first to use manual off;
+disabling alone leaves Night Mode unchanged. Outside selected periods, manual
+changes are allowed. Leaving a scheduled period turns Night Mode off once.
+The tray has a checked **Night schedule** item directly above **Night sound**.
+The checkmark represents enabled scheduling; the editor opens through Settings.
+
+**Disable loudness during night schedule** is off by default and saves immediately.
+When enabled, Loudness is kept off while the current time is inside the enabled
+schedule. If the bridge turned Loudness off, it restores Loudness after the period,
+when scheduling is disabled, or when this option is disabled. Loudness that was
+already off remains off. Restart-safe restoration state belongs to the selected
+speaker; it is never transferred to another speaker. A Loudness capability or
+network failure is retried independently and never stops Night Mode scheduling.
+Manual Loudness enable actions are unavailable while this policy is active.
+
+**Night schedule notifications** saves immediately and offers **On start**,
+**On end**, **On start and end**, and **Never** (the default). Confirmed boundaries notify
+only when their direction is selected. Applying an edited schedule also notifies
+only if it makes the current time enter or leave the enabled schedule, using the
+matching direction after the speaker state is confirmed. Saving while remaining
+inside or outside the schedule sends no notification. Disabled scheduling is silent. Adjacent selected cells do not notify. Startup,
+wake, recovery, selection changes, manual changes, and enforcement corrections
+remain silent. Permission denial and OS notification suppression never stop
+scheduling or volume synchronization.
+
+Enabling a previously disabled schedule during a selected period applies Night Mode
+immediately and sends a start notification after speaker confirmation when On start or
+On start and end is selected. Enabling outside selected periods, enabling an already
+enabled schedule, and disabling scheduling do not notify. Disabling leaves the speaker
+state unchanged. The worker subsequently reconciles silently to avoid duplicate
+notifications.
+
+Scheduling follows the machine's time zone. Startup, wake, reconnection, selection
+changes, clock changes, and schedule enabling reconcile only the current expected
+state; missed transitions are never replayed. Scheduling runs independently of
+local audio availability and volume fallback polling.
+
+Clock labels follow Foundation preferences on macOS, the regional time format on
+Windows, and GNOME clock-format or LC_TIME on Linux. Preferences are reread when
+Settings regains focus. Other Linux desktop-specific clock overrides may require
+matching LC_TIME. The form omits repetitive disabled/outside-period status text;
+errors, capability guidance, and active-period restrictions remain visible.
+On Linux, a dedicated Schedule status row below notifications shows the current
+state, including disabled and outside-period states. Schedule errors appear in
+that same row instead of beneath the editor. Successful saves show no confirmation.
+
+On Windows, the dedicated Night schedule Status card is the single Status area. It shows
+disabled/outside-period state as well as active restrictions, the next change,
+notification guidance and action errors. Its label sits on the left and its text
+wraps on the right. Successful saves and other settings actions show no confirmation
+message; a successful retry clears the prior error. Other platform layouts are unchanged.
+Windows local runs register the app as a notification sender, so notifications
+use Speaker Volume Bridge rather than relying on PowerShell. Existing Windows
+notification preferences and Do not disturb still apply.
+
+## Update checks and notifications
+
+Startup, periodic, wake and manual checks share orchestration, persist preferences
+and reserve each notification once before sending. Startup waits 30 seconds;
+successful results remain fresh for 24 hours. Bounded retries retain the last valid
+offer on failures. Shutdown cancels the worker and pending requests.
+
+Wake cannot bypass the startup delay. Failures retry after one, five and thirty
+minutes, then daily until recovery; restart preserves this budget. A manual check
+can retry sooner except during a GitHub rate-limit cooldown. Manual errors are
+shown even when an earlier offer remains visible, and failed preference writes
+leave Check for updates usable.
+
+Stable only excludes GitHub prereleases. Include prereleases considers both stable
+and preview releases. Both use the anonymous public release list, compare semantic
+versions and require a compatible official package asset. No Store availability is
+inferred. Changing policy saves it, invalidates prior links immediately and checks
+even with automatic checks disabled. Obsolete responses cannot restore old offers.
+Returning to Stable only waits for a strictly newer GA version without downgrading.
+
+Notifications leave the current Settings page unchanged. Activating an update
+notification or choosing the tray check action opens Updates. Open release
+revalidates and opens the exact project release page; it never installs a package.
+Previous-source cache freshness is discarded during source migration. Unavailable
+or rate-limited responses are never described as up to date. See ADR 0021.
+
+## UI demo builds
+
+Explicit `ui-demo` debug builds open Settings with a simulated Sonos speaker and
+a demo label. The normal scheduler, tray, settings, notifications and local audio
+operate unchanged, including manual-off locking during active scheduled periods.
+Demo app settings persist separately from normal settings; speaker state resets
+on restart and is reconciled by the runtime. No real Sonos device is contacted.
+Local output volume and mute can change through normal synchronization. See
+[development](development.md#hardware-free-ui-demo) for build commands and styling.
+
+Audio echo suppression retains repeated and overlapping expected local states for
+500 ms without pausing listening. Unchanged local properties are not rewritten.
+See [ADR 0017](decisions/0017-volume-feedback-suppression.md) for platform behavior,
+regression coverage, and the limitations of value-based origin detection.
+
+## Upgrading from the former app
+
+Users quit and remove the former app before using the renamed app. The shell
+starts synchronization directly and does not inspect other processes, gate writes
+on a legacy-app check, or display a conflict warning. Settings and Night Mode keep
+their normal selection/write serialization and explicit stop behavior. See
+[decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
+[manual removal guide](removing-old-app.md).
+
+Store editions have a separate `store_managed` update state. The shell rejects
+GitHub discovery for these editions at the shared service boundary, disables
+automatic checks even for migrated enabled preferences, and exposes only fixed
+native Store destinations through an edition-authorized command. No release
+offer or Store availability claim is created. Direct release-policy behavior is
+unchanged. Existing catalog clients require a one-time manual upgrade; see
+[upgrade guidance](rebrand-upgrade.md).
+
+Direct macOS updater preparation is a packaging-only boundary. Verified payloads
+remain validation artifacts retained in CI and never create installation actions. The
+GitHub release-page fallback, version/policy guards and Store delegation remain
+unchanged. Native sandboxed replacement acceptance is pending; see
+[ADR 0023](decisions/0023-macos-updater-artifacts.md).
+
+## Local volume gestures
+
+Rapid callbacks replace a single pending volume while the runtime continues
+receiving input. Buffered callbacks are collapsed before dispatch. During a local
+gesture and for 500 ms after its latest change or completed write, speaker events
+cannot reverse local audio. A fresh read then reconciles the final speaker state,
+including independent speaker changes, mapping and caps. Mute changes supersede
+queued volume immediately. See [ADR 0024](decisions/0024-volume-gesture-settling.md).
+
+On macOS, reattachment removes the previous Core Audio listener set before
+registering replacements, including when the selected output is unchanged.
+Listener registration is transactional: failure rolls back successful registrations
+and reports the output unavailable. The app cannot silently continue with missing
+volume or lifecycle callbacks. See ADR 0024.
+
+Healthy unchanged macOS outputs retain their listeners on unrelated topology
+notifications. Successful output changes reconcile within the existing speaker
+session, without connection backoff. Pending input from the former output is
+discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.
+
+Explicit Diagnostics and Updates tray actions retain a page destination until
+Settings acknowledges it, so opening a hidden or not-yet-ready window selects
+the requested page. Ordinary Settings preserves its selected page. See
+[ADR 0025](decisions/0025-tray-settings-navigation.md).
+
+
+## Read windows and newer intent
+
+Startup, output changes, settling and periodic health reads all pass through the
+same coordinator read path. It compares local state across network work and
+retains newer input instead of applying an obsolete speaker result. Notifications
+arriving during that work trigger a fresh observation rather than being discarded.
+The listener orders delivery and releases all its sockets when the session ends.
+Settings destinations likewise carry revisions: an ordinary Settings request can
+cancel an older destination even while its startup IPC response is in flight.

@@ -1,5 +1,5 @@
 [package]
-name = "sonos-volume-bridge-platform-camera"
+name = "speaker-volume-bridge-platform-camera"
 description = "Passive aggregate camera activity observation"
 version.workspace = true
 edition.workspace = true
@@ -13,8 +13,8 @@ camera-automation-macos = []
 camera-automation-windows = []
 
 [dependencies]
-sonos-volume-bridge-domain = { path = "../domain" }
-sonos-volume-bridge-integration = { path = "../integration" }
+speaker-volume-bridge-domain = { path = "../domain" }
+speaker-volume-bridge-integration = { path = "../integration" }
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = ["Win32_Media_MediaFoundation", "Win32_System_Com"] }

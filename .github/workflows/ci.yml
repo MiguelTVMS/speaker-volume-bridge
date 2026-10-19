@@ -7,7 +7,6 @@ on:
     paths-ignore:
       - "**/*.md"
       - "README*"
-      - "docs/**"
       - ".vscode/**"
       - "AGENTS.md"
       - "LICENSE"
@@ -45,21 +44,74 @@ jobs:
             release:
               - 'scripts/open-release-promotion.py'
               - 'scripts/tests/test_release_promotion.py'
+              - 'scripts/prepare-release-downloads.sh'
+              - 'scripts/collect-linux-installer.sh'
+              - 'scripts/tests/test_release_downloads.py'
+              - 'scripts/tests/test_release_workflow.py'
+              - 'scripts/tests/test_linux_installer.py'
+              - 'scripts/tests/test_rebrand_identity.py'
+              - 'docs/legacy-identifiers.json'
+              - 'scripts/tests/test_distribution_packaging.py'
+              - 'scripts/macos-updater-artifact.py'
+              - 'scripts/build-macos-updater-acceptance.sh'
+              - 'scripts/run-macos-updater-acceptance.py'
+              - 'scripts/tests/test_macos_native_acceptance.py'
+              - '.github/workflows/verify-macos-signing.yml'
+              - 'scripts/tests/test_macos_updater_artifact.py'
+              - 'crates/updater-artifact/**'
+              - 'scripts/prepare-update-catalog.py'
+              - 'scripts/release-catalog.py'
+              - 'scripts/propose-release-catalog.py'
+              - 'scripts/compose-catalog-site.py'
+              - 'scripts/bootstrap-catalog-site.py'
+              - 'scripts/tests/test_catalog_delivery.py'
+              - 'scripts/verify-catalog-availability.py'
+              - 'scripts/stamp-release-classification.py'
+              - 'scripts/tests/test_update_catalog_publication.py'
+              - 'scripts/tests/test_update_catalog.py'
+              - 'scripts/validate-update-catalog.py'
+              - 'tests/fixtures/update-catalog/**'
+              - 'src-tauri/distribution/**'
+              - 'src-tauri/tauri.*.conf.json'
+              - 'scripts/remove-signing-wait.py'
+              - 'scripts/tests/test_signing_wait.py'
+              - 'packaging/linux/**'
+              - 'pages/index.html'
               - '.github/workflows/ci.yml'
               - '.github/workflows/release-candidate.yml'
+              - '.github/workflows/microsoft-store-package.yml'
+              - '.github/workflows/update-catalog.yml'
+              - '.github/workflows/pages.yml'
+              - 'pages/updates/**'
+              - 'scripts/build-msix*.ps1'
+              - 'scripts/publish-msstore.ps1'
+              - 'scripts/resolve-store-upload.py'
+              - 'scripts/tests/test_store_upload.py'
+              - 'scripts/tests/test-msix-upload.ps1'
             rust:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
               - '.github/workflows/**'
               - 'crates/**'
+              - 'patches/**'
               - 'src-tauri/**'
+              - 'scripts/*windows*.ps1'
+              - 'scripts/build-msix*.ps1'
+              - 'scripts/publish-msstore.ps1'
+              - 'scripts/resolve-store-upload.py'
+              - 'scripts/tests/test_store_upload.py'
+              - 'scripts/tests/test-msix-upload.ps1'
+              - 'scripts/tests/test-windows-architecture.ps1'
+              - 'scripts/tests/test-windows-uninstall.ps1'
+              - 'scripts/tests/test-windows-install-directory.ps1'
+              - 'packaging/windows-msix/**'
             ui:
               - 'ui/**'
               - 'ui/pnpm-lock.yaml'
 
   release-promotion-tests:
-    name: Release promotion tests
+    name: Release automation tests
     needs: changes
     if: needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
@@ -70,6 +122,17 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s scripts/tests -p test_release_promotion.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_release_downloads.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_release_workflow.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_store_upload.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_linux_installer.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_rebrand_identity.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_distribution_packaging.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_macos_updater_artifact.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_macos_native_acceptance.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog_publication.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_catalog_delivery.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_signing_wait.py
 
   rust:
     name: Rust (${{ matrix.os }})
@@ -79,7 +142,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, windows-11-arm, macos-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@v1
@@ -87,7 +150,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: workspace-${{ runner.os }}
+          shared-key: workspace-${{ runner.os }}-${{ runner.arch }}
       - run: cargo check --workspace
       - name: Test native camera backend (release gate remains off)
         shell: bash
@@ -99,21 +162,82 @@ jobs:
           fi
           cargo clippy --workspace --all-targets --features "$feature" -- -D warnings
           cargo test --workspace --features "$feature"
+      - run: cargo test --workspace
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/tests/test-windows-architecture.ps1
+      - run: cargo check -p speaker-volume-bridge --features ui-demo
+      - run: cargo check -p speaker-volume-bridge --features ui-windows
+      - run: cargo check -p speaker-volume-bridge --features ui-macos
+      - run: cargo check -p speaker-volume-bridge --features ui-ubuntu
+      - uses: pnpm/action-setup@v6
+        if: runner.os == 'Windows'
+        with:
+          version: 12
+      - uses: actions/setup-node@v7
+        if: runner.os == 'Windows'
+        with:
+          node-version: "lts/*"
+      - if: runner.os == 'Windows'
+        run: pnpm --dir ui install --frozen-lockfile
+      - name: Windows installer regression
+        if: runner.os == 'Windows'
+        run: pnpm dlx @tauri-apps/cli@2 build --debug --bundles nsis
+      - name: Package native Store MSIX for combined upload verification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build-msix.ps1 -ExecutablePath target/debug/speaker-volume-bridge.exe -Architecture '${{ runner.arch }}'
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Windows'
+        with:
+          name: ci-msix-${{ runner.arch }}
+          path: target/release/bundle/msix/*.msix
+          if-no-files-found: error
+      - name: Windows uninstall registration regression
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/tests/test-windows-uninstall.ps1
+      - name: Windows install directory migration regression
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/tests/test-windows-install-directory.ps1
+
+  windows-store-upload:
+    name: Combined Microsoft Store upload regression
+    needs: [changes, rust]
+    if: github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ci-msix-*
+          merge-multiple: true
+          path: microsoft-store-msix
+      - uses: microsoft/microsoft-store-apppublisher@v1
+        with:
+          version: v0.4.3
+      - shell: pwsh
+        run: ./scripts/tests/test-msix-upload.ps1 -PackageDirectory microsoft-store-msix
 
   rust-quality:
-    name: Rust quality
+    name: Rust quality (${{ matrix.os }})
     if: github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@v7
       - name: Cache Linux desktop package archives
         uses: actions/cache@v6
         with:
           path: /var/cache/apt/archives
-          key: ${{ runner.os }}-apt-linux-desktop-v1
+          key: ${{ matrix.os }}-${{ runner.arch }}-apt-linux-desktop-v1
       - name: Install Linux desktop build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+        run: sudo apt-get update && sudo apt-get install --yes libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev dbus-daemon
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
@@ -123,15 +247,17 @@ jobs:
           version: 12
       - uses: actions/setup-node@v7
         with:
-          node-version: 26
+          node-version: "lts/*"
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: workspace-${{ runner.os }}
+          shared-key: workspace-${{ runner.os }}-${{ runner.arch }}-${{ runner.arch }}
       - run: pnpm run ci:rustfmt
       - run: pnpm run ci:clippy
       - run: pnpm run ci:test
+      - run: cargo clippy -p speaker-volume-bridge --all-targets --features ui-demo -- -D warnings
+      - run: cargo test -p speaker-volume-bridge --features ui-demo
 
   frontend:
     name: Frontend
@@ -145,7 +271,7 @@ jobs:
           version: 12
       - uses: actions/setup-node@v7
         with:
-          node-version: 26
+          node-version: "lts/*"
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm --dir ui install --frozen-lockfile
@@ -158,3 +284,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: ./scripts/verify-macos-packaging-config.sh
+      - run: python3 scripts/check-legacy-identifiers.py
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+      - run: cargo build --locked -p speaker-volume-bridge-updater-artifact
+      - name: Verify real Tauri updater signatures and packaging failure propagation
+        env:
+          UPDATER_SIGNATURE_INTEGRATION: '1'
+        run: python3 -m unittest discover -s scripts/tests -p test_macos_updater_artifact.py
+      - run: cargo clippy --locked -p speaker-volume-bridge --all-targets --features native-updater-acceptance -- -D warnings
+      - run: cargo test --locked -p speaker-volume-bridge --features native-updater-acceptance
+      - run: cargo run --locked -p speaker-volume-bridge --features native-updater-acceptance --example native-script-diagnostics

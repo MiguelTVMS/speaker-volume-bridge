@@ -2,11 +2,11 @@
 use crate::{config::AppConfiguration, runtime};
 use async_trait::async_trait;
 use serde::Serialize;
-use sonos_volume_bridge_domain::camera::{CameraActivity, CameraAvailability, CameraObservation};
-use sonos_volume_bridge_integration::camera::{
+use speaker_volume_bridge_domain::camera::{CameraActivity, CameraAvailability, CameraObservation};
+use speaker_volume_bridge_integration::camera::{
     AutomationStatus, CameraCoordinator, CameraPort, SpeechError, SpeechPort,
 };
-use sonos_volume_bridge_sonos::{SonosClient, SonosError};
+use speaker_volume_bridge_sonos::{SonosClient, SonosError};
 use std::{
     sync::{
         Arc, Mutex,
@@ -194,7 +194,7 @@ impl CameraAutomation {
         let result = session.coordinator.manual(enabled, &*speaker).await;
         self.publish(
             session.coordinator.status,
-            sonos_volume_bridge_platform_camera::compiled(),
+            speaker_volume_bridge_platform_camera::compiled(),
         );
         self.request_refresh();
         result.map_err(|_| "Could not confirm Speech Enhancement. Refresh and try again.".into())
@@ -226,6 +226,7 @@ impl CameraAutomation {
         self.stopped.load(Ordering::Acquire)
     }
     pub fn resume(&self) {
+        self.revision.fetch_add(1, Ordering::SeqCst);
         self.resumed.store(true, Ordering::Release);
     }
 
@@ -235,6 +236,10 @@ impl CameraAutomation {
         let mut session = self.session.lock().await;
         if self.stopping() {
             return;
+        }
+        let resumed = self.resumed.swap(false, Ordering::AcqRel);
+        if resumed {
+            session.coordinator.interrupt();
         }
         if camera.availability != CameraAvailability::Supported {
             session.coordinator.interrupt();
@@ -249,7 +254,7 @@ impl CameraAutomation {
             return;
         }
         let speaker = (self.factory)(session.configuration.clone());
-        if refresh {
+        if refresh || resumed {
             session.speech = speaker.read().await;
             let speech = session.speech;
             session.coordinator.observed_speech(speech);
@@ -300,7 +305,7 @@ impl CameraAutomation {
                 let gap = previous
                     .elapsed()
                     .map_or(true, |d| d > Duration::from_secs(10))
-                    || this.resumed.swap(false, Ordering::AcqRel);
+                    || this.resumed.load(Ordering::Acquire);
                 previous = SystemTime::now();
                 let enabled = {
                     let mut session = this.session.lock().await;
@@ -315,11 +320,11 @@ impl CameraAutomation {
                 if gap {
                     last_read = None;
                 }
-                let camera = if !sonos_volume_bridge_platform_camera::compiled() {
+                let camera = if !speaker_volume_bridge_platform_camera::compiled() {
                     CameraObservation::default()
                 } else if enabled {
                     detector
-                        .get_or_insert_with(sonos_volume_bridge_platform_camera::start)
+                        .get_or_insert_with(speaker_volume_bridge_platform_camera::start)
                         .observation()
                 } else {
                     // Capability display may read speaker state, but does not monitor cameras until opt-in.
@@ -516,6 +521,35 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn native_wake_discards_ownership_before_inactive_observation() {
+        use tauri::Manager;
+        let (service, speaker) = setup();
+        activate(&service).await;
+        let directory = tempfile::tempdir().unwrap();
+        let (_, guard) = tracing_appender::non_blocking(std::io::sink());
+        let mut state = crate::state::AppState::new(
+            crate::config::ConfigStore::new(directory.path().join("config.json")),
+            configuration("first"),
+            guard,
+        );
+        state.camera = Arc::clone(&service);
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(state);
+        // OS wake can arrive without a Tauri Resumed event or a ten-second gap.
+        crate::schedule_wake::wake(app.handle());
+        service
+            .advance(camera(CameraActivity::Inactive), 1100, true)
+            .await;
+        service
+            .advance(camera(CameraActivity::Inactive), 4100, false)
+            .await;
+        service.shutdown().await;
+        assert_eq!(speaker.lock().unwrap().writes, [("first".into(), true)]);
+    }
+
+    #[tokio::test]
     async fn failed_cleanup_is_reported_and_not_retried_on_new_speaker() {
         let (service, state) = setup();
         activate(&service).await;
@@ -543,7 +577,7 @@ mod tests {
         state.lock().unwrap().values.insert("first".into(), true);
         activate(&service).await;
         service.shutdown().await;
-        assert!(state.lock().unwrap().writes.is_empty());
+        assert_eq!(state.lock().unwrap().writes, Vec::<(String, bool)>::new());
     }
     #[tokio::test]
     async fn revision_guard_rejects_stale_read_before_any_write() {
@@ -565,7 +599,7 @@ mod tests {
         coordinator
             .tick(camera(CameraActivity::Active), 1000, &guarded)
             .await;
-        assert!(state.lock().unwrap().writes.is_empty());
+        assert_eq!(state.lock().unwrap().writes, Vec::<(String, bool)>::new());
     }
     struct GatedSpeaker {
         inner: FakeSpeaker,

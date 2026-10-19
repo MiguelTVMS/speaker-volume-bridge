@@ -3,25 +3,29 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      bump:
-        description: Version increment for the final release
+      version:
+        description: Version
         required: true
         default: Fix
         type: choice
-        options: [Fix, Minor, Major]
-      channel:
-        description: Publication channel
-        required: true
-        default: Beta
-        type: choice
-        options: [GA, Beta, Alpha]
-      publish_microsoft_store:
-        description: Submit release to Microsoft Store (GA only)
+        options: [Major, Minor, Fix]
+      stable:
+        description: Stable
         required: false
         default: false
         type: boolean
-      build_app_store:
-        description: Build Mac App Store package
+      sign_apple_pack:
+        description: Sign Apple Pack
+        required: false
+        default: true
+        type: boolean
+      push_apple_store:
+        description: Push Apple Store
+        required: false
+        default: false
+        type: boolean
+      push_ms_store:
+        description: Push MS Store
         required: false
         default: false
         type: boolean
@@ -68,7 +72,7 @@ jobs:
       - name: Install Linux desktop build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+          sudo apt-get install --yes libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev dbus-daemon
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
@@ -81,7 +85,7 @@ jobs:
           version: 12
       - uses: actions/setup-node@v7
         with:
-          node-version: 26
+          node-version: "lts/*"
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm --dir ui install --frozen-lockfile
@@ -94,7 +98,7 @@ jobs:
       - name: Bump the workspace version
         id: version
         env:
-          BUMP: ${{ inputs.bump }}
+          BUMP: ${{ inputs.version }}
         run: |
           next_version="$(python3 - <<'PY'
           import os
@@ -153,10 +157,17 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: develop
-      - name: Verify the checked-out release commit
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
         env:
           RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
-        run: test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
@@ -168,50 +179,88 @@ jobs:
           version: 12
       - uses: actions/setup-node@v7
         with:
-          node-version: 26
+          node-version: "lts/*"
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm --dir ui install --frozen-lockfile
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - name: Verify the tag matches the application version
         env:
           RELEASE_VERSION: ${{ needs.prepare-version.outputs.version }}
         run: |
-          application_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "sonos-volume-bridge"))')"
+          application_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "speaker-volume-bridge"))')"
           test "$RELEASE_VERSION" = "$application_version"
+      - name: Verify the official macOS asset architecture contract
+        run: test "$(uname -m)" = arm64
       - run: cargo tauri build --no-bundle
-      - run: test -x target/release/sonos-volume-bridge
+      - run: test -x target/release/speaker-volume-bridge
       - name: Archive the unsigned macOS executable
         env:
           RELEASE_TAG: ${{ needs.prepare-version.outputs.tag }}
         run: |
           tar -czf \
-            "sonos-volume-bridge-${RELEASE_TAG}-macos-unsigned.tar.gz" \
-            target/release/sonos-volume-bridge ui/dist
+            "speaker-volume-bridge-${RELEASE_TAG}-macos-unsigned.tar.gz" \
+            target/release/speaker-volume-bridge ui/dist
       - uses: actions/upload-artifact@v7
         with:
           name: macos-unsigned-${{ needs.prepare-version.outputs.tag }}
-          path: sonos-volume-bridge-*-macos-unsigned.tar.gz
+          path: speaker-volume-bridge-*-macos-unsigned.tar.gz
           if-no-files-found: error
           retention-days: 1
+      - name: Bundle an unsigned direct-download disk image
+        if: ${{ !inputs.sign_apple_pack }}
+        env:
+          RELEASE_TAG: ${{ needs.prepare-version.outputs.tag }}
+        run: |
+          cargo tauri bundle --bundles app,dmg --config src-tauri/tauri.direct.conf.json --no-sign
+          shopt -s nullglob
+          images=(target/release/bundle/dmg/*.dmg)
+          test "${#images[@]}" -eq 1
+          hdiutil verify "${images[0]}"
+          cp "${images[0]}" "speaker-volume-bridge-${RELEASE_TAG}-macos.dmg"
+      - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.sign_apple_pack }}
+        with:
+          name: macos-release
+          path: speaker-volume-bridge-*-macos.dmg
+          if-no-files-found: error
 
   linux-deb:
-    name: Build Ubuntu Debian package
+    name: Build Ubuntu Debian package (${{ matrix.arch }})
     needs: prepare-version
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@v7
         with:
           ref: develop
-      - name: Verify the checked-out release commit
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
         env:
           RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
-        run: test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - name: Cache Linux desktop package archives
         uses: actions/cache@v6
         with:
           path: /var/cache/apt/archives
-          key: ${{ runner.os }}-apt-linux-desktop-v1
+          key: ${{ matrix.os }}-${{ matrix.arch }}-apt-linux-desktop-v1
       - name: Install Linux desktop build dependencies
         run: |
           sudo apt-get update
@@ -221,39 +270,42 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: workspace
+          shared-key: workspace-${{ matrix.os }}-${{ matrix.arch }}
       - uses: pnpm/action-setup@v6
         with:
           version: 12
       - uses: actions/setup-node@v7
         with:
-          node-version: 26
+          node-version: "lts/*"
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm --dir ui install --frozen-lockfile
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - name: Verify the tag matches the application version
         env:
           RELEASE_VERSION: ${{ needs.prepare-version.outputs.version }}
         run: |
-          application_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "sonos-volume-bridge"))')"
+          application_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "speaker-volume-bridge"))')"
           test "$RELEASE_VERSION" = "$application_version"
       - run: cargo tauri build --bundles deb
       - name: Collect the Debian installer
         env:
           RELEASE_TAG: ${{ needs.prepare-version.outputs.tag }}
-        run: |
-          installer="$(find target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          test -n "$installer"
-          cp "$installer" "sonos-volume-bridge-${RELEASE_TAG}-linux-amd64.deb"
+          RELEASE_ARCH: ${{ matrix.arch }}
+        run: bash scripts/collect-linux-installer.sh target/release/bundle/deb "$RELEASE_TAG" "$RELEASE_ARCH"
       - uses: actions/upload-artifact@v7
         with:
-          name: linux-release
-          path: sonos-volume-bridge-*-linux-amd64.deb
+          name: linux-${{ matrix.arch }}-release
+          path: speaker-volume-bridge-*-linux-${{ matrix.arch }}.deb
           if-no-files-found: error
   macos-direct:
+    if: ${{ inputs.sign_apple_pack }}
     name: Sign and notarize macOS direct-download app
-    needs: [prepare-version, macos-app]
+    needs: [prepare-version, all-platform-builds]
     runs-on: macos-latest
     environment: apple-signing
     env:
@@ -265,16 +317,27 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: develop
-      - name: Verify the checked-out release commit
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
         env:
           RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
-        run: test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
         with:
@@ -282,8 +345,8 @@ jobs:
           path: macos-unsigned
       - name: Restore the unsigned macOS executable
         run: |
-          tar -xzf macos-unsigned/sonos-volume-bridge-*-macos-unsigned.tar.gz
-          test -x target/release/sonos-volume-bridge
+          tar -xzf macos-unsigned/speaker-volume-bridge-*-macos-unsigned.tar.gz
+          test -x target/release/speaker-volume-bridge
           test -d ui/dist
       - name: Import the Developer ID certificate
         env:
@@ -335,33 +398,81 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.prepare-version.outputs.version }}
         run: |
-          application_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "sonos-volume-bridge"))')"
+          application_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "speaker-volume-bridge"))')"
           test "$RELEASE_VERSION" = "$application_version"
       - name: Bundle, sign, notarize, and staple the existing executable
         run: |
           if [ "${HAS_DEVELOPER_ID_PROFILE:-false}" = true ]; then
-            cargo tauri bundle --bundles app --config src-tauri/tauri.direct.conf.json
+            cargo tauri bundle --bundles app,dmg --config src-tauri/tauri.direct-profile.conf.json
           else
-            cargo tauri bundle --bundles app
+            cargo tauri bundle --bundles app,dmg --config src-tauri/tauri.direct.conf.json
           fi
       - name: Verify the signed and notarized app
         run: |
-          app_path='target/release/bundle/macos/Sonos Volume Bridge.app'
+          app_path='target/release/bundle/macos/Speaker Volume Bridge.app'
           ./scripts/verify-macos-artifact.sh direct "$app_path"
           xcrun stapler validate "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
-      - name: Archive the notarized app bundle
+      - name: Sign, notarize, and verify the disk image
         env:
           RELEASE_TAG: ${{ needs.prepare-version.outputs.tag }}
         run: |
-          ditto -c -k --sequesterRsrc --keepParent \
-            'target/release/bundle/macos/Sonos Volume Bridge.app' \
-            "sonos-volume-bridge-${RELEASE_TAG}-macos.zip"
+          set -euo pipefail
+          shopt -s nullglob
+          images=(target/release/bundle/dmg/*.dmg)
+          test "${#images[@]}" -eq 1
+          image="speaker-volume-bridge-${RELEASE_TAG}-macos.dmg"
+          cp "${images[0]}" "$image"
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$image"
+          xcrun notarytool submit "$image" \
+            --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" --wait --output-format json \
+            > "$RUNNER_TEMP/dmg-notarization.json"
+          python3 -c 'import json, sys; assert json.load(open(sys.argv[1]))["status"] == "Accepted", "DMG notarization was not accepted"' "$RUNNER_TEMP/dmg-notarization.json"
+          xcrun stapler staple "$image"
+          xcrun stapler validate "$image"
+          codesign --verify --verbose=2 "$image"
+          hdiutil verify "$image"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$image"
       - uses: actions/upload-artifact@v7
         with:
           name: macos-release
-          path: sonos-volume-bridge-*-macos.zip
+          path: speaker-volume-bridge-*-macos.dmg
           if-no-files-found: error
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+      - name: Prepare updater validation artifacts from the approved bundle
+        env:
+          RELEASE_VERSION: ${{ needs.prepare-version.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] && [ -z "$UPDATER_PUBLIC_KEY" ]; then
+            echo 'Updater artifacts unavailable: signing setup pending. Release-page fallback retained.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          test -n "$UPDATER_PUBLIC_KEY"
+          public_key="$RUNNER_TEMP/updater.pub"
+          trap 'rm -f "$public_key"' EXIT
+          printf '%s' "$UPDATER_PUBLIC_KEY" > "$public_key"
+          cargo build --locked --release -p speaker-volume-bridge-updater-artifact
+          python3 scripts/macos-updater-artifact.py \
+            'target/release/bundle/macos/Speaker Volume Bridge.app' \
+            "$RELEASE_VERSION" updater-validation --public-key "$public_key"
+      - uses: actions/upload-artifact@v7
+        if: ${{ hashFiles('updater-validation/*.updater.json') != '' }}
+        with:
+          name: macos-updater-validation
+          path: updater-validation/*
+          if-no-files-found: error
+          retention-days: 7
       - name: Remove temporary Apple credentials
         if: always()
         run: |
@@ -373,8 +484,8 @@ jobs:
 
   macos-app-store:
     name: Sign macOS App Store package
-    if: ${{ inputs.build_app_store }}
-    needs: [prepare-version, macos-app]
+    if: ${{ inputs.stable && inputs.push_apple_store }}
+    needs: [prepare-version, all-platform-builds]
     runs-on: macos-latest
     environment: apple-app-store
     env:
@@ -384,16 +495,27 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: develop
-      - name: Verify the checked-out release commit
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
         env:
           RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
-        run: test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
         with:
@@ -401,8 +523,8 @@ jobs:
           path: macos-unsigned
       - name: Restore the unsigned macOS executable
         run: |
-          tar -xzf macos-unsigned/sonos-volume-bridge-*-macos-unsigned.tar.gz
-          test -x target/release/sonos-volume-bridge
+          tar -xzf macos-unsigned/speaker-volume-bridge-*-macos-unsigned.tar.gz
+          test -x target/release/speaker-volume-bridge
           test -d ui/dist
       - name: Import App Store signing certificates
         env:
@@ -493,8 +615,8 @@ jobs:
       - name: Bundle and sign the App Store application
         run: |
           cargo tauri bundle --bundles app --config src-tauri/tauri.appstore.conf.json --no-sign
-          app_path='target/release/bundle/macos/Sonos Volume Bridge.app'
-          app_executable="$app_path/Contents/MacOS/sonos-volume-bridge"
+          app_path='target/release/bundle/macos/Speaker Volume Bridge.app'
+          app_executable="$app_path/Contents/MacOS/speaker-volume-bridge"
           xattr -cr "$app_path"
           codesign --force --sign "$APPLE_SIGNING_IDENTITY" --keychain "$RUNNER_TEMP/apple-app-store.keychain-db" --options runtime --entitlements src-tauri/Entitlements.appstore.plist "$app_executable"
           codesign --force --sign "$APPLE_SIGNING_IDENTITY" --keychain "$RUNNER_TEMP/apple-app-store.keychain-db" --options runtime --entitlements src-tauri/Entitlements.appstore.plist "$app_path"
@@ -502,9 +624,9 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.prepare-version.outputs.tag }}
         run: |
-          app_path='target/release/bundle/macos/Sonos Volume Bridge.app'
+          app_path='target/release/bundle/macos/Speaker Volume Bridge.app'
           ./scripts/verify-macos-artifact.sh app-store "$app_path"
-          package_path="sonos-volume-bridge-${RELEASE_TAG}-macos-app-store.pkg"
+          package_path="speaker-volume-bridge-${RELEASE_TAG}-macos-app-store.pkg"
           unsigned_package_path="${package_path}.unsigned"
           xcrun productbuild --component "$app_path" /Applications "$unsigned_package_path"
           xcrun productsign --sign "$APPLE_MAC_INSTALLER_IDENTITY" --keychain "$RUNNER_TEMP/apple-app-store.keychain-db" "$unsigned_package_path" "$package_path"
@@ -513,7 +635,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: macos-app-store-${{ needs.prepare-version.outputs.tag }}
-          path: sonos-volume-bridge-*-macos-app-store.pkg
+          path: speaker-volume-bridge-*-macos-app-store.pkg
           if-no-files-found: error
       - name: Remove temporary Apple credentials
         if: always()
@@ -526,50 +648,67 @@ jobs:
   windows-app:
     name: Build Windows executable
     needs: prepare-version
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@v7
         with:
           ref: develop
-      - name: Verify the checked-out release commit
-        shell: pwsh
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
         env:
           RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
         run: |
-          if ((git rev-parse HEAD) -ne $env:RELEASE_COMMIT) {
-            throw 'The checked-out revision does not match the release commit.'
-          }
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: workspace
+          shared-key: workspace-Windows-${{ matrix.arch }}
       - uses: pnpm/action-setup@v6
         with:
           version: 12
       - uses: actions/setup-node@v7
         with:
-          node-version: 26
+          node-version: "lts/*"
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm --dir ui install --frozen-lockfile
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - run: cargo tauri build --no-bundle
       - name: Verify the compiled executable
         shell: pwsh
         run: |
-          if (-not (Test-Path -LiteralPath 'target/release/sonos-volume-bridge.exe' -PathType Leaf)) {
+          if (-not (Test-Path -LiteralPath 'target/release/speaker-volume-bridge.exe' -PathType Leaf)) {
             throw 'The Windows release executable was not generated.'
           }
+          . ./scripts/windows-architecture.ps1
+          Assert-WindowsExecutableArchitecture -Path target/release/speaker-volume-bridge.exe -Architecture '${{ matrix.arch }}'
           if (-not (Test-Path -LiteralPath 'ui/dist' -PathType Container)) {
             throw 'The frontend distribution was not generated.'
           }
       - uses: actions/upload-artifact@v7
         with:
-          name: windows-build-${{ needs.prepare-version.outputs.tag }}
+          name: windows-build-${{ matrix.arch }}-${{ needs.prepare-version.outputs.tag }}
           path: |
-            target/release/sonos-volume-bridge.exe
+            target/release/speaker-volume-bridge.exe
             ui/dist
           if-no-files-found: error
           retention-days: 1
@@ -577,29 +716,44 @@ jobs:
   windows-nsis:
     name: Package Windows NSIS installer
     needs: [prepare-version, windows-app]
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@v7
         with:
           ref: develop
-      - name: Verify the checked-out release commit
-        shell: pwsh
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
         env:
           RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
         run: |
-          if ((git rev-parse HEAD) -ne $env:RELEASE_COMMIT) {
-            throw 'The checked-out revision does not match the release commit.'
-          }
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: workspace
+          shared-key: workspace-Windows-${{ matrix.arch }}
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
+        run: python3 scripts/stamp-release-classification.py
       - run: cargo install tauri-cli --version '^2' --locked
       - uses: actions/download-artifact@v8
         with:
-          name: windows-build-${{ needs.prepare-version.outputs.tag }}
+          name: windows-build-${{ matrix.arch }}-${{ needs.prepare-version.outputs.tag }}
           path: .
       - name: Bundle NSIS from the compiled executable
         run: cargo tauri bundle --bundles nsis
@@ -610,48 +764,110 @@ jobs:
         run: |
           $installer = Get-ChildItem target/release/bundle -Recurse -Filter '*.exe' | Select-Object -First 1
           if ($null -eq $installer) { throw 'No NSIS installer was generated.' }
-          Copy-Item $installer.FullName "sonos-volume-bridge-$env:RELEASE_TAG-windows-unsigned.exe"
+          Copy-Item $installer.FullName "speaker-volume-bridge-$env:RELEASE_TAG-windows-${{ matrix.arch }}-unsigned.exe"
       - uses: actions/upload-artifact@v7
         with:
-          name: windows-release
-          path: sonos-volume-bridge-*-windows-unsigned.exe
+          name: windows-${{ matrix.arch }}-release
+          path: speaker-volume-bridge-*-windows-${{ matrix.arch }}-unsigned.exe
           if-no-files-found: error
 
   windows-msix:
     name: Package Microsoft Store MSIX
     needs: [prepare-version, windows-app]
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@v7
         with:
           ref: develop
-      - name: Verify the checked-out release commit
-        shell: pwsh
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
         env:
           RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
         run: |
-          if ((git rev-parse HEAD) -ne $env:RELEASE_COMMIT) {
-            throw 'The checked-out revision does not match the release commit.'
-          }
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
       - uses: actions/download-artifact@v8
         with:
-          name: windows-build-${{ needs.prepare-version.outputs.tag }}
+          name: windows-build-${{ matrix.arch }}-${{ needs.prepare-version.outputs.tag }}
           path: .
+      - name: Stamp package release classification
+        env:
+          RELEASE_CLASSIFICATION: ${{ inputs.stable && 'GA' || 'Beta' }}
+        run: python3 scripts/stamp-release-classification.py
       - name: Build and validate the MSIX from the compiled executable
         shell: pwsh
-        run: ./scripts/build-msix.ps1
+        run: ./scripts/build-msix.ps1 -Architecture ${{ matrix.arch }}
       - uses: actions/upload-artifact@v7
         with:
-          name: microsoft-store-msix-${{ needs.prepare-version.outputs.tag }}
+          name: microsoft-store-msix-${{ matrix.arch }}-${{ needs.prepare-version.outputs.tag }}
           path: target/release/bundle/msix/*.msix
           if-no-files-found: error
+  windows-store-upload:
+    name: Build and verify combined Microsoft Store upload
+    needs: [prepare-version, windows-msix]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
+        env:
+          RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: microsoft-store-msix-*-${{ needs.prepare-version.outputs.tag }}
+          merge-multiple: true
+          path: microsoft-store-msix
+      - name: Build and verify both architecture packages in one upload
+        shell: pwsh
+        run: ./scripts/build-msix-upload.ps1 -PackageDirectory microsoft-store-msix -OutputPath store-upload/SpeakerVolumeBridge.msixupload
+      - uses: actions/upload-artifact@v7
+        with:
+          name: microsoft-store-upload-${{ needs.prepare-version.outputs.tag }}
+          path: store-upload/*.msixupload
+          if-no-files-found: error
+
+  all-platform-builds:
+    name: All platform builds and packages succeeded
+    needs: [macos-app, linux-deb, windows-app, windows-nsis, windows-msix, windows-store-upload]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'All platform and architecture builds succeeded.'
+
   publish-release:
     name: Publish GitHub Release
-    needs:
-      [prepare-version, macos-direct, linux-deb, windows-nsis, windows-msix]
+    needs: [prepare-version, all-platform-builds, macos-direct, macos-app-store]
+    if: >-
+      ${{ !cancelled() &&
+          needs.prepare-version.result == 'success' &&
+          needs.all-platform-builds.result == 'success' &&
+          (needs.macos-direct.result == 'success' ||
+           (!inputs.sign_apple_pack && needs.macos-direct.result == 'skipped')) &&
+          (needs.macos-app-store.result == 'success' ||
+           (!(inputs.stable && inputs.push_apple_store) && needs.macos-app-store.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -660,7 +876,16 @@ jobs:
         with:
           ref: develop
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
+        env:
+          RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - uses: actions/download-artifact@v8
         with:
           pattern: "*-release"
@@ -674,7 +899,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare-version.outputs.tag }}
-          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_CHANNEL: ${{ inputs.stable && 'GA' || 'Beta' }}
+          DRAFT_RELEASE: false
+          SIGN_APPLE_PACK: ${{ inputs.sign_apple_pack }}
         run: |
           mapfile -t release_assets < <(find release-assets -type f -print)
           test "${#release_assets[@]}" -gt 0
@@ -693,8 +920,16 @@ jobs:
               ;;
             *) echo "Unsupported release channel: $RELEASE_CHANNEL" >&2; exit 1 ;;
           esac
+          if [ "$DRAFT_RELEASE" = "true" ]; then
+            release_flags+=(--draft)
+          fi
+          if [ "$SIGN_APPLE_PACK" = "true" ]; then
+            apple_signing_message="The macOS direct-download package is signed and notarized."
+          else
+            apple_signing_message="The macOS direct-download package is unsigned and not notarized."
+          fi
           release_intro="$(cat <<EOF
-          ## Sonos Volume Bridge $RELEASE_TAG
+          ## Speaker Volume Bridge $RELEASE_TAG
 
           **Release channel:** $RELEASE_CHANNEL
 
@@ -702,29 +937,33 @@ jobs:
 
           ### Downloads
 
-          - **Windows:** Download and run the Windows installer.
-          - **macOS:** Download the macOS archive, then move the app to Applications.
-          - **Ubuntu:** Download and install the Debian package.
+          - **Windows:** Download and run the Windows installer for your processor: x64 (AMD64) or ARM64.
+          - **macOS:** Open the macOS DMG, then drag the app into Applications.
+          - **Ubuntu:** Download and install the Debian package for your architecture (AMD64 or ARM64).
 
           ### Important
 
-          The macOS app is signed with Developer ID and notarized by Apple. The Windows installer is currently unsigned, so Windows SmartScreen may ask you to confirm that you want to run it.
+          $apple_signing_message The Windows installer is currently unsigned, so Windows SmartScreen may ask you to confirm that you want to run it.
 
           The generated change list follows this summary.
           EOF
           )"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if [ "$DRAFT_RELEASE" = "true" ] && [ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "Refusing to replace public assets during a draft validation run." >&2
+              exit 1
+            fi
             gh release upload "$RELEASE_TAG" "${release_assets[@]}" --clobber
           else
             gh release create "$RELEASE_TAG" "${release_assets[@]}" "${release_flags[@]}" \
-              --title "Sonos Volume Bridge $RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
               --notes "$release_intro" \
               --generate-notes
           fi
 
   propose-main-promotion:
     name: Open stable release PR into main
-    if: ${{ inputs.channel == 'GA' }}
+    if: ${{ !cancelled() && inputs.stable && needs.prepare-version.result == 'success' && needs.publish-release.result == 'success' }}
     needs: [prepare-version, publish-release]
     runs-on: ubuntu-latest
     permissions:
@@ -733,9 +972,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.prepare-version.outputs.commit }}
+          ref: develop
           fetch-depth: 0
           persist-credentials: false
+      - name: Pin the trusted release commit
+        shell: bash
+        env:
+          RELEASE_COMMIT: ${{ needs.prepare-version.outputs.commit }}
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/develop
+          git checkout --detach "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
       - name: Propose the exact published release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -745,49 +993,51 @@ jobs:
 
   publish-microsoft-store:
     name: Submit GA release to Microsoft Store
-    if: ${{ inputs.channel == 'GA' && inputs.publish_microsoft_store }}
-    needs: [prepare-version, windows-msix, publish-release]
-    runs-on: windows-latest
-    environment: microsoft-store
+    if: ${{ !cancelled() && inputs.stable && inputs.push_ms_store && needs.prepare-version.result == 'success' && needs.all-platform-builds.result == 'success' && needs.windows-msix.result == 'success' && needs.publish-release.result == 'success' }}
+    needs: [prepare-version, all-platform-builds, windows-msix, publish-release]
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/microsoft-store-publish.yml
+    with:
+      release_tag: ${{ needs.prepare-version.outputs.tag }}
+      dry_run: false
+    secrets: inherit
+
+  publish-apple-store:
+    # Upload only. App Review submission and manual release remain operator actions.
+    name: Upload stable package to App Store Connect
+    if: ${{ !cancelled() && inputs.stable && inputs.push_apple_store && needs.prepare-version.result == 'success' && needs.macos-app-store.result == 'success' && needs.publish-release.result == 'success' }}
+    needs: [prepare-version, macos-app-store, publish-release]
+    runs-on: macos-latest
+    environment: apple-app-store
     env:
-      MICROSOFT_STORE_PRODUCT_ID: ${{ vars.MICROSOFT_STORE_PRODUCT_ID }}
+      APPLE_API_KEY: ${{ vars.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ vars.APPLE_API_ISSUER }}
     steps:
-      - name: Validate Microsoft Store configuration
-        shell: pwsh
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:MICROSOFT_STORE_PRODUCT_ID)) {
-            throw 'MICROSOFT_STORE_PRODUCT_ID is not configured in the microsoft-store environment.'
-          }
       - uses: actions/download-artifact@v8
         with:
-          name: microsoft-store-msix-${{ needs.prepare-version.outputs.tag }}
-          path: microsoft-store-msix
-      - name: Configure Microsoft Store Developer CLI
-        uses: microsoft/microsoft-store-apppublisher@v1
-      - name: Authenticate with Partner Center
-        shell: pwsh
+          name: macos-app-store-${{ needs.prepare-version.outputs.tag }}
+          path: apple-store-upload
+      - name: Validate and upload the signed package
         env:
-          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
-          SELLER_ID: ${{ secrets.SELLER_ID }}
-          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
-          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
         run: |
-          msstore reconfigure `
-            --tenantId $env:AZURE_AD_TENANT_ID `
-            --sellerId $env:SELLER_ID `
-            --clientId $env:AZURE_AD_APPLICATION_CLIENT_ID `
-            --clientSecret $env:AZURE_AD_APPLICATION_SECRET
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Microsoft Store authentication failed.'
-          }
-      - name: Submit the package to Microsoft Store
-        shell: pwsh
-        run: |
-          $packages = @(Get-ChildItem 'microsoft-store-msix' -Filter '*.msix')
-          if ($packages.Count -ne 1) {
-            throw "Expected exactly one MSIX package, found $($packages.Count)."
-          }
-          msstore publish $packages[0].FullName -id $env:MICROSOFT_STORE_PRODUCT_ID --uploadTimeout 300
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Microsoft Store submission failed.'
-          }
+          set -euo pipefail
+          test -n "$APPLE_API_KEY"
+          test -n "$APPLE_API_ISSUER"
+          test -n "$APPLE_API_PRIVATE_KEY"
+          key_directory="$RUNNER_TEMP/apple-store-private-keys"
+          mkdir -p "$key_directory"
+          chmod 700 "$key_directory"
+          export API_PRIVATE_KEYS_DIR="$key_directory"
+          trap 'rm -rf "$key_directory"' EXIT
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_directory/AuthKey_${APPLE_API_KEY}.p8"
+          chmod 600 "$key_directory/AuthKey_${APPLE_API_KEY}.p8"
+          shopt -s nullglob
+          packages=(apple-store-upload/*.pkg)
+          test "${#packages[@]}" -eq 1
+          pkgutil --check-signature "${packages[0]}"
+          xcrun altool --validate-app -f "${packages[0]}" -t macos --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
+          xcrun altool --upload-app -f "${packages[0]}" -t macos --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
+          echo 'Apple package uploaded only. Select Manually release this version in App Store Connect before submitting for review. Approval must not automatically publish the app.' >> "$GITHUB_STEP_SUMMARY"

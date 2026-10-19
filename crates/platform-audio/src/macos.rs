@@ -13,23 +13,22 @@
     clippy::semicolon_if_nothing_returned
 )]
 
+use crate::expected_writes::ExpectedWrites;
 use crate::{
     AudioDeviceSelection, AudioOutputDevice, PlatformAudioError, SystemAudioController,
     SystemAudioEvent,
 };
 use async_trait::async_trait;
-use sonos_volume_bridge_domain::{
-    ExpectedLocalWrite, LocalAudioState, LocalOrigin, MuteState, NormalizedVolume,
-};
+use speaker_volume_bridge_domain::{LocalAudioState, LocalOrigin, MuteState, NormalizedVolume};
 use std::{
     ffi::c_void,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -50,7 +49,6 @@ const DEVICE_UID: UInt32 = 0x7569_6420; // 'uid '
 const VOLUME_SCALAR: UInt32 = 0x766f_6c6d; // 'volm'
 const MUTE: UInt32 = 0x6d75_7465; // 'mute'
 const STREAM_CONFIGURATION: UInt32 = 0x736c_6179; // 'slay'
-const EXPECTED_WRITE_LIFETIME_MS: u64 = 500;
 const DEVICE_UNAVAILABLE: OSStatus = -2;
 
 #[repr(C)]
@@ -182,7 +180,7 @@ impl MacosAudioController {
         let shutdown = Arc::new(AtomicBool::new(false));
         let worker_shutdown = Arc::clone(&shutdown);
         let thread = thread::Builder::new()
-            .name("sonos-volume-bridge-core-audio".to_owned())
+            .name("speaker-volume-bridge-core-audio".to_owned())
             .spawn(move || {
                 run_worker(
                     selection,
@@ -257,8 +255,7 @@ enum Command {
 struct CallbackContext {
     events: broadcast::Sender<SystemAudioEvent>,
     commands: SyncSender<Command>,
-    expected: Mutex<Option<ExpectedLocalWrite>>,
-    generation: AtomicU64,
+    expected: Mutex<ExpectedWrites>,
     tolerance: u8,
 }
 
@@ -273,8 +270,7 @@ fn run_worker(
     let context = Arc::new(CallbackContext {
         events: events.clone(),
         commands,
-        expected: Mutex::new(None),
-        generation: AtomicU64::new(0),
+        expected: Mutex::new(ExpectedWrites::default()),
         tolerance,
     });
     let mut endpoint = match unsafe { Endpoint::attach(&selection, Arc::clone(&context)) } {
@@ -305,15 +301,21 @@ fn run_worker(
                 let _ = response.send(unsafe { endpoint.set_muted(muted) });
             }
             Command::Reattach => {
-                match unsafe { Endpoint::attach(&selection, Arc::clone(&context)) } {
-                    Ok(next) => {
-                        endpoint.detach();
-                        endpoint = next;
+                match unsafe { endpoint.refresh(&selection, Arc::clone(&context)) } {
+                    Ok(false) => {} // A notification about an unrelated output needs no work.
+                    Ok(true) => {
+                        if let Ok(mut expected) = context.expected.lock() {
+                            *expected = ExpectedWrites::default();
+                        }
                         let _ = events.send(SystemAudioEvent::DefaultOutputChanged);
                     }
-                    Err(_) => {
+                    Err(error) => {
+                        eprintln!(
+                            "Core Audio selected output reattachment failed with OSStatus {error}"
+                        );
                         let _ =
                             events.send(SystemAudioEvent::DeviceUnavailable { device_id: None });
+                        break;
                     }
                 }
             }
@@ -327,6 +329,7 @@ struct Endpoint {
     channels: Vec<UInt32>,
     has_mute: bool,
     context: Arc<CallbackContext>,
+    listeners: ListenerRegistrations,
 }
 
 impl Endpoint {
@@ -334,36 +337,33 @@ impl Endpoint {
         selection: &AudioDeviceSelection,
         context: Arc<CallbackContext>,
     ) -> Result<Self, OSStatus> {
-        let id = match selection {
-            AudioDeviceSelection::FollowDefault => unsafe { default_output_device()? },
-            AudioDeviceSelection::Fixed { device_id } => unsafe {
-                resolve_fixed_output(device_id)?
-            },
-        };
-        let master = address(VOLUME_SCALAR, SCOPE_OUTPUT, ELEMENT_MASTER);
-        let has_master = unsafe { AudioObjectHasProperty(id, &master) != 0 }
-            && matches!(unsafe { settable(id, &master) }, Ok(true));
-        let channels = if has_master {
-            vec![ELEMENT_MASTER]
-        } else {
-            unsafe { output_channels(id)? }
-        };
-        if channels.is_empty() {
-            return Err(-1);
-        }
-        let mute_address = address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER);
-        let has_mute = unsafe { AudioObjectHasProperty(id, &mute_address) != 0 }
-            && matches!(unsafe { settable(id, &mute_address) }, Ok(true));
-        let endpoint = Self {
+        let (id, channels, has_mute) = unsafe { resolve_endpoint(selection)? };
+        let mut endpoint = Self {
             id,
             channels,
             has_mute,
             context,
+            listeners: ListenerRegistrations::default(),
         };
         unsafe {
-            endpoint.listen();
+            endpoint.listen()?;
         }
         Ok(endpoint)
+    }
+    unsafe fn refresh(
+        &mut self,
+        selection: &AudioDeviceSelection,
+        context: Arc<CallbackContext>,
+    ) -> Result<bool, OSStatus> {
+        let (id, channels, has_mute) = unsafe { resolve_endpoint(selection)? };
+        let unchanged = self.id == id && self.channels == channels && self.has_mute == has_mute;
+        refresh_endpoint(
+            self,
+            unchanged,
+            |endpoint| unsafe { endpoint.state().map(|_| ()) },
+            Self::detach,
+            || unsafe { Self::attach(selection, context) },
+        )
     }
     unsafe fn state(&self) -> Result<LocalAudioState, OSStatus> {
         let mut total = 0.0_f32;
@@ -382,12 +382,22 @@ impl Endpoint {
         })
     }
     unsafe fn set_volume(&self, volume: NormalizedVolume) -> Result<(), OSStatus> {
-        let state = LocalAudioState {
-            volume,
-            muted: unsafe { self.state()? }.muted,
-        };
-        self.expect(state);
+        let muted = unsafe { self.state()? }.muted;
         let value = f32::from(volume.get()) / 100.0;
+        let channels = self
+            .channels
+            .iter()
+            .map(|channel| unsafe {
+                scalar(self.id, address(VOLUME_SCALAR, SCOPE_OUTPUT, *channel))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        // Per-channel devices can notify after each setter, before the final average.
+        for intermediate in channel_write_volumes(channels, value) {
+            self.expect(LocalAudioState {
+                volume: intermediate,
+                muted,
+            });
+        }
         for channel in &self.channels {
             unsafe {
                 set_scalar(
@@ -412,103 +422,177 @@ impl Endpoint {
             .map_err(map_error)
     }
     fn expect(&self, state: LocalAudioState) {
-        let generation = self.context.generation.fetch_add(1, Ordering::Relaxed) + 1;
         if let Ok(mut expected) = self.context.expected.lock() {
-            *expected = Some(ExpectedLocalWrite {
-                state,
-                expires_at_ms: now_ms() + EXPECTED_WRITE_LIFETIME_MS,
-                generation,
-                tolerance: self.context.tolerance,
+            expected.record(state, Instant::now());
+        }
+    }
+
+    unsafe fn listen(&mut self) -> Result<(), OSStatus> {
+        let data = Arc::as_ptr(&self.context).cast_mut().cast::<c_void>();
+        let mut registrations = self
+            .channels
+            .iter()
+            .map(|channel| ListenerRegistration {
+                object: self.id,
+                address: address(VOLUME_SCALAR, SCOPE_OUTPUT, *channel),
+                callback: property_changed,
+            })
+            .collect::<Vec<_>>();
+        if self.has_mute {
+            registrations.push(ListenerRegistration {
+                object: self.id,
+                address: address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER),
+                callback: property_changed,
             });
         }
+        registrations.extend([
+            ListenerRegistration {
+                object: SYSTEM_OBJECT,
+                address: address(DEFAULT_OUTPUT_DEVICE, SCOPE_GLOBAL, ELEMENT_MASTER),
+                callback: default_output_changed,
+            },
+            ListenerRegistration {
+                object: SYSTEM_OBJECT,
+                address: address(DEVICES, SCOPE_GLOBAL, ELEMENT_MASTER),
+                callback: device_list_changed,
+            },
+        ]);
+        self.listeners.register(
+            registrations,
+            |registration| unsafe {
+                AudioObjectAddPropertyListener(
+                    registration.object,
+                    &registration.address,
+                    registration.callback,
+                    data,
+                )
+            },
+            |registration| unsafe {
+                AudioObjectRemovePropertyListener(
+                    registration.object,
+                    &registration.address,
+                    registration.callback,
+                    data,
+                )
+            },
+        )
     }
-    unsafe fn listen(&self) {
+    fn detach(&mut self) {
         let data = Arc::as_ptr(&self.context).cast_mut().cast::<c_void>();
-        for channel in &self.channels {
-            let status = unsafe {
-                AudioObjectAddPropertyListener(
-                    self.id,
-                    &address(VOLUME_SCALAR, SCOPE_OUTPUT, *channel),
-                    property_changed,
-                    data,
-                )
-            };
-            if status != NO_ERR {
-                eprintln!("Core Audio volume listener registration failed with OSStatus {status}");
-            }
-        }
-        if self.has_mute {
-            let status = unsafe {
-                AudioObjectAddPropertyListener(
-                    self.id,
-                    &address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER),
-                    property_changed,
-                    data,
-                )
-            };
-            if status != NO_ERR {
-                eprintln!("Core Audio mute listener registration failed with OSStatus {status}");
-            }
-        }
-        let status = unsafe {
-            AudioObjectAddPropertyListener(
-                SYSTEM_OBJECT,
-                &address(DEFAULT_OUTPUT_DEVICE, SCOPE_GLOBAL, ELEMENT_MASTER),
-                default_output_changed,
+        // SAFETY: only successfully installed listeners are removed, while context remains alive.
+        self.listeners.remove(|registration| unsafe {
+            AudioObjectRemovePropertyListener(
+                registration.object,
+                &registration.address,
+                registration.callback,
                 data,
             )
-        };
-        if status != NO_ERR {
-            eprintln!(
-                "Core Audio default-output listener registration failed with OSStatus {status}"
-            );
+        });
+    }
+}
+
+impl Drop for Endpoint {
+    fn drop(&mut self) {
+        self.detach();
+    }
+}
+
+unsafe fn resolve_endpoint(
+    selection: &AudioDeviceSelection,
+) -> Result<(AudioObjectID, Vec<UInt32>, bool), OSStatus> {
+    let id = match selection {
+        AudioDeviceSelection::FollowDefault => unsafe { default_output_device()? },
+        AudioDeviceSelection::Fixed { device_id } => unsafe { resolve_fixed_output(device_id)? },
+    };
+    let master = address(VOLUME_SCALAR, SCOPE_OUTPUT, ELEMENT_MASTER);
+    let has_master = unsafe { AudioObjectHasProperty(id, &master) != 0 }
+        && matches!(unsafe { settable(id, &master) }, Ok(true));
+    let channels = if has_master {
+        vec![ELEMENT_MASTER]
+    } else {
+        unsafe { output_channels(id)? }
+    };
+    if channels.is_empty() {
+        return Err(-1);
+    }
+    let mute_address = address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER);
+    let has_mute = unsafe { AudioObjectHasProperty(id, &mute_address) != 0 }
+        && matches!(unsafe { settable(id, &mute_address) }, Ok(true));
+    Ok((id, channels, has_mute))
+}
+
+// Healthy, unchanged outputs keep their listeners and current synchronization session.
+fn refresh_endpoint<T, E>(
+    current: &mut T,
+    unchanged: bool,
+    verify: impl FnOnce(&T) -> Result<(), E>,
+    detach: impl FnOnce(&mut T),
+    attach: impl FnOnce() -> Result<T, E>,
+) -> Result<bool, E> {
+    if unchanged {
+        verify(current)?;
+        return Ok(false);
+    }
+    replace_endpoint(current, detach, attach)?;
+    Ok(true)
+}
+
+// Core Audio rejects a duplicate callback/address/context registration. Remove the
+// old set before attachment, including when reselecting the same physical output.
+fn replace_endpoint<T, E>(
+    current: &mut T,
+    detach: impl FnOnce(&mut T),
+    attach: impl FnOnce() -> Result<T, E>,
+) -> Result<(), E> {
+    detach(current);
+    *current = attach()?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ListenerRegistration {
+    object: AudioObjectID,
+    address: AudioObjectPropertyAddress,
+    callback: Listener,
+}
+
+#[derive(Default)]
+struct ListenerRegistrations(Vec<ListenerRegistration>);
+
+impl ListenerRegistrations {
+    fn register(
+        &mut self,
+        registrations: impl IntoIterator<Item = ListenerRegistration>,
+        mut add: impl FnMut(&ListenerRegistration) -> OSStatus,
+        mut remove: impl FnMut(&ListenerRegistration) -> OSStatus,
+    ) -> Result<(), OSStatus> {
+        for registration in registrations {
+            let status = add(&registration);
+            if status != NO_ERR {
+                self.remove(&mut remove);
+                return Err(status);
+            }
+            self.0.push(registration);
         }
-        let status = unsafe {
-            AudioObjectAddPropertyListener(
-                SYSTEM_OBJECT,
-                &address(DEVICES, SCOPE_GLOBAL, ELEMENT_MASTER),
-                device_list_changed,
-                data,
-            )
-        };
-        if status != NO_ERR {
-            eprintln!("Core Audio device-list listener registration failed with OSStatus {status}");
+        Ok(())
+    }
+
+    fn remove(&mut self, mut remove: impl FnMut(&ListenerRegistration) -> OSStatus) {
+        for registration in self.0.drain(..).rev() {
+            let _ = remove(&registration);
         }
     }
-    fn detach(&self) {
-        // SAFETY: registrations use this endpoint's stable context pointer; Core Audio no longer invokes it after removal returns.
-        unsafe {
-            let data = Arc::as_ptr(&self.context).cast_mut().cast::<c_void>();
-            for channel in &self.channels {
-                let _ = AudioObjectRemovePropertyListener(
-                    self.id,
-                    &address(VOLUME_SCALAR, SCOPE_OUTPUT, *channel),
-                    property_changed,
-                    data,
-                );
-            }
-            if self.has_mute {
-                let _ = AudioObjectRemovePropertyListener(
-                    self.id,
-                    &address(MUTE, SCOPE_OUTPUT, ELEMENT_MASTER),
-                    property_changed,
-                    data,
-                );
-            }
-            let _ = AudioObjectRemovePropertyListener(
-                SYSTEM_OBJECT,
-                &address(DEFAULT_OUTPUT_DEVICE, SCOPE_GLOBAL, ELEMENT_MASTER),
-                default_output_changed,
-                data,
-            );
-            let _ = AudioObjectRemovePropertyListener(
-                SYSTEM_OBJECT,
-                &address(DEVICES, SCOPE_GLOBAL, ELEMENT_MASTER),
-                device_list_changed,
-                data,
-            );
-        }
+}
+
+fn channel_write_volumes(mut channels: Vec<f32>, target: f32) -> Vec<NormalizedVolume> {
+    let mut volumes = Vec::with_capacity(channels.len());
+    for index in 0..channels.len() {
+        channels[index] = target;
+        volumes.push(normalize(
+            channels.iter().sum::<f32>() / channels.len() as f32,
+        ));
     }
+    volumes
 }
 
 unsafe extern "C" fn property_changed(
@@ -522,19 +606,14 @@ unsafe extern "C" fn property_changed(
     };
     let state = unsafe { state_for_callback(object) };
     if let Ok(state) = state {
-        let origin = context
-            .expected
-            .lock()
-            .ok()
-            .and_then(|mut expected| expected.take())
-            .map_or(LocalOrigin::User, |expected| {
-                match expected.classify(state, now_ms()) {
-                    sonos_volume_bridge_domain::SuppressionDecision::Suppress => {
-                        LocalOrigin::Application
-                    }
-                    sonos_volume_bridge_domain::SuppressionDecision::Forward => LocalOrigin::User,
-                }
-            });
+        let origin =
+            if context.expected.lock().is_ok_and(|mut expected| {
+                expected.matches(state, context.tolerance, Instant::now())
+            }) {
+                LocalOrigin::Application
+            } else {
+                LocalOrigin::User
+            };
         let _ = context
             .events
             .send(SystemAudioEvent::StateChanged { state, origin });
@@ -728,21 +807,31 @@ unsafe fn output_channels(id: AudioObjectID) -> Result<Vec<UInt32>, OSStatus> {
     if status != NO_ERR {
         return Err(status);
     }
-    let buffers = unsafe { *(bytes.as_ptr().cast::<u32>()) } as usize;
+    stream_channels(&bytes, |channel| {
+        let volume_address = address(VOLUME_SCALAR, SCOPE_OUTPUT, channel);
+        unsafe {
+            AudioObjectHasProperty(id, &volume_address) != 0
+                && matches!(settable(id, &volume_address), Ok(true))
+        }
+    })
+}
+
+// Core Audio channel elements are cumulative across AudioBuffers.
+fn stream_channels(
+    bytes: &[u8],
+    mut writable: impl FnMut(u32) -> bool,
+) -> Result<Vec<u32>, OSStatus> {
+    let buffers = u32::from_ne_bytes(bytes.get(..4).ok_or(-1)?.try_into().map_err(|_| -1)?);
     let mut offset = 8_usize;
+    let mut element = 0_u32;
     let mut channels = Vec::new();
     for _ in 0..buffers {
-        if offset + 16 > bytes.len() {
-            return Err(-1);
-        }
-        let count = unsafe { *(bytes.as_ptr().add(offset).cast::<u32>()) };
-        for channel in 1..=count {
-            let volume_address = address(VOLUME_SCALAR, SCOPE_OUTPUT, channel);
-            if unsafe {
-                AudioObjectHasProperty(id, &volume_address) != 0
-                    && matches!(settable(id, &volume_address), Ok(true))
-            } {
-                channels.push(channel);
+        let buffer = bytes.get(offset..offset + 16).ok_or(-1)?;
+        let count = u32::from_ne_bytes(buffer[..4].try_into().map_err(|_| -1)?);
+        for _ in 0..count {
+            element = element.checked_add(1).ok_or(-1)?;
+            if writable(element) {
+                channels.push(element);
             }
         }
         offset += 16;
@@ -852,14 +941,6 @@ fn map_error(status: OSStatus) -> PlatformAudioError {
 fn legacy_audio_object_id(id: &str) -> Option<AudioObjectID> {
     id.parse().ok()
 }
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
-}
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn normalize(value: f32) -> NormalizedVolume {
     NormalizedVolume::new((value.clamp(0.0, 1.0) * 100.0).round() as u8)
@@ -868,7 +949,278 @@ fn normalize(value: f32) -> NormalizedVolume {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+
+    #[test]
+    #[ignore = "requires a writable native Core Audio output; reads and registers listeners only"]
+    fn native_same_output_reattachment_retains_registered_listeners() {
+        let selection = std::env::var("SVB_NATIVE_AUDIO_DEVICE")
+            .map_or(super::AudioDeviceSelection::FollowDefault, |device_id| {
+                super::AudioDeviceSelection::Fixed { device_id }
+            });
+        let (events, _) = tokio::sync::broadcast::channel(64);
+        let (commands, _receiver) = std::sync::mpsc::sync_channel(32);
+        let context = std::sync::Arc::new(super::CallbackContext {
+            events,
+            commands,
+            expected: std::sync::Mutex::new(super::ExpectedWrites::default()),
+            tolerance: 1,
+        });
+        let mut endpoint =
+            unsafe { super::Endpoint::attach(&selection, std::sync::Arc::clone(&context)) }
+                .unwrap();
+        for _ in 0..3 {
+            super::replace_endpoint(&mut endpoint, super::Endpoint::detach, || unsafe {
+                super::Endpoint::attach(&selection, std::sync::Arc::clone(&context))
+            })
+            .unwrap();
+            assert!(unsafe { endpoint.state() }.is_ok());
+            let data = std::sync::Arc::as_ptr(&context)
+                .cast_mut()
+                .cast::<std::ffi::c_void>();
+            // A duplicate must be rejected, proving the replacement remains registered.
+            for registration in &endpoint.listeners.0 {
+                assert_eq!(
+                    unsafe {
+                        super::AudioObjectAddPropertyListener(
+                            registration.object,
+                            &registration.address,
+                            registration.callback,
+                            data,
+                        )
+                    },
+                    1_852_797_029
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unchanged_output_notification_does_not_replace_listeners_or_hide_read_failure() {
+        let mut endpoint = 2;
+        let changed = super::refresh_endpoint(
+            &mut endpoint,
+            true,
+            |_| Ok::<_, i32>(()),
+            |_| panic!("must retain healthy listeners"),
+            || panic!("must not reattach unchanged output"),
+        )
+        .unwrap();
+        assert!(!changed);
+        assert_eq!(endpoint, 2);
+        assert_eq!(
+            super::refresh_endpoint(
+                &mut endpoint,
+                true,
+                |_| Err(7),
+                |_| panic!("no attachment on failed verification"),
+                || Ok(3)
+            ),
+            Err(7)
+        );
+        assert!(
+            super::refresh_endpoint(
+                &mut endpoint,
+                false,
+                |_| panic!("changed output"),
+                |old| *old = 0,
+                || Ok::<_, i32>(3)
+            )
+            .unwrap()
+        );
+        assert_eq!(endpoint, 3);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a writable native output; sends read-only topology notifications"]
+    async fn native_unchanged_output_notifications_keep_session() {
+        use super::SystemAudioController;
+        let selection = std::env::var("SVB_NATIVE_AUDIO_DEVICE")
+            .map_or(super::AudioDeviceSelection::FollowDefault, |device_id| {
+                super::AudioDeviceSelection::Fixed { device_id }
+            });
+        let controller = super::MacosAudioController::start(selection, 1).unwrap();
+        let mut events = controller.subscribe();
+        controller.current_state().await.unwrap();
+        for _ in 0..5 {
+            controller
+                .worker
+                .commands
+                .send(super::Command::Reattach)
+                .unwrap();
+            // The read is a FIFO barrier after the real worker processes the notification.
+            controller.current_state().await.unwrap();
+            while let Ok(event) = events.try_recv() {
+                assert!(
+                    matches!(event, super::SystemAudioEvent::StateChanged { .. }),
+                    "unchanged output must not report a lifecycle change: {event:?}"
+                );
+            }
+        }
+    }
+
+    fn test_registrations() -> Vec<super::ListenerRegistration> {
+        [
+            (2, super::VOLUME_SCALAR, super::SCOPE_OUTPUT, 1),
+            (2, super::VOLUME_SCALAR, super::SCOPE_OUTPUT, 2),
+            (2, super::MUTE, super::SCOPE_OUTPUT, 0),
+            (
+                super::SYSTEM_OBJECT,
+                super::DEFAULT_OUTPUT_DEVICE,
+                super::SCOPE_GLOBAL,
+                0,
+            ),
+            (super::SYSTEM_OBJECT, super::DEVICES, super::SCOPE_GLOBAL, 0),
+        ]
+        .into_iter()
+        .map(
+            |(object, selector, scope, element)| super::ListenerRegistration {
+                object,
+                address: super::address(selector, scope, element),
+                callback: super::property_changed,
+            },
+        )
+        .collect()
+    }
+
+    fn listener_key(registration: &super::ListenerRegistration) -> (u32, u32, u32, u32) {
+        (
+            registration.object,
+            registration.address.selector,
+            registration.address.scope,
+            registration.address.element,
+        )
+    }
+
+    #[test]
+    fn multibuffer_stream_channels_register_each_element_once() {
+        // Two stereo buffers, including an unwritable channel in the first.
+        let mut bytes = vec![0_u8; 8 + 2 * 16];
+        bytes[..4].copy_from_slice(&2_u32.to_ne_bytes());
+        bytes[8..12].copy_from_slice(&2_u32.to_ne_bytes());
+        bytes[24..28].copy_from_slice(&2_u32.to_ne_bytes());
+        let channels = super::stream_channels(&bytes, |channel| channel != 2).unwrap();
+        assert_eq!(channels, vec![1, 3, 4]);
+        let mut registrations = super::ListenerRegistrations::default();
+        let active = RefCell::new(BTreeSet::new());
+        registrations
+            .register(
+                channels
+                    .into_iter()
+                    .map(|channel| super::ListenerRegistration {
+                        object: 1,
+                        address: super::address(super::VOLUME_SCALAR, super::SCOPE_OUTPUT, channel),
+                        callback: super::property_changed,
+                    }),
+                |registration| {
+                    if active.borrow_mut().insert(listener_key(registration)) {
+                        0
+                    } else {
+                        1_852_797_029
+                    }
+                },
+                |registration| {
+                    active.borrow_mut().remove(&listener_key(registration));
+                    0
+                },
+            )
+            .unwrap();
+        assert_eq!(active.borrow().len(), 3);
+    }
+
+    #[test]
+    fn same_output_reattachment_removes_old_listeners_before_registering_replacements() {
+        let active = RefCell::new(BTreeSet::new());
+        let add = |registration: &super::ListenerRegistration| {
+            if active.borrow_mut().insert(listener_key(registration)) {
+                0
+            } else {
+                1_852_797_029
+            }
+        };
+        let remove = |registration: &super::ListenerRegistration| {
+            assert!(active.borrow_mut().remove(&listener_key(registration)));
+            0
+        };
+        let attach = || {
+            let mut registrations = super::ListenerRegistrations::default();
+            registrations.register(test_registrations(), add, remove)?;
+            Ok::<_, i32>(registrations)
+        };
+        let mut endpoint = attach().unwrap();
+        // Startup followed by repeated device/default-output notifications for the same output.
+        for _ in 0..3 {
+            super::replace_endpoint(&mut endpoint, |old| old.remove(remove), attach).unwrap();
+            assert_eq!(active.borrow().len(), 5);
+        }
+        endpoint.remove(remove);
+        endpoint.remove(remove);
+        assert!(active.borrow().is_empty());
+    }
+
+    #[test]
+    fn failed_listener_attachment_rolls_back_only_successful_registrations() {
+        for failure_index in 0..5 {
+            let active = RefCell::new(BTreeSet::new());
+            let mut attempt = 0;
+            let mut registrations = super::ListenerRegistrations::default();
+            let result = registrations.register(
+                test_registrations(),
+                |registration| {
+                    let fail = attempt == failure_index;
+                    attempt += 1;
+                    if fail {
+                        return 1_852_797_029;
+                    }
+                    assert!(active.borrow_mut().insert(listener_key(registration)));
+                    0
+                },
+                |registration| {
+                    assert!(active.borrow_mut().remove(&listener_key(registration)));
+                    0
+                },
+            );
+            assert_eq!(result, Err(1_852_797_029));
+            assert!(active.borrow().is_empty());
+            assert!(registrations.0.is_empty());
+        }
+    }
+
     use super::*;
+    use speaker_volume_bridge_domain::ExpectedLocalWrite;
+    #[test]
+    fn channel_transitions_and_duplicate_final_callbacks_are_suppressed() {
+        let now = Instant::now();
+        let mut expected = ExpectedWrites::default();
+        let volumes = channel_write_volumes(vec![0.2, 0.4], 0.6);
+        assert_eq!(
+            volumes
+                .iter()
+                .map(|volume| volume.get())
+                .collect::<Vec<_>>(),
+            vec![50, 60]
+        );
+        for volume in volumes {
+            expected.record(
+                LocalAudioState {
+                    volume,
+                    muted: MuteState(false),
+                },
+                now,
+            );
+        }
+        for volume in [50, 60, 50, 60] {
+            assert!(expected.matches(
+                LocalAudioState {
+                    volume: NormalizedVolume::new(volume).unwrap(),
+                    muted: MuteState(false),
+                },
+                1,
+                now
+            ));
+        }
+    }
     #[test]
     fn expected_writes_suppress_matching_callbacks() {
         let expected = ExpectedLocalWrite {
@@ -886,7 +1238,7 @@ mod tests {
         };
         assert_eq!(
             expected.classify(observed, 9),
-            sonos_volume_bridge_domain::SuppressionDecision::Suppress
+            speaker_volume_bridge_domain::SuppressionDecision::Suppress
         );
     }
 

@@ -17,7 +17,7 @@ use crate::{
     SystemAudioEvent,
 };
 use async_trait::async_trait;
-use sonos_volume_bridge_domain::{LocalAudioState, LocalOrigin, MuteState, NormalizedVolume};
+use speaker_volume_bridge_domain::{LocalAudioState, LocalOrigin, MuteState, NormalizedVolume};
 use std::{
     sync::{
         Arc, Mutex,
@@ -57,7 +57,7 @@ pub const APPLICATION_EVENT_CONTEXT: GUID = GUID::from_u128(0x8d0c6f84_7e52_41cb
 /// [`AudioDeviceSelection::Fixed`].
 pub fn list_output_devices() -> Result<Vec<AudioOutputDevice>, PlatformAudioError> {
     let worker = thread::Builder::new()
-        .name("sonos-volume-bridge-output-enumeration".to_owned())
+        .name("speaker-volume-bridge-output-enumeration".to_owned())
         .spawn(list_output_devices_on_worker)
         .map_err(|error| PlatformAudioError::Platform(error.to_string()))?;
     worker.join().map_err(|_| {
@@ -171,7 +171,7 @@ impl WindowsAudioController {
         let shutdown = Arc::new(AtomicBool::new(false));
         let worker_shutdown = Arc::clone(&shutdown);
         let thread = thread::Builder::new()
-            .name("sonos-volume-bridge-core-audio".to_owned())
+            .name("speaker-volume-bridge-core-audio".to_owned())
             .spawn(move || {
                 run_worker(
                     selection,
@@ -434,6 +434,14 @@ fn attach_endpoint(
     Ok(EndpointRegistration { volume, callback })
 }
 
+fn callback_origin(context: GUID) -> LocalOrigin {
+    if context == APPLICATION_EVENT_CONTEXT {
+        LocalOrigin::Application
+    } else {
+        LocalOrigin::User
+    }
+}
+
 #[implement(IAudioEndpointVolumeCallback)]
 struct EndpointVolumeCallback {
     events: broadcast::Sender<SystemAudioEvent>,
@@ -448,11 +456,7 @@ impl IAudioEndpointVolumeCallback_Impl for EndpointVolumeCallback_Impl {
         let Some(notification) = (unsafe { notification.as_ref() }) else {
             return Ok(());
         };
-        let origin = if notification.guidEventContext == APPLICATION_EVENT_CONTEXT {
-            LocalOrigin::Application
-        } else {
-            LocalOrigin::User
-        };
+        let origin = callback_origin(notification.guidEventContext);
         let _ = self.events.send(SystemAudioEvent::StateChanged {
             state: LocalAudioState {
                 volume: normalized(notification.fMasterVolume),
@@ -510,6 +514,17 @@ mod tests {
             string_from_utf16z(&[79, 102, 102, 105, 99, 101, 0, 120]),
             "Office"
         );
+    }
+    #[test]
+    fn repeated_application_callbacks_and_external_contexts_remain_distinct() {
+        for _ in 0..10 {
+            assert_eq!(
+                callback_origin(APPLICATION_EVENT_CONTEXT),
+                LocalOrigin::Application
+            );
+            assert_eq!(callback_origin(GUID::default()), LocalOrigin::User);
+            assert_eq!(callback_origin(GUID::from_u128(1)), LocalOrigin::User);
+        }
     }
     #[test]
     fn application_event_context_is_stable_and_non_null() {

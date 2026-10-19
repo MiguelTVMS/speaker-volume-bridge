@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-04T00:00:00Z",
+  "entries": [
+    {
+      "edition": "direct_macos",
+      "channel": "stable",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "1.10.0",
+      "classification": "GA",
+      "publishedAt": "2026-10-04T00:00:00Z",
+      "releaseNotes": "Fixture GA",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.10.0",
+        "futureAction": {
+          "keep": true
+        }
+      },
+      "futureEntry": {
+        "keep": true
+      }
+    },
+    {
+      "edition": "direct_macos",
+      "channel": "prereleases",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "1.8.0",
+      "classification": "Alpha",
+      "publishedAt": "2026-10-04T00:00:00Z",
+      "releaseNotes": "Fixture Alpha",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0",
+        "futureAction": {
+          "keep": true
+        }
+      },
+      "futureEntry": {
+        "keep": true
+      }
+    },
+    {
+      "edition": "direct_macos",
+      "channel": "prereleases",
+      "os": "macos",
+      "architecture": "aarch64",
+      "version": "1.9.0",
+      "classification": "Beta",
+      "publishedAt": "2026-10-04T00:00:00Z",
+      "releaseNotes": "Fixture Beta",
+      "action": {
+        "type": "open_url",
+        "url": "https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.9.0",
+        "futureAction": {
+          "keep": true
+        }
+      },
+      "futureEntry": {
+        "keep": true
+      }
+    }
+  ],
+  "futureCatalog": {
+    "keep": true
+  }
+}

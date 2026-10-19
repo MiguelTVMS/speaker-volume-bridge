@@ -1,12 +1,12 @@
 <!-- Generated from index.html; edit the HTML source. -->
 
-FOR macOS, WINDOWS & LINUX
+For macOS, Windows & Linux
 
 # Your device. Your speaker. In sync.
 
 Keep your computer’s audio output and your Sonos speaker volume in sync. Adjust volume through system controls, keyboard keys, or supported audio-device controls.
 
-[Download the app](https://svb.miguel.ms/#downloads) [Read the guide ↗](https://github.com/MiguelTVMS/sonos-volume-bridge/wiki)
+[Download the app](https://svb.miguel.ms/#downloads) [Read the guide ↗](https://svb.miguel.ms/guide/)
 
 macOS  Windows  Linux
 
@@ -40,39 +40,47 @@ Set a maximum speaker volume and choose how volume changes feel, including a gen
 
 Follow your current audio output or select a fixed one. Start at login and reconnect automatically after interruptions.
 
-DOWNLOAD SONOS VOLUME BRIDGE
+05 / NIGHT SCHEDULE
+
+### Quieter evenings, on time.
+
+Set weekly half-hour blocks for Night Mode on your selected compatible speaker. Drag to select several days at once, and choose native notifications when the schedule starts or ends.
+
+DOWNLOAD SPEAKER VOLUME BRIDGE
+
+Formerly Sonos Volume Bridge. [Upgrade instructions](https://svb.miguel.ms/guide/Upgrading.html) .
 
 ## At home on your computer.
 
 Free and open source. Choose the download for your operating system.
 
-Latest stable release · [Check the latest release ↗](https://github.com/MiguelTVMS/sonos-volume-bridge/releases/latest)
+Latest stable release · [Check the latest release ↗](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest)
 
 ### macOS
 
-For Macs running macOS 13 or later. Signed with Developer ID and notarized by Apple.
+For Macs running macOS 13 or later. Check the release notes for signing and notarization status before installing. Open the DMG and drag the app into Applications.
 
 Apple Silicon (ARM64) only. Intel Macs are not supported.
 
-[Download for macOS ↓](https://github.com/MiguelTVMS/sonos-volume-bridge/releases/latest/download/sonos-volume-bridge-macos.zip)
+[Download for macOS (DMG) ↓](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-macos.dmg)
 
 ### Windows
 
-Install from Microsoft Store or download the installer directly.
+Install from Microsoft Store or choose the direct installer for your processor: x64 or ARM64.
 
 The direct installer is unsigned. Windows SmartScreen may show a warning.
 
-[Microsoft Store ↗](https://apps.microsoft.com/detail/9N7JKGXCMST0) [Windows installer ↓](https://github.com/MiguelTVMS/sonos-volume-bridge/releases/latest/download/sonos-volume-bridge-windows-unsigned.exe)
+[Microsoft Store ↗](https://apps.microsoft.com/detail/9N7JKGXCMST0?cid=website&referrer=download&source=svb.miguel.ms) [Windows x64 ↓](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-windows-x64-unsigned.exe) [Windows ARM64 ↓](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-windows-arm64-unsigned.exe)
 
 ### Ubuntu
 
-For Ubuntu on x86-64, with PulseAudio or PipeWire and `pactl`.
+For Ubuntu on x86-64 or ARM64, with PulseAudio or PipeWire and `pactl`.
 
-DEB package · AMD64.
+DEB packages · x64 and ARM64.
 
-[Download for Ubuntu ↓](https://github.com/MiguelTVMS/sonos-volume-bridge/releases/latest/download/sonos-volume-bridge-linux-amd64.deb)
+[Download for Ubuntu (x64) ↓](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-linux-x64.deb)  [Download for Ubuntu (ARM64) ↓](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest/download/speaker-volume-bridge-linux-arm64.deb)
 
-Need a hand? [Read the installation guide ↗](https://github.com/MiguelTVMS/sonos-volume-bridge/wiki/Installation)
+Need a hand? [Read the installation guide ↗](https://svb.miguel.ms/guide/Installation.html)
 
 A FEW CLICKS, THEN BACK TO YOUR MUSIC.
 
@@ -80,7 +88,7 @@ A FEW CLICKS, THEN BACK TO YOUR MUSIC.
 
 You’ll need a Sonos speaker on the same local network and a computer audio output with software volume control.
 
-[Full installation guide ↗](https://github.com/MiguelTVMS/sonos-volume-bridge/wiki/Installation)
+[Full installation guide ↗](https://svb.miguel.ms/guide/Installation.html)
 
 - ### Install and open. Download the package for your operating system from the project’s releases.
 
@@ -92,7 +100,7 @@ LOCAL BY DESIGN
 
 ## Your volume stays between your devices.
 
-No advertising, analytics, or publisher telemetry in the app. Preferences and diagnostic logs stay on your computer unless you choose to share them.
+No advertising, analytics, or publisher telemetry in the app. Preferences and diagnostic logs stay on your computer unless you choose to share them. Optional update checks read the public project catalog without sending speaker or configuration data.
 
 [Read the privacy policy →](https://svb.miguel.ms/privacy.html)
 
@@ -106,20 +114,26 @@ It’s an early community project, with hands-on testing currently limited to a 
 
 macOS requires version 13 or later. Linux support targets Ubuntu with PulseAudio or PipeWire with `pactl`. Check the installation guide for available packages and platform notes.
 
-[Compatibility & limitations ↗](https://github.com/MiguelTVMS/sonos-volume-bridge/wiki/Compatibility-and-Limitations)
+[Compatibility & limitations ↗](https://svb.miguel.ms/guide/Compatibility-and-Limitations.html)
 
 A SMALL BRIDGE. AN OPEN PROJECT.
 
 ## Ready to find your volume?
 
-Free to use and open source under the [MIT license](https://svb.miguel.ms/license.txt) . Explore the wiki for detailed settings, troubleshooting, and help.
+Free to use and open source under the [MIT license](https://svb.miguel.ms/license.txt) . Explore the guide for detailed settings, troubleshooting, and help.
 
-[Choose your download ↓](https://svb.miguel.ms/#downloads) [Explore the wiki ↗](https://github.com/MiguelTVMS/sonos-volume-bridge/wiki)
+[Choose your download ↓](https://svb.miguel.ms/#downloads) [Explore the guide ↗](https://svb.miguel.ms/guide/)
 
-[Sonos Volume Bridge](https://svb.miguel.ms/)
+[Speaker Volume Bridge](https://svb.miguel.ms/)
 
-[Privacy policy](https://svb.miguel.ms/privacy.html) [MIT license](https://svb.miguel.ms/license.txt) [Source code ↗](https://github.com/MiguelTVMS/sonos-volume-bridge)
+[Privacy policy](https://svb.miguel.ms/privacy.html)  [MIT license](https://svb.miguel.ms/license.txt)  [Miguel’s website ↗](https://miguel.ms)  [Source code ↗](https://github.com/MiguelTVMS/speaker-volume-bridge)
 
 Independent software. Not affiliated with, sponsored by, endorsed by, or supported by Sonos. Sonos and related product names are trademarks of their respective owners and are used only to identify compatibility. This project contains no Sonos source code.
 
 Made for the volume controls you already use.
+
+{% if site.data.build %}
+
+Version {{ site.data.build.version }} · {{ site.data.build.ref }} · {{ site.data.build.revision }}
+
+{% endif %}

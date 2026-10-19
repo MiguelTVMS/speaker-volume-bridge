@@ -14,4 +14,27 @@ This folder stores decision records. Keep one record per important design choice
 - [0010-discovery-filters-non-sonos-devices](0010-discovery-filters-non-sonos-devices.md)
 - [0011-ubuntu-pulse-audio-adapter](0011-ubuntu-pulse-audio-adapter.md)
 - [0012-platform-settings-presentation](0012-platform-settings-presentation.md)
-- [0013-camera-speech-automation](0013-camera-speech-automation.md)
+- [0026-camera-speech-automation](0026-camera-speech-automation.md)
+- [0013-global-night-mode-schedule](0013-global-night-mode-schedule.md)
+
+- [0014-ui-demo-build](0014-ui-demo-build.md)
+- [0015-macos-dmg-download](0015-macos-dmg-download.md)
+
+- [0016-store-release-recovery](0016-store-release-recovery.md)
+
+- [0017-volume-feedback-suppression](0017-volume-feedback-suppression.md)
+
+- [0018-rebrand-and-legacy-protection](0018-rebrand-and-legacy-protection.md)
+- [0019-distribution-aware-updates](0019-distribution-aware-updates.md)
+
+- [0020-independent-catalog-delivery](0020-independent-catalog-delivery.md)
+
+- [0021-github-release-updates](0021-github-release-updates.md)
+
+- [0022-release-workflow-inputs](0022-release-workflow-inputs.md)
+
+- [0023-macos-updater-artifacts](0023-macos-updater-artifacts.md)
+
+- [0024-volume-gesture-settling](0024-volume-gesture-settling.md)
+
+- [0025-tray-settings-navigation](0025-tray-settings-navigation.md)

@@ -1,6 +1,6 @@
 # Documentation index
 
-This folder describes how SonosVolumeBridge works from protocol, runtime, and
+This folder describes how SpeakerVolumeBridge works from protocol, runtime, and
 operational perspectives.
 
 - [`architecture.md`](architecture.md): architecture boundaries, components, and
@@ -18,3 +18,7 @@ operational perspectives.
 
 When changing behavior or public options, update the docs listed above before
 closing the change.
+
+- [Night schedule behavior and editing](how-it-works.md#night-mode-schedule)
+- [Windows/Linux pre-PR trial](verification-matrix.md#windows-and-linux-branch-trial)
+- [Global Night Mode scheduling decision](decisions/0013-global-night-mode-schedule.md)

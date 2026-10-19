@@ -10,17 +10,19 @@ use crate::{
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use sonos_volume_bridge_domain::{LocalAudioState, LocalOrigin, MuteState, SonosVolume};
-use sonos_volume_bridge_integration::{
+use speaker_volume_bridge_domain::{LocalAudioState, LocalOrigin, MuteState, SonosVolume};
+use speaker_volume_bridge_integration::{
     Coordinator, IntegrationError, LocalAudioPort, SonosPort, SynchronizationPolicy,
 };
-use sonos_volume_bridge_platform_audio::{
+use speaker_volume_bridge_platform_audio::{
     AudioDeviceSelection, PlatformAudioError, SystemAudioController, SystemAudioEvent,
 };
-use sonos_volume_bridge_sonos::{
-    CallbackListener, EventDeduplicator, GenaClient, SonosClient, SonosDevice, SonosId, discover,
-};
-use sonos_volume_bridge_synchronization::Synchronizer;
+#[cfg(any(test, not(feature = "ui-demo")))]
+use speaker_volume_bridge_sonos::SonosId;
+#[cfg(not(feature = "ui-demo"))]
+use speaker_volume_bridge_sonos::discover;
+use speaker_volume_bridge_sonos::{CallbackListener, GenaClient, SonosClient, SonosDevice};
+use speaker_volume_bridge_synchronization::Synchronizer;
 use std::{
     net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
@@ -33,13 +35,16 @@ use tokio::{
     time::{Instant, sleep, sleep_until},
 };
 use tracing::warn;
+#[cfg(not(feature = "ui-demo"))]
 use url::Url;
 
 const SONOS_TIMEOUT: Duration = Duration::from_secs(3);
+#[cfg(not(feature = "ui-demo"))]
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 const REQUESTED_SUBSCRIPTION: Duration = Duration::from_secs(300);
 const INITIAL_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
+#[cfg(any(test, not(feature = "ui-demo")))]
 const SONOS_UDN_PREFIX: &str = "uuid:RINCON_";
 
 #[derive(Clone, Debug, Serialize)]
@@ -60,7 +65,7 @@ pub struct AvailableAudioOutput {
 
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn map_audio_outputs(
-    devices: Vec<sonos_volume_bridge_platform_audio::AudioOutputDevice>,
+    devices: Vec<speaker_volume_bridge_platform_audio::AudioOutputDevice>,
 ) -> Vec<AvailableAudioOutput> {
     devices
         .into_iter()
@@ -79,19 +84,19 @@ fn map_audio_outputs(
 pub fn available_audio_outputs() -> Result<Vec<AvailableAudioOutput>, String> {
     #[cfg(windows)]
     {
-        sonos_volume_bridge_platform_audio::windows::list_output_devices()
+        speaker_volume_bridge_platform_audio::windows::list_output_devices()
             .map(map_audio_outputs)
             .map_err(|_| "Unable to list local output devices.".to_owned())
     }
     #[cfg(target_os = "macos")]
     {
-        sonos_volume_bridge_platform_audio::macos::list_output_devices()
+        speaker_volume_bridge_platform_audio::macos::list_output_devices()
             .map(map_audio_outputs)
             .map_err(|_| "Unable to list local output devices.".to_owned())
     }
     #[cfg(target_os = "linux")]
     {
-        sonos_volume_bridge_platform_audio::linux::list_output_devices()
+        speaker_volume_bridge_platform_audio::linux::list_output_devices()
             .map(map_audio_outputs)
             .map_err(|_| "Unable to list local output devices.".to_owned())
     }
@@ -102,7 +107,7 @@ pub fn available_audio_outputs() -> Result<Vec<AvailableAudioOutput>, String> {
 }
 /// Removes the implementation suffix emitted by some AirPlay renderer names.
 /// The stable UDN remains the identity used by the application.
-fn display_speaker_name(name: &str) -> String {
+pub(crate) fn display_speaker_name(name: &str) -> String {
     name.split_once(" - Sonos ")
         .filter(|(_, suffix)| suffix.contains("Media Renderer") && suffix.contains("RINCON"))
         .map_or_else(
@@ -113,6 +118,21 @@ fn display_speaker_name(name: &str) -> String {
 
 /// Performs bounded local-network discovery for the settings application service.
 pub async fn discover_available() -> Result<Vec<DiscoveredSonos>, String> {
+    #[cfg(feature = "ui-demo")]
+    {
+        let speaker = crate::demo::speaker().await.map_err(|e| e.to_string())?;
+        Ok(vec![DiscoveredSonos {
+            id: crate::demo::SPEAKER_ID.into(),
+            friendly_name: "Living Room (simulated)".into(),
+            location: speaker.location.to_string(),
+        }])
+    }
+    #[cfg(not(feature = "ui-demo"))]
+    discover_network().await
+}
+
+#[cfg(not(feature = "ui-demo"))]
+async fn discover_network() -> Result<Vec<DiscoveredSonos>, String> {
     let client = SonosClient::builder()
         .timeout(SONOS_TIMEOUT)
         .build()
@@ -157,7 +177,7 @@ pub async fn test_selected_device(configuration: AppConfiguration) -> Result<(),
         .map_err(|_| "The selected Sonos device rejected the volume test.".to_owned())
 }
 
-pub use sonos_volume_bridge_sonos::SpeakerSettings;
+pub use speaker_volume_bridge_sonos::SpeakerSettings;
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -186,6 +206,9 @@ pub async fn set_speaker_setting(
     setting: SpeakerSetting,
     enabled: bool,
 ) -> Result<(), String> {
+    if matches!(setting, SpeakerSetting::NightSound) {
+        return crate::night_schedule::set_manual(&configuration, enabled).await;
+    }
     let client = SonosClient::builder()
         .timeout(SONOS_TIMEOUT)
         .build()
@@ -325,7 +348,12 @@ async fn run_supervisor(
             return;
         }
         update_snapshot(&snapshot, &app, generation, UiStatus::Connecting, None);
-        let result = run_session(&configuration, &snapshot, &app, generation, &mut shutdown).await;
+        let mut cancelled = shutdown.clone();
+        let result = tokio::select! {
+            biased;
+            _ = cancelled.changed() => return,
+            result = run_session(&configuration, &snapshot, &app, generation, &mut shutdown) => result,
+        };
         if *shutdown.borrow() {
             return;
         }
@@ -414,14 +442,6 @@ async fn run_session(
     } else {
         tracing::info!("observed initial Sonos state without changing local audio");
     }
-    let confirmed_volume = client
-        .get_volume(&device)
-        .await
-        .map_err(|_| RuntimeError::SonosUnavailable)?;
-    let confirmed_mute = client
-        .get_mute(&device)
-        .await
-        .map_err(|_| RuntimeError::SonosUnavailable)?;
     let local_state = audio.current_state().await.map_err(RuntimeError::Local)?;
     tracing::info!("read current local audio state");
     if !configuration.two_way_synchronization {
@@ -429,7 +449,7 @@ async fn run_session(
             .on_local_event(local_state, LocalOrigin::User, true)
             .await
             .map_err(RuntimeError::from)?;
-        tracing::info!("applied initial local audio state to Sonos in one-way mode");
+        tracing::info!("reconciled initial local audio intent in one-way mode");
     }
     update_snapshot(
         snapshot,
@@ -463,32 +483,46 @@ async fn run_session(
     if let Some(value) = subscription.as_ref() {
         listener.set_subscription(value);
     }
+    let confirmed = coordinator.confirmed_state();
+    let local_state = audio.current_state().await.map_err(RuntimeError::Local)?;
     update_snapshot(
         snapshot,
         app,
         generation,
-        if subscription.is_some() {
+        if coordinator.local_deadline().is_some() || coordinator.settling_deadline().is_some() {
+            UiStatus::WaitingForSonosConfirmation
+        } else if subscription.is_some() {
             UiStatus::Synchronized
         } else {
             UiStatus::SubscriptionDegraded
         },
         Some(SnapshotValues {
             name: &speaker_name,
-            sonos_volume: Some(confirmed_volume.get()),
+            sonos_volume: confirmed.map(|state| state.volume.get()),
             local_volume: Some(local_state.volume.get()),
-            muted: Some(confirmed_mute.0),
+            muted: confirmed.map(|state| state.muted.0),
         }),
     );
     let mut renew_at = subscription
         .as_ref()
         .map_or_else(|| Instant::now() + Duration::from_secs(5), renewal_at);
     let mut last_local = Some(local_state);
-    let mut deduplicator = EventDeduplicator::default();
     let mut last_settings_sequence = None;
     let mut health_at = Instant::now() + Duration::from_secs(5);
 
     loop {
+        let local_deadline = coordinator.local_deadline();
+        let settling_deadline = coordinator.settling_deadline();
         tokio::select! {
+            () = sleep_until(settling_deadline.unwrap_or_else(Instant::now)), if settling_deadline.is_some() => {
+                reconcile_session_observations(&mut listener, &mut coordinator, audio.as_ref(), SessionObservation::Settled,
+                    subscription.is_some(), configuration.fallback_polling,
+                    |confirmed, local, status| update_snapshot(snapshot, app, generation, status,
+                        Some(SnapshotValues { name: &speaker_name, sonos_volume: Some(confirmed.volume.get()), local_volume: Some(local.volume.get()), muted: Some(confirmed.muted.0) }))).await?;
+            }
+            () = sleep_until(local_deadline.unwrap_or_else(Instant::now)), if local_deadline.is_some() => {
+                coordinator.run_local_once().await.map_err(RuntimeError::from)?;
+            }
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     if let Some(value) = subscription.as_ref() { let _ = gena.unsubscribe(&device, value).await; }
@@ -504,27 +538,37 @@ async fn run_session(
                     if let Some(state) = app.try_state::<crate::state::AppState>() {
                         state.camera.request_refresh();
                     }
+                    app.state::<crate::state::AppState>().schedule_refresh.store(true, std::sync::atomic::Ordering::Relaxed);
                     let _ = app.emit("speaker-settings-changed", ());
                     tray::refresh_speaker_controls(app);
                 }
-                let volume_state = client.notification_state(&device, &notification).await.map_err(|_| RuntimeError::SonosUnavailable)?;
-                if let Some(event) = volume_state.filter(|event| deduplicator.accept(event.clone())) {
-                    coordinator.on_sonos_event(event.state.volume, event.state.muted).await.map_err(RuntimeError::from)?;
-                    let local_state = audio.current_state().await.map_err(RuntimeError::Local)?;
-                    update_snapshot(snapshot, app, generation, UiStatus::Synchronized, Some(SnapshotValues { name: &speaker_name, sonos_volume: Some(event.state.volume.get()), local_volume: Some(local_state.volume.get()), muted: Some(event.state.muted.0) }));
-                }
+                process_session_notification(&mut listener, &mut coordinator, audio.as_ref(), notification,
+                    SessionDelivery { subscribed: subscription.is_some(), fallback_polling: configuration.fallback_polling },
+                    |confirmed, local, status| update_snapshot(snapshot, app, generation, status,
+                        Some(SnapshotValues { name: &speaker_name, sonos_volume: Some(confirmed.volume.get()), local_volume: Some(local.volume.get()), muted: Some(confirmed.muted.0) }))).await?;
             }
-            received = audio_events.recv() => match received {
+            received = audio_events.recv() => match newest_audio_event(received, &mut audio_events) {
                 Ok(SystemAudioEvent::StateChanged { state, origin }) => {
+                    if origin == LocalOrigin::Application {
+                        last_local = Some(state);
+                        continue;
+                    }
                     let mute_changed = last_local.is_none_or(|previous| previous.muted != state.muted);
                     last_local = Some(state);
                     update_snapshot(snapshot, app, generation, UiStatus::WaitingForSonosConfirmation, Some(SnapshotValues { name: &speaker_name, sonos_volume: None, local_volume: Some(state.volume.get()), muted: Some(state.muted.0) }));
                     coordinator.on_local_event(state, origin, mute_changed).await.map_err(RuntimeError::from)?;
-                    if !mute_changed && origin != LocalOrigin::Application {
-                        coordinator.run_local_once().await.map_err(RuntimeError::from)?;
-                    }
                 }
-                Ok(SystemAudioEvent::DefaultOutputChanged | SystemAudioEvent::DeviceUnavailable { .. }) | Err(_) => return Err(RuntimeError::Local(PlatformAudioError::DeviceUnavailable)),
+                Ok(SystemAudioEvent::DefaultOutputChanged) => {
+                    reconcile_session_observations(&mut listener, &mut coordinator, audio.as_ref(), SessionObservation::OutputChanged,
+                        subscription.is_some(), configuration.fallback_polling,
+                        |confirmed, local, status| {
+                            last_local = Some(local);
+                            update_snapshot(snapshot, app, generation, status,
+                                Some(SnapshotValues { name: &speaker_name, sonos_volume: Some(confirmed.volume.get()), local_volume: Some(local.volume.get()), muted: Some(confirmed.muted.0) }));
+                        }).await?;
+                    tracing::info!("reconciled changed local output without reconnecting to the speaker");
+                }
+                Ok(SystemAudioEvent::DeviceUnavailable { .. }) | Err(_) => return Err(RuntimeError::Local(PlatformAudioError::DeviceUnavailable)),
             },
             () = sleep_until(renew_at) => {
                 if let Some(current) = subscription.as_ref() {
@@ -545,17 +589,12 @@ async fn run_session(
             }
             () = sleep_until(health_at), if configuration.fallback_polling => {
                 // A fixed deadline cannot be starved by unrelated audio/events.
-                let volume = client.get_volume(&device).await.map_err(|_| RuntimeError::SonosUnavailable)?;
-                let muted = client.get_mute(&device).await.map_err(|_| RuntimeError::SonosUnavailable)?;
-                coordinator.on_sonos_event(volume, muted).await.map_err(RuntimeError::from)?;
-                let local = audio.current_state().await.map_err(RuntimeError::Local)?;
-                update_snapshot(snapshot, app, generation,
-                    if subscription.is_some() { UiStatus::Synchronized } else { UiStatus::PollingFallback },
-                    Some(SnapshotValues { name: &speaker_name, sonos_volume: Some(volume.get()), local_volume: Some(local.volume.get()), muted: Some(muted.0) }));
-                if let Some(state) = app.try_state::<crate::state::AppState>() {
-                        state.camera.request_refresh();
-                    }
-                    let _ = app.emit("speaker-settings-changed", ());
+                reconcile_session_observations(&mut listener, &mut coordinator, audio.as_ref(), SessionObservation::HealthRead,
+                    subscription.is_some(), configuration.fallback_polling,
+                    |confirmed, local, status| update_snapshot(snapshot, app, generation, status,
+                        Some(SnapshotValues { name: &speaker_name, sonos_volume: Some(confirmed.volume.get()), local_volume: Some(local.volume.get()), muted: Some(confirmed.muted.0) }))).await?;
+                app.state::<crate::state::AppState>().camera.request_refresh();
+                let _ = app.emit("speaker-settings-changed", ());
                 tray::refresh_speaker_controls(app);
                 health_at = Instant::now() + if subscription.is_some() { Duration::from_secs(5) } else { Duration::from_secs(1) };
             }
@@ -563,7 +602,173 @@ async fn run_session(
     }
 }
 
-fn renewal_at(subscription: &sonos_volume_bridge_sonos::Subscription) -> Instant {
+// Keep the queue boundary and the fresh read in one production lifecycle operation.
+async fn reconcile_session_observations<S: SonosPort, A: LocalAudioPort>(
+    listener: &mut CallbackListener,
+    coordinator: &mut Coordinator<S, A>,
+    audio: &dyn SystemAudioController,
+    observation: SessionObservation,
+    subscribed: bool,
+    fallback_polling: bool,
+    publish: impl FnOnce(speaker_volume_bridge_domain::ConfirmedSonosState, LocalAudioState, UiStatus),
+) -> Result<(), RuntimeError> {
+    let started = listener.arrival_revision();
+    let read_revision = coordinator.read_revision();
+    process_session_observation(
+        coordinator,
+        audio,
+        observation,
+        subscribed,
+        fallback_polling,
+        publish,
+    )
+    .await?;
+    if coordinator.read_revision() != read_revision {
+        listener.complete_volume_read(started);
+    }
+    Ok(())
+}
+
+struct SessionDelivery {
+    subscribed: bool,
+    fallback_polling: bool,
+}
+
+async fn process_session_notification<S: SonosPort, A: LocalAudioPort>(
+    listener: &mut CallbackListener,
+    coordinator: &mut Coordinator<S, A>,
+    audio: &dyn SystemAudioController,
+    notification: speaker_volume_bridge_sonos::RenderingControlNotification,
+    delivery: SessionDelivery,
+    publish: impl FnOnce(speaker_volume_bridge_domain::ConfirmedSonosState, LocalAudioState, UiStatus),
+) -> Result<(), RuntimeError> {
+    if let Some(event) = notification.volume_state {
+        process_session_observation(
+            coordinator,
+            audio,
+            SessionObservation::Speaker(event.state.volume, event.state.muted),
+            delivery.subscribed,
+            delivery.fallback_polling,
+            publish,
+        )
+        .await
+    } else if notification.volume_changed {
+        coordinator.invalidate_sonos_commands();
+        reconcile_session_observations(
+            listener,
+            coordinator,
+            audio,
+            SessionObservation::HealthRead,
+            delivery.subscribed,
+            delivery.fallback_polling,
+            publish,
+        )
+        .await
+    } else {
+        Ok(())
+    }
+}
+
+// Shared production orchestration for observations and their UI publication.
+// Rejected notifications and health reads must leave the waiting snapshot intact.
+enum SessionObservation {
+    Settled,
+    OutputChanged,
+    HealthRead,
+    Speaker(SonosVolume, MuteState),
+}
+
+async fn process_session_observation<S: SonosPort, A: LocalAudioPort>(
+    coordinator: &mut Coordinator<S, A>,
+    audio: &dyn SystemAudioController,
+    observation: SessionObservation,
+    subscribed: bool,
+    fallback_polling: bool,
+    publish: impl FnOnce(speaker_volume_bridge_domain::ConfirmedSonosState, LocalAudioState, UiStatus),
+) -> Result<(), RuntimeError> {
+    match observation {
+        SessionObservation::Settled => coordinator.finish_local_adjustment().await?,
+        SessionObservation::OutputChanged => {
+            let local = audio.current_state().await.map_err(RuntimeError::Local)?;
+            coordinator.reconcile_output_change(local).await?;
+        }
+        SessionObservation::HealthRead => {
+            if !coordinator.poll_once().await? {
+                return Ok(());
+            }
+        }
+        SessionObservation::Speaker(volume, muted) => {
+            if !coordinator.on_sonos_event(volume, muted).await? {
+                return Ok(());
+            }
+        }
+    }
+    if coordinator.local_deadline().is_some() {
+        return Ok(());
+    }
+    if let Some(confirmed) = coordinator.confirmed_state() {
+        let local = audio.current_state().await.map_err(RuntimeError::Local)?;
+        let status = if coordinator.settling_deadline().is_some() {
+            UiStatus::WaitingForSonosConfirmation
+        } else if subscribed {
+            UiStatus::Synchronized
+        } else if fallback_polling {
+            UiStatus::PollingFallback
+        } else {
+            UiStatus::SubscriptionDegraded
+        };
+        publish(confirmed, local, status);
+    }
+    Ok(())
+}
+
+// Collapse callbacks buffered during a network request before issuing another write.
+fn newest_audio_event(
+    first: Result<SystemAudioEvent, tokio::sync::broadcast::error::RecvError>,
+    receiver: &mut tokio::sync::broadcast::Receiver<SystemAudioEvent>,
+) -> Result<SystemAudioEvent, tokio::sync::broadcast::error::RecvError> {
+    use tokio::sync::broadcast::error::{RecvError, TryRecvError};
+    let mut newest = match first {
+        Ok(event) => Some(event),
+        Err(RecvError::Lagged(_)) => None,
+        Err(error) => return Err(error),
+    };
+    // A bounded snapshot cannot be starved by continuing platform callbacks.
+    for _ in 0..receiver.len() {
+        if newest
+            .as_ref()
+            .is_some_and(|event| !matches!(event, SystemAudioEvent::StateChanged { .. }))
+        {
+            break;
+        }
+        match receiver.try_recv() {
+            Ok(event) => {
+                let application_echo = matches!(
+                    event,
+                    SystemAudioEvent::StateChanged {
+                        origin: LocalOrigin::Application,
+                        ..
+                    }
+                );
+                let user_waiting = matches!(
+                    newest,
+                    Some(SystemAudioEvent::StateChanged {
+                        origin: LocalOrigin::User | LocalOrigin::Unknown,
+                        ..
+                    })
+                );
+                if !application_echo || !user_waiting {
+                    newest = Some(event);
+                }
+            }
+            Err(TryRecvError::Lagged(_)) => {}
+            Err(TryRecvError::Empty | TryRecvError::Closed) => break,
+        }
+    }
+    newest.ok_or(RecvError::Closed)
+}
+
+fn renewal_at(subscription: &speaker_volume_bridge_sonos::Subscription) -> Instant {
     Instant::now()
         + subscription
             .timeout
@@ -614,6 +819,29 @@ pub(crate) async fn resolve_device(
     client: &SonosClient,
     configuration: &AppConfiguration,
 ) -> Result<SonosDevice, RuntimeError> {
+    #[cfg(feature = "ui-demo")]
+    {
+        if configuration.selected_sonos_id.as_deref() != Some(crate::demo::SPEAKER_ID) {
+            return Err(RuntimeError::SonosUnavailable);
+        }
+        let speaker = crate::demo::speaker()
+            .await
+            .map_err(|_| RuntimeError::SonosUnavailable)?;
+        return client
+            .retrieve_device(speaker.location.clone())
+            .await
+            .map(|found| found.device)
+            .map_err(|_| RuntimeError::SonosUnavailable);
+    }
+    #[cfg(not(feature = "ui-demo"))]
+    resolve_network_device(client, configuration).await
+}
+
+#[cfg(not(feature = "ui-demo"))]
+async fn resolve_network_device(
+    client: &SonosClient,
+    configuration: &AppConfiguration,
+) -> Result<SonosDevice, RuntimeError> {
     let selected = SonosId::new(
         configuration
             .selected_sonos_id
@@ -643,6 +871,7 @@ pub(crate) async fn resolve_device(
     Err(RuntimeError::SonosUnavailable)
 }
 
+#[cfg(any(test, not(feature = "ui-demo")))]
 fn is_sonos_speaker(device: &SonosDevice) -> bool {
     device.id.as_str().starts_with(SONOS_UDN_PREFIX)
 }
@@ -660,21 +889,21 @@ fn create_audio(
     #[cfg(windows)]
     {
         Ok(Arc::new(
-            sonos_volume_bridge_platform_audio::windows::WindowsAudioController::start(selection)
+            speaker_volume_bridge_platform_audio::windows::WindowsAudioController::start(selection)
                 .map_err(RuntimeError::Local)?,
         ))
     }
     #[cfg(target_os = "macos")]
     {
         Ok(Arc::new(
-            sonos_volume_bridge_platform_audio::macos::MacosAudioController::start(selection, 1)
+            speaker_volume_bridge_platform_audio::macos::MacosAudioController::start(selection, 1)
                 .map_err(RuntimeError::Local)?,
         ))
     }
     #[cfg(target_os = "linux")]
     {
         Ok(Arc::new(
-            sonos_volume_bridge_platform_audio::linux::LinuxAudioController::start(selection)
+            speaker_volume_bridge_platform_audio::linux::LinuxAudioController::start(selection)
                 .map_err(RuntimeError::Local)?,
         ))
     }
@@ -720,17 +949,55 @@ impl SonosPort for DeviceSonosPort {
 struct DeviceAudioPort(Arc<dyn SystemAudioController>);
 #[async_trait]
 impl LocalAudioPort for DeviceAudioPort {
-    async fn apply(&self, state: LocalAudioState) -> Result<(), IntegrationError> {
+    async fn observe(&self) -> Result<Option<LocalAudioState>, IntegrationError> {
         self.0
-            .set_volume(state.volume, LocalOrigin::Application)
+            .current_state()
+            .await
+            .map(Some)
+            .map_err(|error| IntegrationError::Audio(error.to_string()))
+    }
+    async fn apply(&self, state: LocalAudioState) -> Result<(), IntegrationError> {
+        self.apply_observed(state, None).await.map(|_| ())
+    }
+    async fn apply_observed(
+        &self,
+        state: LocalAudioState,
+        baseline: Option<LocalAudioState>,
+    ) -> Result<Option<LocalAudioState>, IntegrationError> {
+        let current = self
+            .0
+            .current_state()
             .await
             .map_err(|error| IntegrationError::Audio(error.to_string()))?;
+        if baseline.is_some_and(|baseline| baseline != current) {
+            return Ok(Some(current));
+        }
+        if current.volume != state.volume {
+            self.0
+                .set_volume(state.volume, LocalOrigin::Application)
+                .await
+                .map_err(|error| IntegrationError::Audio(error.to_string()))?;
+        }
+        if current.muted == state.muted {
+            return Ok(None);
+        }
+        // Recheck after the asynchronous volume write before touching mute.
+        let latest = self
+            .0
+            .current_state()
+            .await
+            .map_err(|error| IntegrationError::Audio(error.to_string()))?;
+        // A device may quantize volume; only a changed mute invalidates this
+        // remaining property write. Never write volume again from this snapshot.
+        if latest.muted != current.muted {
+            return Ok(Some(latest));
+        }
         match self
             .0
             .set_muted(state.muted.0, LocalOrigin::Application)
             .await
         {
-            Ok(()) | Err(PlatformAudioError::MuteUnavailable) => Ok(()),
+            Ok(()) | Err(PlatformAudioError::MuteUnavailable) => Ok(None),
             Err(error) => Err(IntegrationError::Audio(error.to_string())),
         }
     }
@@ -810,10 +1077,1138 @@ fn status_name(status: &UiStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sonos_volume_bridge_domain::NormalizedVolume;
-    use sonos_volume_bridge_sonos::RenderingControlService;
+    use speaker_volume_bridge_domain::NormalizedVolume;
+    use speaker_volume_bridge_sonos::RenderingControlService;
     use tokio::sync::broadcast;
     use url::Url;
+
+    struct SessionSonos(Arc<Mutex<(SonosVolume, MuteState)>>);
+
+    #[async_trait]
+    impl SonosPort for SessionSonos {
+        async fn current_state(&self) -> Result<(SonosVolume, MuteState), IntegrationError> {
+            Ok(*self.0.lock().unwrap())
+        }
+        async fn set_volume(&self, volume: SonosVolume) -> Result<(), IntegrationError> {
+            self.0.lock().unwrap().0 = volume;
+            Ok(())
+        }
+        async fn set_mute(&self, muted: MuteState) -> Result<(), IntegrationError> {
+            self.0.lock().unwrap().1 = muted;
+            Ok(())
+        }
+    }
+
+    struct SessionAudio(Mutex<LocalAudioState>);
+
+    #[async_trait]
+    impl SystemAudioController for SessionAudio {
+        async fn current_state(&self) -> Result<LocalAudioState, PlatformAudioError> {
+            Ok(*self.0.lock().unwrap())
+        }
+        async fn set_volume(
+            &self,
+            volume: NormalizedVolume,
+            _: LocalOrigin,
+        ) -> Result<(), PlatformAudioError> {
+            self.0.lock().unwrap().volume = volume;
+            Ok(())
+        }
+        async fn set_muted(&self, muted: bool, _: LocalOrigin) -> Result<(), PlatformAudioError> {
+            self.0.lock().unwrap().muted = MuteState(muted);
+            Ok(())
+        }
+        fn subscribe(&self) -> broadcast::Receiver<SystemAudioEvent> {
+            broadcast::channel(1).1
+        }
+    }
+
+    async fn enqueue_test_notification(listener: &CallbackListener, value: u8) {
+        enqueue_test_notification_at(listener.callback_url(), value).await;
+    }
+
+    async fn enqueue_test_notification_at(callback: &url::Url, value: u8) {
+        let body = format!(
+            "<LastChange>&lt;Event&gt;&lt;InstanceID val=\"0\"&gt;&lt;Volume channel=\"Master\" val=\"{value}\"/&gt;&lt;Mute channel=\"Master\" val=\"0\"/&gt;&lt;Bass val=\"1\"/&gt;&lt;/InstanceID&gt;&lt;/Event&gt;</LastChange>"
+        );
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .request(
+                reqwest::Method::from_bytes(b"NOTIFY").unwrap(),
+                callback.clone(),
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+    }
+
+    struct PausedPostReadAudio {
+        state: Mutex<LocalAudioState>,
+        armed: std::sync::atomic::AtomicBool,
+        pause_on_write: bool,
+        started: tokio::sync::Notify,
+        resume: tokio::sync::Notify,
+    }
+
+    impl PausedPostReadAudio {
+        async fn pause(&self) {
+            if self.armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                self.started.notify_one();
+                self.resume.notified().await;
+            }
+        }
+    }
+
+    #[async_trait]
+    impl SystemAudioController for PausedPostReadAudio {
+        async fn current_state(&self) -> Result<LocalAudioState, PlatformAudioError> {
+            let state = *self.state.lock().unwrap();
+            // Once the read's correction has been applied, the next state read
+            // belongs to snapshot publication rather than the audio effect.
+            if !self.pause_on_write && state.volume.get() == 45 {
+                self.pause().await;
+            }
+            Ok(state)
+        }
+        async fn set_volume(
+            &self,
+            volume: NormalizedVolume,
+            _: LocalOrigin,
+        ) -> Result<(), PlatformAudioError> {
+            if self.pause_on_write {
+                self.pause().await;
+            }
+            self.state.lock().unwrap().volume = volume;
+            Ok(())
+        }
+        async fn set_muted(&self, muted: bool, _: LocalOrigin) -> Result<(), PlatformAudioError> {
+            self.state.lock().unwrap().muted = MuteState(muted);
+            Ok(())
+        }
+        fn subscribe(&self) -> broadcast::Receiver<SystemAudioEvent> {
+            broadcast::channel(1).1
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn post_read_notifications_survive_local_apply_and_publication_without_polling() {
+        for pause_on_write in [true, false] {
+            let mut listener = CallbackListener::bind(
+                "127.0.0.1:0".parse().unwrap(),
+                "127.0.0.1".parse().unwrap(),
+            )
+            .await
+            .unwrap();
+            let callback = listener.callback_url().clone();
+            let local = LocalAudioState {
+                volume: NormalizedVolume::new(20).unwrap(),
+                muted: MuteState(false),
+            };
+            let controlled = Arc::new(PausedPostReadAudio {
+                state: Mutex::new(local),
+                armed: std::sync::atomic::AtomicBool::new(false),
+                pause_on_write,
+                started: tokio::sync::Notify::new(),
+                resume: tokio::sync::Notify::new(),
+            });
+            let audio: Arc<dyn SystemAudioController> = controlled.clone();
+            let speaker = Arc::new(Mutex::new((
+                SonosVolume::new(20).unwrap(),
+                MuteState(false),
+            )));
+            let mut coordinator = Coordinator::new(
+                Synchronizer::new(
+                    speaker_volume_bridge_domain::VolumeMapping::Linear,
+                    SonosVolume::MAX,
+                    true,
+                    true,
+                    false,
+                )
+                .unwrap(),
+                SessionSonos(Arc::clone(&speaker)),
+                DeviceAudioPort(Arc::clone(&audio)),
+                SynchronizationPolicy::default(),
+            );
+            coordinator.reconcile_startup().await.unwrap();
+            audio
+                .set_volume(NormalizedVolume::new(60).unwrap(), LocalOrigin::User)
+                .await
+                .unwrap();
+            coordinator
+                .on_local_event(
+                    audio.current_state().await.unwrap(),
+                    LocalOrigin::User,
+                    false,
+                )
+                .await
+                .unwrap();
+            coordinator.run_local_once().await.unwrap();
+            // The settling GET returns a correction requiring local audio work.
+            *speaker.lock().unwrap() = (SonosVolume::new(45).unwrap(), MuteState(false));
+            controlled
+                .armed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let task = tokio::spawn(async move {
+                let mut published = 0;
+                reconcile_session_observations(
+                    &mut listener,
+                    &mut coordinator,
+                    audio.as_ref(),
+                    SessionObservation::Settled,
+                    true,
+                    false,
+                    |confirmed, _, _| published = confirmed.volume.get(),
+                )
+                .await
+                .unwrap();
+                (listener, coordinator, audio, published)
+            });
+            controlled.started.notified().await;
+            tokio::time::advance(Duration::from_millis(1)).await;
+            *speaker.lock().unwrap() = (SonosVolume::new(35).unwrap(), MuteState(false));
+            enqueue_test_notification_at(&callback, 35).await;
+            controlled.resume.notify_one();
+            let (mut listener, mut coordinator, audio, mut published) = task.await.unwrap();
+            assert_eq!(published, 45);
+            let fresh = listener.recv().await.unwrap();
+            assert!(
+                fresh.volume_changed,
+                "overlapping updates remain invalidations"
+            );
+            process_session_notification(
+                &mut listener,
+                &mut coordinator,
+                audio.as_ref(),
+                fresh,
+                SessionDelivery {
+                    subscribed: true,
+                    fallback_polling: false,
+                },
+                |confirmed, _, _| published = confirmed.volume.get(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(published, 35);
+            assert_eq!(audio.current_state().await.unwrap().volume.get(), 35);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn output_change_fences_already_queued_volume_before_reconciliation() {
+        let mut listener =
+            CallbackListener::bind("127.0.0.1:0".parse().unwrap(), "127.0.0.1".parse().unwrap())
+                .await
+                .unwrap();
+        let audio: Arc<dyn SystemAudioController> =
+            Arc::new(SessionAudio(Mutex::new(LocalAudioState {
+                volume: NormalizedVolume::new(20).unwrap(),
+                muted: MuteState(false),
+            })));
+        let speaker = Arc::new(Mutex::new((
+            SonosVolume::new(20).unwrap(),
+            MuteState(false),
+        )));
+        let mut coordinator = Coordinator::new(
+            Synchronizer::new(
+                speaker_volume_bridge_domain::VolumeMapping::Linear,
+                SonosVolume::MAX,
+                true,
+                true,
+                false,
+            )
+            .unwrap(),
+            SessionSonos(Arc::clone(&speaker)),
+            DeviceAudioPort(Arc::clone(&audio)),
+            SynchronizationPolicy::default(),
+        );
+        coordinator.reconcile_startup().await.unwrap();
+        enqueue_test_notification(&listener, 20).await;
+        *speaker.lock().unwrap() = (SonosVolume::new(60).unwrap(), MuteState(false));
+        audio
+            .set_volume(NormalizedVolume::new(10).unwrap(), LocalOrigin::User)
+            .await
+            .unwrap();
+        let mut published = 0;
+        // Output change wins while an older speaker event is already queued.
+        reconcile_session_observations(
+            &mut listener,
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::OutputChanged,
+            true,
+            false,
+            |confirmed, _, _| published = confirmed.volume.get(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, 60);
+        let stale = listener.recv().await.unwrap();
+        assert!(stale.volume_state.is_none());
+        assert!(!stale.volume_changed);
+        assert!(stale.settings_changed);
+        assert_eq!(audio.current_state().await.unwrap().volume.get(), 60);
+        tokio::time::advance(Duration::from_millis(1)).await;
+        enqueue_test_notification(&listener, 35).await;
+        let fresh = listener.recv().await.unwrap().volume_state.unwrap();
+        process_session_observation(
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Speaker(fresh.state.volume, fresh.state.muted),
+            true,
+            false,
+            |confirmed, _, _| published = confirmed.volume.get(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, 35);
+        assert_eq!(audio.current_state().await.unwrap().volume.get(), 35);
+    }
+
+    async fn complete_delayed_test_notification(
+        stream: &mut tokio::net::TcpStream,
+        callback: &url::Url,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let body = "<LastChange>&lt;Event&gt;&lt;InstanceID val=\"0\"&gt;&lt;Volume channel=\"Master\" val=\"20\"/&gt;&lt;Mute channel=\"Master\" val=\"0\"/&gt;&lt;Bass val=\"1\"/&gt;&lt;/InstanceID&gt;&lt;/Event&gt;</LastChange>";
+        let request = format!(
+            "NOTIFY {} HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+            callback.path(),
+            body.len()
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 200"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn accepted_notification_delayed_across_reconciliation_keeps_arrival_timestamp() {
+        for observation in [
+            SessionObservation::Settled,
+            SessionObservation::OutputChanged,
+        ] {
+            let accepted = Arc::new(tokio::sync::Notify::new());
+            let observed = Arc::clone(&accepted);
+            let mut listener = CallbackListener::bind_with_accept_observer(
+                "127.0.0.1:0".parse().unwrap(),
+                "127.0.0.1".parse().unwrap(),
+                move |_| {
+                    observed.notify_one();
+                },
+            )
+            .await
+            .unwrap();
+            let local = LocalAudioState {
+                volume: NormalizedVolume::new(20).unwrap(),
+                muted: MuteState(false),
+            };
+            let audio: Arc<dyn SystemAudioController> = Arc::new(SessionAudio(Mutex::new(local)));
+            let mut coordinator = Coordinator::new(
+                Synchronizer::new(
+                    speaker_volume_bridge_domain::VolumeMapping::Linear,
+                    SonosVolume::MAX,
+                    true,
+                    true,
+                    false,
+                )
+                .unwrap(),
+                SessionSonos(Arc::new(Mutex::new((
+                    SonosVolume::new(20).unwrap(),
+                    MuteState(false),
+                )))),
+                DeviceAudioPort(Arc::clone(&audio)),
+                SynchronizationPolicy::default(),
+            );
+            coordinator.reconcile_startup().await.unwrap();
+            audio
+                .set_volume(NormalizedVolume::new(60).unwrap(), LocalOrigin::User)
+                .await
+                .unwrap();
+            coordinator
+                .on_local_event(
+                    audio.current_state().await.unwrap(),
+                    LocalOrigin::User,
+                    false,
+                )
+                .await
+                .unwrap();
+            coordinator.run_local_once().await.unwrap();
+            let callback = listener.callback_url().clone();
+            let mut stream = tokio::net::TcpStream::connect((
+                callback.host_str().unwrap(),
+                callback.port().unwrap(),
+            ))
+            .await
+            .unwrap();
+            // Prove accept completed, but hold the child handler's read until
+            // after the production reconciliation GET and queue cutoff.
+            accepted.notified().await;
+            let mut published = 0;
+            reconcile_session_observations(
+                &mut listener,
+                &mut coordinator,
+                audio.as_ref(),
+                observation,
+                true,
+                false,
+                |confirmed, _, _| published = confirmed.volume.get(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(published, 60);
+            tokio::time::advance(Duration::from_millis(1)).await;
+            complete_delayed_test_notification(&mut stream, &callback).await;
+            let stale = listener.recv().await.unwrap();
+            assert!(stale.volume_state.is_none());
+            assert!(!stale.volume_changed);
+            assert!(stale.settings_changed);
+            assert_eq!(audio.current_state().await.unwrap().volume.get(), 60);
+            // A genuinely later connection remains usable with polling disabled.
+            enqueue_test_notification(&listener, 35).await;
+            let fresh = listener.recv().await.unwrap().volume_state.unwrap();
+            process_session_observation(
+                &mut coordinator,
+                audio.as_ref(),
+                SessionObservation::Speaker(fresh.state.volume, fresh.state.muted),
+                true,
+                false,
+                |confirmed, _, _| published = confirmed.volume.get(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(published, 35);
+            assert_eq!(audio.current_state().await.unwrap().volume.get(), 35);
+        }
+    }
+
+    struct OrderingRead {
+        state: Mutex<(SonosVolume, MuteState)>,
+        armed: std::sync::atomic::AtomicBool,
+        started: tokio::sync::Notify,
+        resume: tokio::sync::Notify,
+    }
+    struct OrderingReadPort(Arc<OrderingRead>);
+    #[async_trait]
+    impl SonosPort for OrderingReadPort {
+        async fn current_state(&self) -> Result<(SonosVolume, MuteState), IntegrationError> {
+            let state = *self.0.state.lock().unwrap();
+            if self
+                .0
+                .armed
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+            {
+                self.0.started.notify_one();
+                self.0.resume.notified().await;
+            }
+            Ok(state)
+        }
+        async fn set_volume(&self, volume: SonosVolume) -> Result<(), IntegrationError> {
+            self.0.state.lock().unwrap().0 = volume;
+            Ok(())
+        }
+        async fn set_mute(&self, muted: MuteState) -> Result<(), IntegrationError> {
+            self.0.state.lock().unwrap().1 = muted;
+            Ok(())
+        }
+    }
+    struct OrderingSession {
+        listener: CallbackListener,
+        accepted: Arc<tokio::sync::Notify>,
+        coordinator: Coordinator<OrderingReadPort, DeviceAudioPort>,
+        audio: Arc<dyn SystemAudioController>,
+        speaker: Arc<OrderingRead>,
+        published: u8,
+    }
+    impl OrderingSession {
+        async fn new() -> Self {
+            let accepted = Arc::new(tokio::sync::Notify::new());
+            let observed = Arc::clone(&accepted);
+            let listener = CallbackListener::bind_with_accept_observer(
+                "127.0.0.1:0".parse().unwrap(),
+                "127.0.0.1".parse().unwrap(),
+                move |_| {
+                    observed.notify_one();
+                },
+            )
+            .await
+            .unwrap();
+            let audio: Arc<dyn SystemAudioController> =
+                Arc::new(SessionAudio(Mutex::new(LocalAudioState {
+                    volume: NormalizedVolume::new(20).unwrap(),
+                    muted: MuteState(false),
+                })));
+            let speaker = Arc::new(OrderingRead {
+                state: Mutex::new((SonosVolume::new(20).unwrap(), MuteState(false))),
+                armed: std::sync::atomic::AtomicBool::new(false),
+                started: tokio::sync::Notify::new(),
+                resume: tokio::sync::Notify::new(),
+            });
+            let mut coordinator = Coordinator::new(
+                Synchronizer::new(
+                    speaker_volume_bridge_domain::VolumeMapping::Linear,
+                    SonosVolume::MAX,
+                    true,
+                    true,
+                    false,
+                )
+                .unwrap(),
+                OrderingReadPort(Arc::clone(&speaker)),
+                DeviceAudioPort(Arc::clone(&audio)),
+                SynchronizationPolicy::default(),
+            );
+            coordinator.reconcile_startup().await.unwrap();
+            Self {
+                listener,
+                accepted,
+                coordinator,
+                audio,
+                speaker,
+                published: 20,
+            }
+        }
+        async fn gesture(&mut self, value: u8) {
+            self.audio
+                .set_volume(NormalizedVolume::new(value).unwrap(), LocalOrigin::User)
+                .await
+                .unwrap();
+            self.coordinator
+                .on_local_event(
+                    self.audio.current_state().await.unwrap(),
+                    LocalOrigin::User,
+                    false,
+                )
+                .await
+                .unwrap();
+            self.coordinator.run_local_once().await.unwrap();
+        }
+        async fn reconcile(&mut self, observation: SessionObservation) {
+            reconcile_session_observations(
+                &mut self.listener,
+                &mut self.coordinator,
+                self.audio.as_ref(),
+                observation,
+                true,
+                false,
+                |confirmed, _, _| self.published = confirmed.volume.get(),
+            )
+            .await
+            .unwrap();
+        }
+        async fn deliver(&mut self) {
+            let notification = self.listener.recv().await.unwrap();
+            process_session_notification(
+                &mut self.listener,
+                &mut self.coordinator,
+                self.audio.as_ref(),
+                notification,
+                SessionDelivery {
+                    subscribed: true,
+                    fallback_polling: false,
+                },
+                |confirmed, _, _| self.published = confirmed.volume.get(),
+            )
+            .await
+            .unwrap();
+        }
+        async fn local_volume(&self) -> u8 {
+            self.audio.current_state().await.unwrap().volume.get()
+        }
+    }
+
+    async fn enqueue_keyed_notification(
+        listener: &CallbackListener,
+        sid: &str,
+        sequence: u32,
+        value: u8,
+    ) {
+        let body = format!(
+            "<LastChange>&lt;Event&gt;&lt;InstanceID val=\"0\"&gt;&lt;Volume channel=\"Master\" val=\"{value}\"/&gt;&lt;Mute channel=\"Master\" val=\"0\"/&gt;&lt;/InstanceID&gt;&lt;/Event&gt;</LastChange>"
+        );
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .request(
+                reqwest::Method::from_bytes(b"NOTIFY").unwrap(),
+                listener.callback_url().clone(),
+            )
+            .header("SID", sid)
+            .header("SEQ", sequence.to_string())
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn coordinated_sender_sequences_handle_replay_wrap_and_new_subscriptions() {
+        let mut session = OrderingSession::new().await;
+        let subscribe = |sid: &str| speaker_volume_bridge_sonos::Subscription {
+            id: sid.to_owned(),
+            timeout: Duration::from_secs(300),
+        };
+        session.listener.set_subscription(&subscribe("uuid:first"));
+        enqueue_keyed_notification(&session.listener, "uuid:first", 100, 60).await;
+        session.deliver().await;
+        enqueue_keyed_notification(&session.listener, "uuid:first", 99, 20).await;
+        session.deliver().await;
+        assert_eq!(session.local_volume().await, 60);
+        session.listener.set_subscription(&subscribe("uuid:second"));
+        enqueue_keyed_notification(&session.listener, "uuid:second", u32::MAX, 65).await;
+        session.deliver().await;
+        enqueue_keyed_notification(&session.listener, "uuid:second", 1, 70).await;
+        session.deliver().await;
+        enqueue_keyed_notification(&session.listener, "uuid:second", u32::MAX, 20).await;
+        session.deliver().await;
+        assert_eq!(session.local_volume().await, 70);
+        enqueue_keyed_notification(&session.listener, "uuid:second", 2, 25).await;
+        session.listener.set_subscription(&subscribe("uuid:third"));
+        session.deliver().await; // Already queued events from the old subscription are stale.
+        assert_eq!(session.local_volume().await, 70);
+        enqueue_keyed_notification(&session.listener, "uuid:third", 0, 40).await;
+        session.deliver().await;
+        assert_eq!(session.local_volume().await, 40);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn coordinated_partial_invalidation_during_authority_reasserts_cached_value() {
+        let mut session = OrderingSession::new().await;
+        session.gesture(60).await;
+        session
+            .audio
+            .set_volume(NormalizedVolume::new(50).unwrap(), LocalOrigin::User)
+            .await
+            .unwrap();
+        session
+            .coordinator
+            .on_local_event(
+                session.audio.current_state().await.unwrap(),
+                LocalOrigin::User,
+                false,
+            )
+            .await
+            .unwrap();
+        *session.speaker.state.lock().unwrap() = (SonosVolume::new(30).unwrap(), MuteState(false));
+        let body = "<LastChange>&lt;Event&gt;&lt;InstanceID val=\"0\"&gt;&lt;Volume channel=\"Master\" val=\"30\"/&gt;&lt;/InstanceID&gt;&lt;/Event&gt;</LastChange>";
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .request(
+                reqwest::Method::from_bytes(b"NOTIFY").unwrap(),
+                session.listener.callback_url().clone(),
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        session.deliver().await;
+        session.gesture(60).await;
+        assert_eq!(session.speaker.state.lock().unwrap().0.get(), 60);
+        session.reconcile(SessionObservation::Settled).await;
+        assert_eq!(session.local_volume().await, 60);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn coordinated_handlers_cannot_reverse_arrival_order() {
+        let mut session = OrderingSession::new().await;
+        let callback = session.listener.callback_url().clone();
+        let mut older = tokio::net::TcpStream::connect((
+            callback.host_str().unwrap(),
+            callback.port().unwrap(),
+        ))
+        .await
+        .unwrap();
+        session.accepted.notified().await;
+        enqueue_test_notification(&session.listener, 70).await;
+        session.deliver().await;
+        assert_eq!(session.local_volume().await, 70);
+        complete_delayed_test_notification(&mut older, &callback).await;
+        session.deliver().await;
+        assert_eq!(session.local_volume().await, 70);
+        assert_eq!(session.published, 70);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn coordinated_health_reads_fence_old_callbacks_and_retain_overlaps() {
+        let mut session = OrderingSession::new().await;
+        enqueue_test_notification(&session.listener, 20).await;
+        *session.speaker.state.lock().unwrap() = (SonosVolume::new(60).unwrap(), MuteState(false));
+        session.reconcile(SessionObservation::HealthRead).await;
+        session.deliver().await;
+        assert_eq!(session.local_volume().await, 60);
+        assert_eq!(session.published, 60);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn coordinated_local_input_during_read_remains_authoritative() {
+        for observation in [
+            SessionObservation::Settled,
+            SessionObservation::HealthRead,
+            SessionObservation::OutputChanged,
+        ] {
+            let mut session = OrderingSession::new().await;
+            session.gesture(60).await;
+            if matches!(observation, SessionObservation::HealthRead) {
+                session.reconcile(SessionObservation::Settled).await;
+            }
+            let speaker = Arc::clone(&session.speaker);
+            let audio = Arc::clone(&session.audio);
+            speaker
+                .armed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let task = tokio::spawn(async move {
+                session.reconcile(observation).await;
+                session
+            });
+            speaker.started.notified().await;
+            audio
+                .set_volume(NormalizedVolume::new(70).unwrap(), LocalOrigin::User)
+                .await
+                .unwrap();
+            speaker.resume.notify_one();
+            let mut session = task.await.unwrap();
+            assert_eq!(session.local_volume().await, 70);
+            assert!(session.coordinator.local_deadline().is_some());
+            session.coordinator.run_local_once().await.unwrap();
+            session.reconcile(SessionObservation::Settled).await;
+            assert_eq!(session.local_volume().await, 70);
+            assert_eq!(session.published, 70);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn coordinated_notifications_during_get_trigger_fresh_observation() {
+        for observation in [
+            SessionObservation::Settled,
+            SessionObservation::HealthRead,
+            SessionObservation::OutputChanged,
+        ] {
+            let mut session = OrderingSession::new().await;
+            session.gesture(60).await;
+            if matches!(observation, SessionObservation::HealthRead) {
+                session.reconcile(SessionObservation::Settled).await;
+            }
+            let speaker = Arc::clone(&session.speaker);
+            let callback = session.listener.callback_url().clone();
+            speaker
+                .armed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let task = tokio::spawn(async move {
+                session.reconcile(observation).await;
+                session
+            });
+            speaker.started.notified().await;
+            *speaker.state.lock().unwrap() = (SonosVolume::new(70).unwrap(), MuteState(false));
+            enqueue_test_notification_at(&callback, 70).await;
+            speaker.resume.notify_one();
+            let mut session = task.await.unwrap();
+            assert_eq!(session.local_volume().await, 60);
+            session.deliver().await;
+            assert_eq!(session.local_volume().await, 70);
+            assert_eq!(session.published, 70);
+        }
+    }
+
+    #[tokio::test]
+    async fn coordinated_listener_drop_releases_socket_and_pending_handler() {
+        use tokio::io::AsyncReadExt;
+        let session = OrderingSession::new().await;
+        let port = session.listener.callback_url().port().unwrap();
+        let mut connection = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        session.accepted.notified().await;
+        drop(session);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Ok(rebound) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+                    drop(rebound);
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("session must release listener socket");
+        let read = tokio::time::timeout(Duration::from_secs(1), connection.read(&mut [0_u8; 1]))
+            .await
+            .expect("pending handler must close");
+        assert!(matches!(read, Ok(0) | Err(_)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn queued_notification_first_at_deadline_preserves_settling_read() {
+        let mut listener =
+            CallbackListener::bind("127.0.0.1:0".parse().unwrap(), "127.0.0.1".parse().unwrap())
+                .await
+                .unwrap();
+        let local = LocalAudioState {
+            volume: NormalizedVolume::new(60).unwrap(),
+            muted: MuteState(false),
+        };
+        let audio: Arc<dyn SystemAudioController> = Arc::new(SessionAudio(Mutex::new(local)));
+        let mut coordinator = Coordinator::new(
+            Synchronizer::new(
+                speaker_volume_bridge_domain::VolumeMapping::Linear,
+                SonosVolume::MAX,
+                true,
+                true,
+                false,
+            )
+            .unwrap(),
+            SessionSonos(Arc::new(Mutex::new((
+                SonosVolume::new(20).unwrap(),
+                MuteState(false),
+            )))),
+            DeviceAudioPort(Arc::clone(&audio)),
+            SynchronizationPolicy::default(),
+        );
+        coordinator.reconcile_startup().await.unwrap();
+        audio
+            .set_volume(local.volume, LocalOrigin::User)
+            .await
+            .unwrap();
+        coordinator
+            .on_local_event(local, LocalOrigin::User, false)
+            .await
+            .unwrap();
+        coordinator.run_local_once().await.unwrap();
+        let deadline = coordinator.settling_deadline().unwrap();
+        tokio::time::sleep_until(deadline).await;
+        enqueue_test_notification(&listener, 20).await;
+        // Deliberately execute the notification branch first when both branches
+        // are ready, before the fresh-read queue fence exists.
+        let stale = listener.recv().await.unwrap().volume_state.unwrap();
+        let mut published = (20, "waiting");
+        process_session_observation(
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Speaker(stale.state.volume, stale.state.muted),
+            true,
+            false,
+            |confirmed, _, status| {
+                published = (confirmed.volume.get(), status_name(&status));
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, (20, "waiting"));
+        assert_eq!(audio.current_state().await.unwrap(), local);
+        assert_eq!(coordinator.settling_deadline(), Some(deadline));
+        let read_before = coordinator.read_revision();
+        reconcile_session_observations(
+            &mut listener,
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Settled,
+            true,
+            false,
+            |confirmed, _, status| {
+                published = (confirmed.volume.get(), status_name(&status));
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, (60, "synchronized"));
+        assert!(coordinator.read_revision() > read_before);
+        assert_eq!(coordinator.settling_deadline(), None);
+        // Authority is released by the read, allowing later speaker changes.
+        tokio::time::advance(Duration::from_millis(1)).await;
+        enqueue_test_notification(&listener, 35).await;
+        let fresh = listener.recv().await.unwrap().volume_state.unwrap();
+        process_session_observation(
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Speaker(fresh.state.volume, fresh.state.muted),
+            true,
+            false,
+            |confirmed, _, status| {
+                published = (confirmed.volume.get(), status_name(&status));
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, (35, "synchronized"));
+        assert_eq!(audio.current_state().await.unwrap().volume.get(), 35);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn settling_timer_before_queued_notification_keeps_fresh_state() {
+        let mut listener =
+            CallbackListener::bind("127.0.0.1:0".parse().unwrap(), "127.0.0.1".parse().unwrap())
+                .await
+                .unwrap();
+        let local = LocalAudioState {
+            volume: NormalizedVolume::new(60).unwrap(),
+            muted: MuteState(false),
+        };
+        let audio: Arc<dyn SystemAudioController> = Arc::new(SessionAudio(Mutex::new(local)));
+        let mut coordinator = Coordinator::new(
+            Synchronizer::new(
+                speaker_volume_bridge_domain::VolumeMapping::Linear,
+                SonosVolume::MAX,
+                true,
+                true,
+                false,
+            )
+            .unwrap(),
+            SessionSonos(Arc::new(Mutex::new((
+                SonosVolume::new(20).unwrap(),
+                MuteState(false),
+            )))),
+            DeviceAudioPort(Arc::clone(&audio)),
+            SynchronizationPolicy::default(),
+        );
+        coordinator.reconcile_startup().await.unwrap();
+        audio
+            .set_volume(local.volume, LocalOrigin::User)
+            .await
+            .unwrap();
+        coordinator
+            .on_local_event(local, LocalOrigin::User, false)
+            .await
+            .unwrap();
+        coordinator.run_local_once().await.unwrap();
+        tokio::time::sleep_until(coordinator.settling_deadline().unwrap()).await;
+        // Acknowledgement proves the old notification is already in the real
+        // production listener queue. Execute the timer branch first deliberately.
+        enqueue_test_notification(&listener, 20).await;
+        let mut published = 0;
+        reconcile_session_observations(
+            &mut listener,
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Settled,
+            true,
+            true,
+            |confirmed, _, _| published = confirmed.volume.get(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, 60);
+        let stale = listener.recv().await.unwrap();
+        assert!(
+            stale.settings_changed,
+            "Do not lose independent speaker settings invalidations"
+        );
+        assert!(stale.volume_state.is_none());
+        assert!(
+            !stale.volume_changed,
+            "Do not turn stale values into another health read"
+        );
+        assert_eq!(audio.current_state().await.unwrap(), local);
+        // Later independent notifications remain usable.
+        tokio::time::advance(Duration::from_millis(1)).await;
+        enqueue_test_notification(&listener, 35).await;
+        let fresh = listener.recv().await.unwrap().volume_state.unwrap();
+        process_session_observation(
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Speaker(fresh.state.volume, fresh.state.muted),
+            true,
+            true,
+            |confirmed, _, _| published = confirmed.volume.get(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, 35);
+        assert_eq!(audio.current_state().await.unwrap().volume.get(), 35);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn session_settling_preserves_subscription_health() {
+        for (subscribed, fallback, expected) in [
+            (false, false, "subscription_degraded"),
+            (false, true, "polling_fallback"),
+            (true, false, "synchronized"),
+        ] {
+            let local = LocalAudioState {
+                volume: NormalizedVolume::new(60).unwrap(),
+                muted: MuteState(false),
+            };
+            let audio: Arc<dyn SystemAudioController> = Arc::new(SessionAudio(Mutex::new(local)));
+            let mut coordinator = Coordinator::new(
+                Synchronizer::new(
+                    speaker_volume_bridge_domain::VolumeMapping::Linear,
+                    SonosVolume::MAX,
+                    true,
+                    true,
+                    false,
+                )
+                .unwrap(),
+                SessionSonos(Arc::new(Mutex::new((
+                    SonosVolume::new(20).unwrap(),
+                    MuteState(false),
+                )))),
+                DeviceAudioPort(Arc::clone(&audio)),
+                SynchronizationPolicy::default(),
+            );
+            coordinator.reconcile_startup().await.unwrap();
+            audio
+                .set_volume(local.volume, LocalOrigin::User)
+                .await
+                .unwrap();
+            coordinator
+                .on_local_event(local, LocalOrigin::User, false)
+                .await
+                .unwrap();
+            coordinator.run_local_once().await.unwrap();
+            if !subscribed {
+                coordinator.on_subscription_lost();
+            }
+            let mut published = None;
+            process_session_observation(
+                &mut coordinator,
+                audio.as_ref(),
+                SessionObservation::Settled,
+                subscribed,
+                fallback,
+                |confirmed, local, status| {
+                    published = Some((
+                        confirmed.volume.get(),
+                        local.volume.get(),
+                        status_name(&status),
+                    ));
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(published, Some((60, 60, expected)));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn session_rejected_observations_preserve_waiting_publication() {
+        let local = LocalAudioState {
+            volume: NormalizedVolume::new(60).unwrap(),
+            muted: MuteState(false),
+        };
+        let audio: Arc<dyn SystemAudioController> = Arc::new(SessionAudio(Mutex::new(local)));
+        let mut coordinator = Coordinator::new(
+            Synchronizer::new(
+                speaker_volume_bridge_domain::VolumeMapping::Linear,
+                SonosVolume::MAX,
+                true,
+                true,
+                false,
+            )
+            .unwrap(),
+            SessionSonos(Arc::new(Mutex::new((
+                SonosVolume::new(20).unwrap(),
+                MuteState(false),
+            )))),
+            DeviceAudioPort(Arc::clone(&audio)),
+            SynchronizationPolicy::default(),
+        );
+        coordinator.reconcile_startup().await.unwrap();
+        audio
+            .set_volume(local.volume, LocalOrigin::User)
+            .await
+            .unwrap();
+        coordinator
+            .on_local_event(local, LocalOrigin::User, false)
+            .await
+            .unwrap();
+        let mut published = (20, 60, "waiting");
+        // A stale notification while queued, then a stale event or health read
+        // after the write but before the local-authority deadline.
+        for queued in [true, false] {
+            if !queued {
+                coordinator.run_local_once().await.unwrap();
+            }
+            process_session_observation(
+                &mut coordinator,
+                audio.as_ref(),
+                SessionObservation::Speaker(SonosVolume::new(20).unwrap(), MuteState(true)),
+                true,
+                true,
+                |confirmed, local, status| {
+                    published = (
+                        confirmed.volume.get(),
+                        local.volume.get(),
+                        status_name(&status),
+                    );
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(published, (20, 60, "waiting"));
+            assert_eq!(audio.current_state().await.unwrap(), local);
+        }
+        process_session_observation(
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Settled,
+            true,
+            true,
+            |confirmed, local, status| {
+                published = (
+                    confirmed.volume.get(),
+                    local.volume.get(),
+                    status_name(&status),
+                );
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, (60, 60, "synchronized"));
+        process_session_observation(
+            &mut coordinator,
+            audio.as_ref(),
+            SessionObservation::Speaker(SonosVolume::new(35).unwrap(), MuteState(false)),
+            true,
+            true,
+            |confirmed, local, status| {
+                published = (
+                    confirmed.volume.get(),
+                    local.volume.get(),
+                    status_name(&status),
+                );
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(published, (35, 35, "synchronized"));
+    }
+
+    #[tokio::test]
+    async fn buffered_audio_callbacks_keep_latest_gesture_and_device_failures() {
+        let (sender, mut receiver) = broadcast::channel(16);
+        let event = |value, origin| SystemAudioEvent::StateChanged {
+            state: LocalAudioState {
+                volume: NormalizedVolume::new(value).unwrap(),
+                muted: MuteState(false),
+            },
+            origin,
+        };
+        sender.send(event(37, LocalOrigin::User)).unwrap();
+        let first = receiver.recv().await;
+        for value in [44, 51, 63, 69] {
+            sender.send(event(value, LocalOrigin::User)).unwrap();
+        }
+        sender.send(event(44, LocalOrigin::Application)).unwrap();
+        assert_eq!(
+            newest_audio_event(first, &mut receiver).unwrap(),
+            event(69, LocalOrigin::User)
+        );
+        sender.send(event(75, LocalOrigin::User)).unwrap();
+        let first = receiver.recv().await;
+        sender
+            .send(SystemAudioEvent::DeviceUnavailable { device_id: None })
+            .unwrap();
+        sender.send(event(80, LocalOrigin::User)).unwrap();
+        assert_eq!(
+            newest_audio_event(first, &mut receiver).unwrap(),
+            SystemAudioEvent::DeviceUnavailable { device_id: None }
+        );
+    }
 
     struct MuteUnavailableAudio {
         events: broadcast::Sender<SystemAudioEvent>,
@@ -838,13 +2233,65 @@ mod tests {
             Ok(())
         }
 
-        async fn set_muted(&self, _: bool, _: LocalOrigin) -> Result<(), PlatformAudioError> {
+        async fn set_muted(&self, muted: bool, _: LocalOrigin) -> Result<(), PlatformAudioError> {
+            assert!(muted, "unchanged mute must not be written");
             Err(PlatformAudioError::MuteUnavailable)
         }
 
         fn subscribe(&self) -> broadcast::Receiver<SystemAudioEvent> {
             self.events.subscribe()
         }
+    }
+
+    struct QuantizedAudio(Mutex<LocalAudioState>);
+    #[async_trait]
+    impl SystemAudioController for QuantizedAudio {
+        async fn current_state(&self) -> Result<LocalAudioState, PlatformAudioError> {
+            Ok(*self.0.lock().unwrap())
+        }
+        async fn set_volume(
+            &self,
+            volume: NormalizedVolume,
+            _: LocalOrigin,
+        ) -> Result<(), PlatformAudioError> {
+            self.0.lock().unwrap().volume =
+                NormalizedVolume::new(volume.get().saturating_sub(1)).unwrap();
+            Ok(())
+        }
+        async fn set_muted(&self, muted: bool, _: LocalOrigin) -> Result<(), PlatformAudioError> {
+            self.0.lock().unwrap().muted = MuteState(muted);
+            Ok(())
+        }
+        fn subscribe(&self) -> broadcast::Receiver<SystemAudioEvent> {
+            broadcast::channel(1).1
+        }
+    }
+    #[tokio::test]
+    async fn coordinated_device_quantization_does_not_cancel_mute_application() {
+        let baseline = LocalAudioState {
+            volume: NormalizedVolume::new(20).unwrap(),
+            muted: MuteState(false),
+        };
+        let audio: Arc<dyn SystemAudioController> = Arc::new(QuantizedAudio(Mutex::new(baseline)));
+        let port = DeviceAudioPort(Arc::clone(&audio));
+        let result = port
+            .apply_observed(
+                LocalAudioState {
+                    volume: NormalizedVolume::new(42).unwrap(),
+                    muted: MuteState(true),
+                },
+                Some(baseline),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, None);
+        assert_eq!(
+            audio.current_state().await.unwrap(),
+            LocalAudioState {
+                volume: NormalizedVolume::new(41).unwrap(),
+                muted: MuteState(true)
+            }
+        );
     }
 
     #[tokio::test]
@@ -857,7 +2304,7 @@ mod tests {
         }));
         let state = LocalAudioState {
             volume: NormalizedVolume::new(42).expect("valid test volume"),
-            muted: MuteState(false),
+            muted: MuteState(true),
         };
 
         port.apply(state)
@@ -868,6 +2315,23 @@ mod tests {
             *applied_volume.lock().expect("test mutex"),
             Some(state.volume)
         );
+    }
+
+    #[tokio::test]
+    async fn unchanged_confirmation_does_not_write_local_audio() {
+        let (events, _) = broadcast::channel(1);
+        let applied_volume = Arc::new(Mutex::new(None));
+        let port = DeviceAudioPort(Arc::new(MuteUnavailableAudio {
+            events,
+            applied_volume: Arc::clone(&applied_volume),
+        }));
+        port.apply(LocalAudioState {
+            volume: NormalizedVolume::new(20).unwrap(),
+            muted: MuteState(false),
+        })
+        .await
+        .unwrap();
+        assert_eq!(*applied_volume.lock().unwrap(), None);
     }
 
     #[test]
@@ -885,7 +2349,7 @@ mod tests {
 
     #[test]
     fn renewal_happens_before_subscription_expiry() {
-        let subscription = sonos_volume_bridge_sonos::Subscription {
+        let subscription = speaker_volume_bridge_sonos::Subscription {
             id: "uuid:test".to_owned(),
             timeout: Duration::from_secs(10),
         };

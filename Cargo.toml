@@ -8,15 +8,16 @@ members = [
     "crates/sonos",
     "crates/synchronization",
     "crates/test-support",
+    "crates/updater-artifact",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "1.4.0"
+version = "1.9.1"
 edition = "2024"
 rust-version = "1.98.1"
 license = "MIT"
-repository = "https://github.com/migueltvms/sonos-volume-bridge"
+repository = "https://github.com/migueltvms/speaker-volume-bridge"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -48,3 +49,7 @@ missing_panics_doc = "allow"
 return_self_not_must_use = "allow"
 [patch.crates-io]
 glib = { path = "patches/glib-0.18.5" }
+
+tauri-plugin-single-instance = { path = "patches/tauri-plugin-single-instance-2.4.5" }
+
+tauri-plugin-updater = { path = "patches/tauri-plugin-updater-2.10.0" }

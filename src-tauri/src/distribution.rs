@@ -1,0 +1,677 @@
+use serde::{Deserialize, Serialize};
+use std::{fs, path::Path};
+
+const OFFICIAL_PUBLISHER: &str = "MiguelTVMS/speaker-volume-bridge";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum PublishedClassification {
+    GA,
+    Alpha,
+    Beta,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DistributionEdition {
+    DirectMacos,
+    DirectWindows,
+    MicrosoftStore,
+    MacAppStore,
+    Debian,
+    WindowsSideload,
+    Development,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleaseChannel {
+    Stable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplicationArchitecture {
+    Aarch64,
+    X86_64,
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledDistribution {
+    pub edition: DistributionEdition,
+    pub version: String,
+    pub architecture: ApplicationArchitecture,
+    pub channel: ReleaseChannel,
+    pub published_classification: Option<PublishedClassification>,
+    pub check_supported: bool,
+    pub direct_install_supported: bool,
+}
+
+impl InstalledDistribution {
+    fn new(
+        edition: DistributionEdition,
+        version: &str,
+        architecture: ApplicationArchitecture,
+    ) -> Self {
+        Self {
+            edition,
+            version: version.into(),
+            architecture,
+            channel: ReleaseChannel::Stable,
+            published_classification: None,
+            check_supported: match edition {
+                DistributionEdition::DirectMacos => {
+                    architecture == ApplicationArchitecture::Aarch64
+                }
+                DistributionEdition::DirectWindows | DistributionEdition::Debian => matches!(
+                    architecture,
+                    ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+                ),
+                DistributionEdition::MicrosoftStore | DistributionEdition::MacAppStore => true,
+                _ => false,
+            },
+            direct_install_supported: false,
+        }
+    }
+    /// Explicit capability resolved from official package provenance, never feed contents.
+    pub fn prerelease_supported(&self) -> bool {
+        self.check_supported
+            && matches!(
+                (self.edition, self.architecture),
+                (
+                    DistributionEdition::DirectMacos,
+                    ApplicationArchitecture::Aarch64
+                ) | (
+                    DistributionEdition::DirectWindows | DistributionEdition::Debian,
+                    ApplicationArchitecture::Aarch64 | ApplicationArchitecture::X86_64
+                )
+            )
+    }
+    pub const fn edition_key(&self) -> &'static str {
+        match self.edition {
+            DistributionEdition::DirectMacos => "direct_macos",
+            DistributionEdition::DirectWindows => "direct_windows",
+            DistributionEdition::MicrosoftStore => "microsoft_store",
+            DistributionEdition::MacAppStore => "mac_app_store",
+            DistributionEdition::Debian => "debian",
+            DistributionEdition::WindowsSideload => "windows_sideload",
+            DistributionEdition::Development => "development",
+            DistributionEdition::Unknown => "unknown",
+        }
+    }
+}
+
+pub trait DistributionResolver: Send + Sync {
+    fn resolve(&self) -> Result<InstalledDistribution, ResolveError>;
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("installed distribution evidence is unavailable")]
+pub struct ResolveError;
+
+pub fn resolve_at_startup(resolver: &dyn DistributionResolver) -> InstalledDistribution {
+    resolver.resolve().unwrap_or_else(|error| {
+        tracing::warn!(%error, "update distribution resolution failed");
+        InstalledDistribution::new(
+            DistributionEdition::Unknown,
+            env!("CARGO_PKG_VERSION"),
+            application_architecture(),
+        )
+    })
+}
+
+#[allow(clippy::struct_excessive_bools)] // Independent OS evidence is injected explicitly in resolver tests.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PlatformEvidence {
+    pub packaged: bool,
+    pub store_signed: bool,
+    pub app_store_receipt: bool,
+    pub official_debian_package: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PackageProvenance {
+    schema_version: u32,
+    edition: ProvenanceEdition,
+    publisher: String,
+    #[serde(default)]
+    release_classification: Option<PublishedClassification>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ProvenanceEdition {
+    DirectMacos,
+    DirectWindows,
+    MicrosoftStore,
+    MacAppStore,
+    Debian,
+}
+
+pub struct InstalledDistributionResolver {
+    provenance: Option<PackageProvenance>,
+    evidence: PlatformEvidence,
+    development: bool,
+    version: &'static str,
+    architecture: ApplicationArchitecture,
+}
+
+impl InstalledDistributionResolver {
+    pub fn from_runtime(resource_dir: &Path, development: bool) -> Self {
+        let provenance = fs::read(resource_dir.join("distribution.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<PackageProvenance>(&bytes).ok())
+            .filter(|value| match value.edition {
+                ProvenanceEdition::DirectMacos | ProvenanceEdition::MacAppStore => {
+                    cfg!(target_os = "macos")
+                }
+                ProvenanceEdition::DirectWindows | ProvenanceEdition::MicrosoftStore => {
+                    cfg!(windows)
+                }
+                ProvenanceEdition::Debian => cfg!(target_os = "linux"),
+            });
+        Self {
+            provenance,
+            evidence: platform_evidence(resource_dir),
+            development,
+            version: env!("CARGO_PKG_VERSION"),
+            architecture: application_architecture(),
+        }
+    }
+
+    #[cfg(test)]
+    fn from_evidence(
+        provenance: Option<ProvenanceEdition>,
+        evidence: PlatformEvidence,
+        development: bool,
+        architecture: ApplicationArchitecture,
+    ) -> Self {
+        Self {
+            provenance: provenance.map(|edition| PackageProvenance {
+                schema_version: 1,
+                edition,
+                publisher: OFFICIAL_PUBLISHER.into(),
+                release_classification: None,
+            }),
+            evidence,
+            development,
+            version: env!("CARGO_PKG_VERSION"),
+            architecture,
+        }
+    }
+
+    fn resolved_edition(&self) -> DistributionEdition {
+        if self.development {
+            return DistributionEdition::Development;
+        }
+        let Some(provenance) = &self.provenance else {
+            return if self.evidence.packaged {
+                DistributionEdition::WindowsSideload
+            } else {
+                DistributionEdition::Unknown
+            };
+        };
+        if provenance.schema_version != 1 || provenance.publisher != OFFICIAL_PUBLISHER {
+            return DistributionEdition::Unknown;
+        }
+        match provenance.edition {
+            ProvenanceEdition::DirectMacos if !self.evidence.app_store_receipt => {
+                DistributionEdition::DirectMacos
+            }
+            ProvenanceEdition::MacAppStore if self.evidence.app_store_receipt => {
+                DistributionEdition::MacAppStore
+            }
+            ProvenanceEdition::DirectWindows if !self.evidence.packaged => {
+                DistributionEdition::DirectWindows
+            }
+            ProvenanceEdition::MicrosoftStore
+                if self.evidence.packaged && self.evidence.store_signed =>
+            {
+                DistributionEdition::MicrosoftStore
+            }
+            ProvenanceEdition::MicrosoftStore | ProvenanceEdition::DirectWindows
+                if self.evidence.packaged =>
+            {
+                DistributionEdition::WindowsSideload
+            }
+            ProvenanceEdition::Debian if self.evidence.official_debian_package => {
+                DistributionEdition::Debian
+            }
+            _ => DistributionEdition::Unknown,
+        }
+    }
+}
+
+impl DistributionResolver for InstalledDistributionResolver {
+    fn resolve(&self) -> Result<InstalledDistribution, ResolveError> {
+        let mut resolved =
+            InstalledDistribution::new(self.resolved_edition(), self.version, self.architecture);
+        if resolved.check_supported {
+            resolved.published_classification = self
+                .provenance
+                .as_ref()
+                .and_then(|value| value.release_classification);
+        }
+        Ok(resolved)
+    }
+}
+
+const fn application_architecture() -> ApplicationArchitecture {
+    if cfg!(target_arch = "aarch64") {
+        ApplicationArchitecture::Aarch64
+    } else if cfg!(target_arch = "x86_64") {
+        ApplicationArchitecture::X86_64
+    } else {
+        ApplicationArchitecture::Unknown
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn platform_evidence(resource_dir: &Path) -> PlatformEvidence {
+    PlatformEvidence {
+        app_store_receipt: resource_dir.join("../_MASReceipt/receipt").is_file(),
+        ..PlatformEvidence::default()
+    }
+}
+
+#[cfg(windows)]
+fn platform_evidence(_resource_dir: &Path) -> PlatformEvidence {
+    use windows::ApplicationModel::{Package, PackageSignatureKind};
+    let Ok(package) = Package::Current() else {
+        return PlatformEvidence::default();
+    };
+    PlatformEvidence {
+        packaged: true,
+        store_signed: package
+            .SignatureKind()
+            .is_ok_and(|kind| kind == PackageSignatureKind::Store),
+        ..PlatformEvidence::default()
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn platform_evidence(_resource_dir: &Path) -> PlatformEvidence {
+    let official = std::process::Command::new("dpkg-query")
+        .args([
+            "-W",
+            "-f=${Package}|${Maintainer}|${Homepage}",
+            "speaker-volume-bridge",
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .is_some_and(|value| {
+            value.starts_with("speaker-volume-bridge|")
+                && value.contains("|https://github.com/migueltvms/speaker-volume-bridge")
+        });
+    PlatformEvidence {
+        official_debian_package: official,
+        ..PlatformEvidence::default()
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn platform_evidence(_resource_dir: &Path) -> PlatformEvidence {
+    PlatformEvidence::default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn resolve(
+        provenance: Option<ProvenanceEdition>,
+        evidence: PlatformEvidence,
+        development: bool,
+        architecture: ApplicationArchitecture,
+    ) -> InstalledDistribution {
+        InstalledDistributionResolver::from_evidence(
+            provenance,
+            evidence,
+            development,
+            architecture,
+        )
+        .resolve()
+        .unwrap()
+    }
+
+    #[test]
+    fn recognized_editions_require_matching_package_and_platform_evidence() {
+        let cases = [
+            (
+                ProvenanceEdition::DirectMacos,
+                PlatformEvidence::default(),
+                DistributionEdition::DirectMacos,
+            ),
+            (
+                ProvenanceEdition::MacAppStore,
+                PlatformEvidence {
+                    app_store_receipt: true,
+                    ..PlatformEvidence::default()
+                },
+                DistributionEdition::MacAppStore,
+            ),
+            (
+                ProvenanceEdition::DirectWindows,
+                PlatformEvidence::default(),
+                DistributionEdition::DirectWindows,
+            ),
+            (
+                ProvenanceEdition::MicrosoftStore,
+                PlatformEvidence {
+                    packaged: true,
+                    store_signed: true,
+                    ..PlatformEvidence::default()
+                },
+                DistributionEdition::MicrosoftStore,
+            ),
+            (
+                ProvenanceEdition::Debian,
+                PlatformEvidence {
+                    official_debian_package: true,
+                    ..PlatformEvidence::default()
+                },
+                DistributionEdition::Debian,
+            ),
+        ];
+        for (provenance, evidence, edition) in cases {
+            let result = resolve(
+                Some(provenance),
+                evidence,
+                false,
+                ApplicationArchitecture::Aarch64,
+            );
+            assert_eq!(result.edition, edition);
+            assert!(result.check_supported);
+            assert!(!result.direct_install_supported);
+        }
+    }
+
+    #[test]
+    fn reused_binary_resolves_from_package_metadata_not_compile_time() {
+        let direct = resolve(
+            Some(ProvenanceEdition::DirectWindows),
+            PlatformEvidence::default(),
+            false,
+            ApplicationArchitecture::X86_64,
+        );
+        let store = resolve(
+            Some(ProvenanceEdition::MicrosoftStore),
+            PlatformEvidence {
+                packaged: true,
+                store_signed: true,
+                ..PlatformEvidence::default()
+            },
+            false,
+            ApplicationArchitecture::X86_64,
+        );
+        assert_eq!(direct.edition, DistributionEdition::DirectWindows);
+        assert_eq!(store.edition, DistributionEdition::MicrosoftStore);
+        assert_eq!(direct.version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn weak_platform_evidence_never_proves_an_official_edition() {
+        assert_eq!(
+            resolve(
+                Some(ProvenanceEdition::MicrosoftStore),
+                PlatformEvidence {
+                    packaged: true,
+                    ..PlatformEvidence::default()
+                },
+                false,
+                ApplicationArchitecture::X86_64
+            )
+            .edition,
+            DistributionEdition::WindowsSideload
+        );
+        assert_eq!(
+            resolve(
+                Some(ProvenanceEdition::MacAppStore),
+                PlatformEvidence::default(),
+                false,
+                ApplicationArchitecture::Aarch64
+            )
+            .edition,
+            DistributionEdition::Unknown
+        );
+        assert_eq!(
+            resolve(
+                Some(ProvenanceEdition::Debian),
+                PlatformEvidence::default(),
+                false,
+                ApplicationArchitecture::X86_64
+            )
+            .edition,
+            DistributionEdition::Unknown
+        );
+    }
+
+    #[test]
+    fn absent_conflicting_and_development_evidence_are_conservative() {
+        assert_eq!(
+            resolve(
+                None,
+                PlatformEvidence::default(),
+                false,
+                ApplicationArchitecture::X86_64
+            )
+            .edition,
+            DistributionEdition::Unknown
+        );
+        assert_eq!(
+            resolve(
+                Some(ProvenanceEdition::DirectWindows),
+                PlatformEvidence {
+                    packaged: true,
+                    store_signed: true,
+                    ..PlatformEvidence::default()
+                },
+                false,
+                ApplicationArchitecture::X86_64
+            )
+            .edition,
+            DistributionEdition::WindowsSideload
+        );
+        let demo = resolve(
+            Some(ProvenanceEdition::DirectMacos),
+            PlatformEvidence::default(),
+            true,
+            ApplicationArchitecture::Aarch64,
+        );
+        assert_eq!(demo.edition, DistributionEdition::Development);
+        assert!(!demo.check_supported);
+    }
+
+    #[test]
+    fn application_architecture_is_independent_from_host_architecture() {
+        let result = resolve(
+            Some(ProvenanceEdition::DirectWindows),
+            PlatformEvidence::default(),
+            false,
+            ApplicationArchitecture::X86_64,
+        );
+        assert_eq!(result.architecture, ApplicationArchitecture::X86_64);
+    }
+
+    #[test]
+    fn runtime_resolver_rejects_foreign_platform_provenance() {
+        let resources = tempfile::tempdir().unwrap();
+        let edition = if cfg!(target_os = "macos") {
+            "direct_windows"
+        } else {
+            "direct_macos"
+        };
+        fs::write(
+            resources.path().join("distribution.json"),
+            format!(
+                r#"{{"schemaVersion":1,"edition":"{edition}","publisher":"{OFFICIAL_PUBLISHER}"}}"#
+            ),
+        )
+        .unwrap();
+        let resolver = InstalledDistributionResolver::from_runtime(resources.path(), false);
+        let installed = resolve_at_startup(&resolver);
+        assert_eq!(installed.edition, DistributionEdition::Unknown);
+        assert!(!installed.check_supported);
+    }
+
+    // Run the production startup resolver in a subprocess so the test's package
+    // database and PATH cannot affect other tests or the user's installed app.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn debian_package_startup_probe() {
+        let Some(resources) = std::env::var_os("SVB_TEST_DEBIAN_RESOURCES") else {
+            return;
+        };
+        let installed = resolve_at_startup(&InstalledDistributionResolver::from_runtime(
+            Path::new(&resources),
+            false,
+        ));
+        assert_eq!(installed.edition, DistributionEdition::Debian);
+        assert!(installed.check_supported);
+        assert!(installed.prerelease_supported());
+        assert_eq!(installed.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(installed.architecture, application_architecture());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_bundle_metadata_enables_updates_through_production_startup() {
+        use std::{fmt::Write, os::unix::fs::PermissionsExt, process::Command};
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("package");
+        let control_dir = root.join("DEBIAN");
+        fs::create_dir_all(&control_dir).unwrap();
+        let resources = root.join("usr/lib/speaker-volume-bridge");
+        fs::create_dir_all(&resources).unwrap();
+        fs::write(
+            resources.join("distribution.json"),
+            include_str!("../distribution/debian.json"),
+        )
+        .unwrap();
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let linux: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.linux.conf.json")).unwrap();
+        let homepage = linux["bundle"]["homepage"]
+            .as_str()
+            .or_else(|| base["bundle"]["homepage"].as_str());
+        let mut control = format!(
+            "Package: speaker-volume-bridge\nVersion: {}\nArchitecture: {}\nMaintainer: Test\nDescription: startup regression fixture\n",
+            env!("CARGO_PKG_VERSION"),
+            if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "amd64"
+            }
+        );
+        if let Some(homepage) = homepage {
+            writeln!(control, "Homepage: {homepage}").unwrap();
+        }
+        fs::write(control_dir.join("control"), control).unwrap();
+        let deb = fixture.path().join("package.deb");
+        assert!(
+            Command::new("dpkg-deb")
+                .args(["--build", "--root-owner-group"])
+                .arg(&root)
+                .arg(&deb)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        let metadata = Command::new("dpkg-deb")
+            .arg("--field")
+            .arg(&deb)
+            .output()
+            .unwrap();
+        assert!(metadata.status.success());
+        // Register the actual packaged control record in a fixture database.
+        // dpkg-query remains real; no canned command response is used.
+        let database = fixture.path().join("database");
+        fs::create_dir(&database).unwrap();
+        fs::write(
+            database.join("status"),
+            format!(
+                "Status: install ok installed\n{}\n",
+                String::from_utf8(metadata.stdout).unwrap()
+            ),
+        )
+        .unwrap();
+        let bin = fixture.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        let query = bin.join("dpkg-query");
+        fs::write(
+            &query,
+            "#!/bin/sh\nexec /usr/bin/dpkg-query --admindir=\"$SVB_TEST_DEBIAN_DATABASE\" \"$@\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&query, fs::Permissions::from_mode(0o755)).unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "distribution::tests::debian_package_startup_probe",
+                "--nocapture",
+            ])
+            .env("PATH", &bin)
+            .env("SVB_TEST_DEBIAN_DATABASE", &database)
+            .env("SVB_TEST_DEBIAN_RESOURCES", &resources)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn startup_resolver_excludes_unsupported_application_architectures() {
+        for (edition, architecture) in [
+            (
+                ProvenanceEdition::DirectMacos,
+                ApplicationArchitecture::X86_64,
+            ),
+            (
+                ProvenanceEdition::DirectMacos,
+                ApplicationArchitecture::Unknown,
+            ),
+            (
+                ProvenanceEdition::DirectWindows,
+                ApplicationArchitecture::Unknown,
+            ),
+            (ProvenanceEdition::Debian, ApplicationArchitecture::Unknown),
+        ] {
+            let resolver = InstalledDistributionResolver::from_evidence(
+                Some(edition),
+                PlatformEvidence {
+                    official_debian_package: true,
+                    ..PlatformEvidence::default()
+                },
+                false,
+                architecture,
+            );
+            let installed = resolve_at_startup(&resolver);
+            assert!(!installed.check_supported);
+            assert!(!installed.prerelease_supported());
+        }
+    }
+
+    #[test]
+    fn resolver_errors_fall_back_without_preventing_startup() {
+        struct FailingResolver;
+        impl DistributionResolver for FailingResolver {
+            fn resolve(&self) -> Result<InstalledDistribution, ResolveError> {
+                Err(ResolveError)
+            }
+        }
+        let result = resolve_at_startup(&FailingResolver);
+        assert_eq!(result.edition, DistributionEdition::Unknown);
+        assert!(!result.check_supported);
+    }
+}

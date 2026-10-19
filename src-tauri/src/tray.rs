@@ -7,7 +7,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 use tauri::{
-    AppHandle, Manager, Runtime, Theme,
+    AppHandle, Emitter, Manager, Runtime, Theme,
     image::Image,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -53,7 +53,7 @@ fn initialize_tray<E>(
 fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let connection = app_connection(app);
     let icon = icon_for(theme(app), connection);
-    let title = MenuItem::with_id(app, "title", "Sonos Volume Bridge", false, None::<&str>)?;
+    let title = MenuItem::with_id(app, "title", "Speaker Volume Bridge", false, None::<&str>)?;
     let status = MenuItem::with_id(
         app,
         "status",
@@ -69,6 +69,7 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
     let diagnostics = MenuItem::with_id(app, "diagnostics", "Diagnostics", true, None::<&str>)?;
     let camera_status = MenuItem::with_id(
         app,
@@ -89,6 +90,7 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             &camera_status,
             &separator,
             &settings,
+            &updates,
             &diagnostics,
             &quit,
         ],
@@ -97,9 +99,12 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .icon(icon)
         .icon_as_template(connection == ConnectionState::Connected)
         .menu(&menu)
-        .tooltip("Sonos Volume Bridge")
+        .tooltip("Speaker Volume Bridge")
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "settings" | "diagnostics" => show_settings(app),
+            "settings" | "diagnostics" | "updates" => {
+                open_settings_menu_item(app, event.id().as_ref());
+            }
+            "night-schedule-enabled" => toggle_schedule(app),
             "speaker-night-sound" => {
                 toggle_speaker_setting(app, SpeakerSetting::NightSound, event.id().as_ref());
             }
@@ -122,8 +127,8 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 button_state: MouseButtonState::Down,
                 ..
             } => refresh_speaker_controls(tray.app_handle()),
-            TrayIconEvent::DoubleClick { button, .. } if opens_settings_on_double_click(button) => {
-                show_settings(tray.app_handle());
+            TrayIconEvent::DoubleClick { button, .. } => {
+                open_settings_on_tray_double_click(tray.app_handle(), button);
             }
             _ => {}
         })
@@ -198,25 +203,132 @@ fn update_speaker_controls<R: Runtime>(app: &AppHandle<R>, settings: &SpeakerSet
     let Ok(mut controls) = items.speaker_controls.lock() else {
         return;
     };
-    for control in controls.drain(..) {
-        let _ = items.menu.remove(&control);
+    let schedule_enabled = app.try_state::<AppState>().is_some_and(|state| {
+        state
+            .configuration
+            .lock()
+            .is_ok_and(|configuration| configuration.night_mode_schedule.enabled)
+    });
+    let available = available_tray_controls(settings, schedule_enabled);
+    let visible: Vec<String> = items
+        .menu
+        .items()
+        .unwrap_or_default()
+        .iter()
+        .map(|item| item.id().as_ref().to_owned())
+        .collect();
+    let desired: Vec<&str> = available.iter().map(|(id, _, _)| *id).collect();
+    let (remove, insert) = control_changes(&visible, &desired);
+    for id in remove {
+        if let Some(control) = controls.iter().find(|control| control.id().as_ref() == id) {
+            let _ = items.menu.remove(control);
+        }
     }
-    let _ = items.menu.remove(&items.speaker_separator);
-
-    let available = available_speaker_controls(settings);
-    if available.is_empty() {
-        return;
+    let separator_visible = visible
+        .iter()
+        .any(|id| id == items.speaker_separator.id().as_ref());
+    if available.is_empty() && separator_visible {
+        let _ = items.menu.remove(&items.speaker_separator);
+    } else if !available.is_empty() && !separator_visible {
+        let _ = items.menu.insert(&items.speaker_separator, 3);
     }
-
-    let _ = items.menu.insert(&items.speaker_separator, 3);
-    for (index, (id, label, enabled)) in available.into_iter().enumerate() {
-        let Ok(control) = CheckMenuItem::with_id(app, id, label, true, enabled, None::<&str>)
-        else {
-            continue;
+    for (id, label, enabled) in available {
+        let locked = app.try_state::<AppState>().is_some_and(|state| {
+            state.configuration.lock().is_ok_and(|configuration| {
+                (id == "speaker-night-sound" && crate::night_schedule::locked(&configuration))
+                    || (id == "speaker-loudness"
+                        && crate::night_schedule::loudness_locked(&configuration))
+            })
+        });
+        let label = if locked && id == "speaker-night-sound" {
+            "Night sound (disable schedule to turn off)"
+        } else if locked {
+            "Loudness (disabled during night schedule)"
+        } else {
+            label
         };
-        let _ = items.menu.insert(&control, 4 + index);
-        controls.push(control);
+        // Keep native action targets alive for the lifetime of the tray, including
+        // when capability changes hide them while macOS is tracking a menu click.
+        let control =
+            if let Some(control) = controls.iter().find(|control| control.id().as_ref() == id) {
+                control.clone()
+            } else {
+                let Ok(control) =
+                    CheckMenuItem::with_id(app, id, label, !locked, enabled, None::<&str>)
+                else {
+                    continue;
+                };
+                controls.push(control.clone());
+                control
+            };
+        let _ = control.set_text(label);
+        let _ = control.set_enabled(!locked);
+        let _ = control.set_checked(enabled);
+        if let Some((index, _)) = insert.iter().find(|(_, added)| *added == id) {
+            let _ = items.menu.insert(&control, 4 + index);
+        }
     }
+}
+
+fn control_changes<'a>(
+    visible: &'a [String],
+    desired: &'a [&str],
+) -> (Vec<&'a str>, Vec<(usize, &'a str)>) {
+    let remove = visible
+        .iter()
+        .map(String::as_str)
+        .filter(|id| {
+            (id.starts_with("speaker-") || *id == "night-schedule-enabled") && !desired.contains(id)
+        })
+        .collect();
+    let insert = desired
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, id)| !visible.iter().any(|current| current == id))
+        .collect();
+    (remove, insert)
+}
+
+fn available_tray_controls(
+    settings: &SpeakerSettings,
+    schedule_enabled: bool,
+) -> Vec<(&'static str, &'static str, bool)> {
+    let mut controls = available_speaker_controls(settings);
+    if settings.night_sound.is_some() || schedule_enabled {
+        controls.insert(
+            0,
+            ("night-schedule-enabled", "Night schedule", schedule_enabled),
+        );
+    }
+    controls
+}
+
+fn toggle_schedule<R: Runtime>(app: &AppHandle<R>) {
+    let enabled = app.try_state::<TrayMenuItems<R>>().and_then(|items| {
+        items.speaker_controls.lock().ok().and_then(|controls| {
+            controls
+                .iter()
+                .find(|control| control.id().as_ref() == "night-schedule-enabled")
+                .and_then(|control| control.is_checked().ok())
+        })
+    });
+    let Some(enabled) = enabled else {
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        if let Err(error) =
+            crate::commands::enable_night_schedule(enabled, state.clone(), app.clone()).await
+            && let Ok(mut status) = state.schedule_status.lock()
+        {
+            status.message = error;
+            let _ = app.emit("night-schedule-changed", status.clone());
+        }
+        let _ = app.emit("speaker-settings-changed", ());
+        refresh_speaker_controls(&app);
+    });
 }
 
 fn available_speaker_controls(
@@ -256,12 +368,34 @@ fn toggle_speaker_setting<R: Runtime>(app: &AppHandle<R>, setting: SpeakerSettin
     if let (Some(enabled), Some(configuration)) = (enabled, configuration) {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            let _gate = state.speaker_gate.lock().await;
+            let Ok(current) = state.configuration.lock().map(|c| c.clone()) else {
+                return;
+            };
+            if current.selected_sonos_id != configuration.selected_sonos_id {
+                return;
+            }
+            if matches!(setting, SpeakerSetting::NightSound)
+                && !enabled
+                && crate::night_schedule::locked(&current)
+            {
+                show_settings(&app);
+                let _ = app.emit("open-night-schedule", ());
+                return;
+            }
+            if matches!(setting, SpeakerSetting::Loudness)
+                && enabled
+                && crate::night_schedule::loudness_locked(&current)
+            {
+                show_settings(&app);
+                let _ = app.emit("open-night-schedule", ());
+                return;
+            }
             if matches!(setting, SpeakerSetting::SpeechEnhancement) {
-                if let Some(state) = app.try_state::<AppState>() {
-                    let _ = state.camera.manual(configuration, enabled).await;
-                }
+                let _ = state.camera.manual(current, enabled).await;
             } else {
-                let _ = runtime::set_speaker_setting(configuration, setting, enabled).await;
+                let _ = runtime::set_speaker_setting(current, setting, enabled).await;
             }
             refresh_speaker_controls(&app);
         });
@@ -284,6 +418,13 @@ fn theme<R: Runtime>(app: &AppHandle<R>) -> Theme {
 }
 
 fn icon_for(theme: Theme, connection: ConnectionState) -> Image<'static> {
+    // Ubuntu's dark top bar is independent of the application window theme.
+    // AppIndicator uses the supplied pixels rather than a macOS template tint.
+    let theme = if cfg!(target_os = "linux") {
+        Theme::Dark
+    } else {
+        theme
+    };
     let bytes: &[u8] = match (theme, connection) {
         (Theme::Light, ConnectionState::Connected) => {
             include_bytes!("../icons/tray-icon-light.png")
@@ -310,7 +451,7 @@ pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
     let status = format!("State: {}", connection_label(connection));
     let speaker = speaker_label(snapshot.sonos_name.as_deref(), snapshot.sonos_volume);
     let tooltip = format!(
-        "SonosVolumeBridge\n{status}\n{speaker}\nLocal: {}",
+        "Speaker Volume Bridge\n{status}\n{speaker}\nLocal: {}",
         snapshot
             .local_volume
             .map_or_else(|| "—".to_owned(), |volume| format!("{volume}%"))
@@ -385,10 +526,92 @@ fn speaker_label(name: Option<&str>, volume: Option<u8>) -> String {
     }
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SettingsNavigationRequest {
+    pub revision: u64,
+    pub page: Option<&'static str>,
+}
+
+#[derive(Default)]
+struct SettingsNavigationState {
+    revision: u64,
+    pending: Option<SettingsNavigationRequest>,
+}
+
+#[derive(Default)]
+pub struct PendingSettingsNavigation(Mutex<SettingsNavigationState>);
+
+pub fn take_settings_navigation_request<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Option<SettingsNavigationRequest> {
+    app.state::<PendingSettingsNavigation>()
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .pending
+        .take()
+}
+
+pub fn acknowledge_settings_navigation<R: Runtime>(app: &AppHandle<R>, revision: u64) {
+    let state = app.state::<PendingSettingsNavigation>();
+    let mut state = state
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state
+        .pending
+        .as_ref()
+        .is_some_and(|request| request.revision == revision)
+    {
+        state.pending = None;
+    }
+}
+
+#[cfg(test)]
+pub fn take_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>) -> Option<&'static str> {
+    take_settings_navigation_request(app).and_then(|request| request.page)
+}
+
+pub fn set_pending_settings_navigation<R: Runtime>(
+    app: &AppHandle<R>,
+    page: Option<&'static str>,
+) -> SettingsNavigationRequest {
+    let state = app.state::<PendingSettingsNavigation>();
+    let mut state = state
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.revision += 1;
+    let request = SettingsNavigationRequest {
+        revision: state.revision,
+        page,
+    };
+    state.pending = Some(request.clone());
+    request
+}
+
+fn open_settings_menu_item<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    let page = match id {
+        "diagnostics" => Some("diagnostics"),
+        "updates" => Some("updates"),
+        _ => None,
+    };
+    let request = set_pending_settings_navigation(app, page);
+    show_settings(app);
+    // Ordinary Settings is a cancellation revision, including for in-flight IPC.
+    let _ = app.emit("open-settings-page", request);
+}
+
 fn show_settings<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+fn open_settings_on_tray_double_click<R: Runtime>(app: &AppHandle<R>, button: MouseButton) {
+    if opens_settings_on_double_click(button) {
+        open_settings_menu_item(app, "settings");
     }
 }
 
@@ -414,6 +637,180 @@ pub(crate) fn refresh_camera_status<R: Runtime>(app: &AppHandle<R>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn diagnostics_menu_retains_cold_navigation_and_emits_warm_destination() {
+        use std::sync::Arc;
+        use tauri::Listener;
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        // Exact production menu action before any frontend listener is ready.
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&received);
+        let _listener = app.listen("open-settings-page", move |event| {
+            observed.lock().unwrap().push(
+                serde_json::from_str::<serde_json::Value>(event.payload()).unwrap()["page"]
+                    .as_str()
+                    .map(str::to_owned),
+            );
+        });
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![Some("diagnostics".to_owned())]
+        );
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        open_settings_menu_item(app.handle(), "settings");
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        open_settings_menu_item(app.handle(), "diagnostics");
+        open_settings_menu_item(app.handle(), "updates");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("updates")
+        );
+    }
+
+    #[tokio::test]
+    async fn ordinary_settings_revisions_cancel_already_consumed_navigation() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        open_settings_menu_item(app.handle(), "diagnostics");
+        let in_flight = take_settings_navigation_request(app.handle()).unwrap();
+        open_settings_menu_item(app.handle(), "settings");
+        let cancelled = take_settings_navigation_request(app.handle()).unwrap();
+        assert!(cancelled.revision > in_flight.revision);
+        assert_eq!(in_flight.page, Some("diagnostics"));
+        assert_eq!(cancelled.page, None);
+    }
+
+    #[tokio::test]
+    async fn ordinary_settings_clears_unconsumed_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        for page in ["diagnostics", "updates"] {
+            open_settings_menu_item(app.handle(), page);
+            // No frontend has consumed the first request yet.
+            open_settings_menu_item(app.handle(), "settings");
+            assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn notification_and_tray_share_latest_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        // Actual update-notification activation precedes frontend subscription.
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        // Reversed order, ordinary Settings, and double-click use the same slot.
+        open_settings_menu_item(app.handle(), "diagnostics");
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("updates")
+        );
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_menu_item(app.handle(), "settings");
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_on_tray_double_click(app.handle(), MouseButton::Left);
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+    }
+
+    #[tokio::test]
+    async fn tray_double_click_clears_unconsumed_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        for page in ["diagnostics", "updates"] {
+            open_settings_menu_item(app.handle(), page);
+            // Right/middle double-clicks must not cancel explicit navigation.
+            for button in [MouseButton::Right, MouseButton::Middle] {
+                open_settings_on_tray_double_click(app.handle(), button);
+                assert_eq!(
+                    app.state::<PendingSettingsNavigation>()
+                        .0
+                        .lock()
+                        .unwrap()
+                        .pending
+                        .as_ref()
+                        .and_then(|request| request.page),
+                    Some(page)
+                );
+            }
+            // No frontend subscription or consumption between these actions.
+            open_settings_on_tray_double_click(app.handle(), MouseButton::Left);
+            assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        }
+    }
+
+    #[test]
+    fn warm_navigation_acknowledgement_survives_frontend_restart() {
+        let app = tauri::test::mock_app();
+        app.manage(PendingSettingsNavigation::default());
+        let delivered = set_pending_settings_navigation(app.handle(), Some("diagnostics"));
+        acknowledge_settings_navigation(app.handle(), delivered.revision);
+        assert!(take_settings_navigation_request(app.handle()).is_none());
+        let newer = set_pending_settings_navigation(app.handle(), Some("updates"));
+        acknowledge_settings_navigation(app.handle(), delivered.revision);
+        assert_eq!(
+            take_settings_navigation_request(app.handle())
+                .unwrap()
+                .revision,
+            newer.revision
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn ubuntu_panel_icon_stays_white_across_startup_theme_and_connection_changes() {
+        // Ubuntu's panel stays dark even when the Settings window is light.
+        // Exercise the image selection shared by registration, theme events
+        // and connection refreshes, without requiring a native tray in CI.
+        for (theme, connection) in [
+            (Theme::Light, ConnectionState::Disconnected),
+            (Theme::Light, ConnectionState::Connected),
+            (Theme::Dark, ConnectionState::Connected),
+            (Theme::Dark, ConnectionState::Disconnected),
+            (Theme::Light, ConnectionState::Disconnected),
+        ] {
+            let icon = icon_for(theme, connection);
+            let expected = Image::from_bytes(match connection {
+                ConnectionState::Connected => include_bytes!("../icons/tray-icon-dark.png"),
+                ConnectionState::Disconnected => {
+                    include_bytes!("../icons/tray-icon-dark-disconnected.png")
+                }
+            })
+            .unwrap();
+            assert!(
+                icon.rgba() == expected.rgba(),
+                "Ubuntu panel icon must keep the white glyph and connection badge"
+            );
+        }
+    }
 
     #[test]
     fn startup_requests_speaker_controls_without_any_mouse_event() {
@@ -488,7 +885,54 @@ mod tests {
                 ("speaker-status-light", "Status light", false),
             ]
         );
-        assert!(available_speaker_controls(&SpeakerSettings::default()).is_empty());
+        assert_eq!(available_speaker_controls(&SpeakerSettings::default()), []);
+    }
+
+    #[test]
+    fn refresh_during_menu_tracking_keeps_existing_action_targets() {
+        let desired = ["night-schedule-enabled", "speaker-night-sound"];
+        let empty = Vec::new();
+        assert_eq!(
+            control_changes(&empty, &desired).1,
+            vec![(0, desired[0]), (1, desired[1])]
+        );
+        let visible = desired.iter().map(ToString::to_string).collect::<Vec<_>>();
+        // Startup has populated the menu. Hover refresh and a schedule toggle
+        // must only update values, not remove/recreate the clicked native item.
+        assert_eq!(control_changes(&visible, &desired), (vec![], vec![]));
+        assert_eq!(control_changes(&visible, &desired), (vec![], vec![]));
+        assert_eq!(
+            control_changes(&visible, &desired[..1]),
+            (vec![desired[1]], vec![])
+        );
+        let paused = vec![desired[0].to_string()];
+        assert_eq!(control_changes(&paused, &desired).1, vec![(1, desired[1])]);
+    }
+
+    #[test]
+    fn schedule_toggle_precedes_night_sound_and_can_always_be_disabled() {
+        let settings = SpeakerSettings {
+            night_sound: Some(false),
+            ..SpeakerSettings::default()
+        };
+        let controls = available_tray_controls(&settings, false);
+        assert_eq!(
+            controls[0],
+            ("night-schedule-enabled", "Night schedule", false)
+        );
+        assert_eq!(controls[1].0, "speaker-night-sound");
+        assert_eq!(
+            available_tray_controls(&settings, true)[0],
+            ("night-schedule-enabled", "Night schedule", true)
+        );
+        assert_eq!(
+            available_tray_controls(&SpeakerSettings::default(), false),
+            []
+        );
+        assert_eq!(
+            available_tray_controls(&SpeakerSettings::default(), true),
+            vec![("night-schedule-enabled", "Night schedule", true)]
+        );
     }
 
     #[test]

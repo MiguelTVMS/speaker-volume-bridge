@@ -2,10 +2,10 @@
 #![allow(unsafe_code, non_snake_case)] // Windows COM ABI.
 use super::{
     inventory::Inventory,
+    query::{self, QuerySource},
     worker::{Monitor, unavailable},
 };
-use sonos_volume_bridge_domain::camera::CameraObservation;
-use sonos_volume_bridge_integration::camera::CameraPort;
+use speaker_volume_bridge_integration::camera::CameraPort;
 use std::{
     sync::{Arc, Mutex, mpsc},
     time::{Duration, Instant},
@@ -13,14 +13,14 @@ use std::{
 use windows::Win32::{
     Media::MediaFoundation::{
         IMFActivate, IMFSensorActivitiesReport, IMFSensorActivitiesReportCallback,
-        IMFSensorActivitiesReportCallback_Impl, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+        IMFSensorActivitiesReportCallback_Impl, IMFShutdown, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
         MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
         MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, MF_VERSION, MFCreateAttributes,
         MFCreateSensorActivityMonitor, MFEnumDeviceSources, MFSTARTUP_LITE, MFShutdown, MFStartup,
     },
     System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize},
 };
-use windows_core::Ref;
+use windows_core::{Interface, Ref};
 type Cameras = Arc<Mutex<Inventory<Vec<u16>>>>;
 fn failure() -> windows_core::Error {
     windows_core::Error::from_hresult(windows_core::HRESULT(0x8000_4005_u32.cast_signed()))
@@ -137,6 +137,46 @@ fn camera_keys() -> windows_core::Result<Vec<Vec<u16>>> {
     }
 }
 
+struct NativeQuery<'a> {
+    monitor: Option<windows::Win32::Media::MediaFoundation::IMFSensorActivityMonitor>,
+    stopped: &'a mpsc::Receiver<()>,
+    stopping: bool,
+}
+impl QuerySource for NativeQuery<'_> {
+    type Key = Vec<u16>;
+    fn devices(&mut self) -> Option<Vec<Self::Key>> {
+        camera_keys().ok()
+    }
+    fn start(&mut self, cameras: Cameras) -> bool {
+        let callback: IMFSensorActivitiesReportCallback = Callback { cameras }.into();
+        // SAFETY: monitor and callback are created and released on the COM worker.
+        self.monitor = unsafe { MFCreateSensorActivityMonitor(&callback) }.ok();
+        self.monitor
+            .as_ref()
+            .is_some_and(|monitor| unsafe { monitor.Start().is_ok() })
+    }
+    fn wait(&mut self) -> bool {
+        // Microsoft's documented initial query window. A completed healthy window
+        // permits omitted idle reports; cancellation and errors remain unknown.
+        self.stopping = self.stopped.recv_timeout(Duration::from_millis(500))
+            != Err(mpsc::RecvTimeoutError::Timeout);
+        !self.stopping
+    }
+    fn stop(&mut self) -> bool {
+        let Some(monitor) = self.monitor.take() else {
+            return false;
+        };
+        // SAFETY: this worker owns the monitor; finish after callbacks are stopped.
+        unsafe {
+            let stopped = monitor.Stop().is_ok();
+            let shutdown = monitor
+                .cast::<IMFShutdown>()
+                .is_ok_and(|s| s.Shutdown().is_ok());
+            stopped && shutdown
+        }
+    }
+}
+
 pub fn start() -> Box<dyn CameraPort> {
     let state = Arc::new(Mutex::new((unavailable(), Instant::now())));
     let output = Arc::clone(&state);
@@ -151,61 +191,17 @@ pub fn start() -> Box<dyn CameraPort> {
                 CoUninitialize();
                 return;
             }
-            let cameras = Arc::new(Mutex::new(Inventory::default()));
-            let callback: IMFSensorActivitiesReportCallback = Callback {
-                cameras: Arc::clone(&cameras),
-            }
-            .into();
-            let mut monitor: Option<
-                windows::Win32::Media::MediaFoundation::IMFSensorActivityMonitor,
-            > = None;
-            let mut last_scan: Option<Instant> = None;
-            loop {
-                if last_scan.is_none_or(|t| t.elapsed() >= Duration::from_secs(5)) {
-                    let needs_restart = cameras.lock().is_ok_and(|inventory| {
-                        inventory.observation().availability
-                            == sonos_volume_bridge_domain::camera::CameraAvailability::Unavailable
-                    });
-                    if needs_restart && let Some(previous) = monitor.take() {
-                        let _ = previous.Stop();
-                    }
-                    if let Ok(mut inventory) = cameras.lock() {
-                        match camera_keys() {
-                            Ok(keys) => inventory.reconcile(keys),
-                            Err(_) => inventory.fail(),
-                        }
-                    }
-                    if monitor.is_none() {
-                        monitor = MFCreateSensorActivityMonitor(&callback)
-                            .and_then(|monitor| {
-                                monitor.Start()?;
-                                Ok(monitor)
-                            })
-                            .ok();
-                    }
-                    last_scan = Some(Instant::now());
-                }
-                let observation: CameraObservation = if monitor.is_some() {
-                    cameras
-                        .lock()
-                        .map_or_else(|_| unavailable(), |c| c.observation())
-                } else {
-                    unavailable()
-                };
+            let mut source = NativeQuery {
+                monitor: None,
+                stopped: &stopped,
+                stopping: false,
+            };
+            while !source.stopping {
+                let observation = query::sample(&mut source);
                 if let Ok(mut state) = output.lock() {
                     *state = (observation, Instant::now());
                 }
-                if !matches!(
-                    stopped.recv_timeout(Duration::from_millis(100)),
-                    Err(mpsc::RecvTimeoutError::Timeout)
-                ) {
-                    break;
-                }
             }
-            if let Some(monitor) = monitor {
-                let _ = monitor.Stop();
-            }
-            drop(callback);
             let _ = MFShutdown();
             CoUninitialize();
         }

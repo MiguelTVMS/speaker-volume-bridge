@@ -8,6 +8,21 @@ from urllib.parse import urljoin
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = 'https://svb.miguel.ms/'
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
+INCLUDE = re.compile(r'{%\s*include\s+([A-Za-z0-9_.-]+)\s*%}')
+
+
+def expand_source(source):
+    """Expand local Jekyll includes needed by Markdown generation."""
+    text = source.read_text()
+    text = re.sub(r'\A---\s*\n.*?\n---\s*\n', '', text, count=1, flags=re.DOTALL)
+
+    def replace(match):
+        include = ROOT / 'pages' / '_includes' / match.group(1)
+        if not include.is_file():
+            raise SystemExit(f'Unknown website include: {match.group(1)}')
+        return include.read_text()
+
+    return INCLUDE.sub(replace, text)
 
 
 class Document(HTMLParser):
@@ -65,7 +80,7 @@ def render(node, base):
 
 def generate(source):
     document = Document()
-    document.feed(source.read_text())
+    document.feed(expand_source(source))
     def find(node):
         if isinstance(node, str):
             return []

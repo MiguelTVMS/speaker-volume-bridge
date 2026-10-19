@@ -5,7 +5,211 @@ use crate::{
     state::{AppState, UiSnapshot},
 };
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+const PROJECT_REPOSITORY_URL: &str = "https://github.com/MiguelTVMS/speaker-volume-bridge";
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
+pub fn get_update_status(app: AppHandle) -> Result<crate::updates::UpdateStatus, String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    manager
+        .service()
+        .status()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn check_for_updates(app: AppHandle) -> Result<crate::updates::UpdateStatus, String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let status = manager.check_and_deliver(&app, true).await;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn set_update_policy(
+    policy: crate::updates::UpdatePolicy,
+    app: AppHandle,
+) -> Result<crate::updates::UpdateStatus, String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    manager
+        .service()
+        .set_policy(policy)
+        .map_err(|_| "Release policy is unavailable for this edition".to_owned())?;
+    let _ = app.emit(
+        "update-status-changed",
+        manager
+            .service()
+            .status()
+            .map_err(|error| error.to_string())?,
+    );
+    Ok(manager.check_and_deliver(&app, true).await)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
+pub fn set_automatic_update_checks(enabled: bool, app: AppHandle) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    manager
+        .service()
+        .set_automatic_checks(enabled)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
+pub fn dismiss_update(version: String, app: AppHandle) -> Result<(), String> {
+    app.try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?
+        .service()
+        .dismiss(&version)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn set_update_notifications(enabled: bool, app: AppHandle) -> Result<bool, String> {
+    let service = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?
+        .service()
+        .clone();
+    if service.store_action().is_ok() {
+        return Err("Update notifications are managed by the Store".into());
+    }
+    let permitted = !enabled || crate::schedule_notifications::permitted(&app, true).await;
+    service
+        .set_update_notifications(enabled && permitted)
+        .map_err(|error| error.to_string())?;
+    Ok(enabled && permitted)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn open_update_store(app: AppHandle) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let url = manager
+        .service()
+        .store_action()
+        .map_err(|_| "Store updates are unavailable for this edition".to_owned())?;
+    open_url_with_system(url)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
+pub fn open_update_download(
+    version: String,
+    generation: u64,
+    app: AppHandle,
+) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let action = manager
+        .service()
+        .claim_download_generation(&version, generation)
+        .map_err(|_| "That download offer changed. Check again before downloading.".to_owned())?;
+    let result = open_url_with_system(&action.url);
+    manager.service().finish_open();
+    result
+}
+
+#[tauri::command]
+pub fn open_project_repository() -> Result<(), String> {
+    open_url_with_system(PROJECT_REPOSITORY_URL)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
+pub fn open_update_page(
+    version: String,
+    url: String,
+    generation: u64,
+    app: AppHandle,
+) -> Result<(), String> {
+    let manager = app
+        .try_state::<crate::updates::UpdateManager>()
+        .ok_or_else(|| "Update checking is unavailable".to_owned())?;
+    let action = manager
+        .service()
+        .claim_offer_generation(&version, &url, generation)
+        .map_err(|_| "That update offer changed. Check again before opening it.".to_owned())?;
+    let result = open_url_with_system(&action.url);
+    manager.service().finish_open();
+    result
+}
+
+#[cfg(target_os = "macos")]
+fn open_url_with_system(url: &str) -> Result<(), String> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSString, NSURL};
+    let url = NSURL::URLWithString(&NSString::from_str(url))
+        .ok_or_else(|| "The update page URL is invalid".to_owned())?;
+    if NSWorkspace::sharedWorkspace().openURL(&url) {
+        Ok(())
+    } else {
+        Err("The update page could not be opened".into())
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn open_url_with_system(url: &str) -> Result<(), String> {
+    use windows::{
+        Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        core::PCWSTR,
+    };
+    let wide: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR::null(),
+            PCWSTR(wide.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err("The update page could not be opened".into())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn open_url_with_system(url: &str) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|_| "The update page could not be opened".into())
+}
+
+#[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
+fn open_url_with_system(_: &str) -> Result<(), String> {
+    Err("Opening update pages is unsupported on this platform".into())
+}
+
+// WebView Intl defaults do not include macOS region and clock overrides.
+#[tauri::command]
+pub fn get_system_hour12() -> Option<bool> {
+    crate::clock_format::hour12()
+}
+
+#[tauri::command]
+pub fn get_system_locale() -> Option<String> {
+    crate::clock_format::locale()
+}
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri injects managed state by value.
@@ -20,15 +224,28 @@ pub fn get_snapshot(state: State<'_, AppState>) -> Result<UiSnapshot, String> {
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri owns command argument extraction.
 pub async fn save_configuration(
-    configuration: AppConfiguration,
+    mut configuration: AppConfiguration,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<UiSnapshot, String> {
-    let previous_start_at_login = state
+    let gate = state.speaker_gate.lock().await;
+    let current = state
         .configuration
         .lock()
         .map_err(|_| "application configuration is unavailable".to_owned())?
-        .start_at_login;
+        .clone();
+    configuration.night_mode_schedule = current.night_mode_schedule.clone();
+    configuration.notify_night_mode_schedule_transitions =
+        current.notify_night_mode_schedule_transitions;
+    configuration.disable_loudness_during_night_schedule =
+        current.disable_loudness_during_night_schedule;
+    configuration.night_schedule_loudness_restore_speaker_id =
+        current.night_schedule_loudness_restore_speaker_id.clone();
+    if configuration.selected_sonos_id != current.selected_sonos_id {
+        crate::night_schedule::restore_owned_loudness(&current).await?;
+        configuration.night_schedule_loudness_restore_speaker_id = None;
+    }
+    let previous_start_at_login = current.start_at_login;
     let configuration = persist_settings(
         &state.store,
         previous_start_at_login,
@@ -38,6 +255,7 @@ pub async fn save_configuration(
     state.camera.configure(configuration.clone()).await;
     state.replace_configuration(configuration);
     state.start_runtime(app);
+    drop(gate);
     get_snapshot(state)
 }
 
@@ -65,10 +283,18 @@ pub async fn reset_configuration(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<UiSnapshot, String> {
+    let gate = state.speaker_gate.lock().await;
+    let current = state
+        .configuration
+        .lock()
+        .map_err(|_| "application configuration is unavailable".to_owned())?
+        .clone();
+    crate::night_schedule::restore_owned_loudness(&current).await?;
     let configuration = state.store.reset().map_err(|error| error.to_string())?;
     state.camera.configure(configuration.clone()).await;
     state.replace_configuration(configuration);
     state.start_runtime(app);
+    drop(gate);
     get_snapshot(state)
 }
 
@@ -259,11 +485,34 @@ pub async fn set_speaker_setting(
         .lock()
         .map_err(|_| "application state is unavailable".to_owned())?
         .clone();
-    if matches!(setting, SpeakerSetting::SpeechEnhancement) {
-        state.camera.manual(configuration, enabled).await
-    } else {
-        runtime::set_speaker_setting(configuration, setting, enabled).await
+    let gate = state.speaker_gate.lock().await;
+    let current = state
+        .configuration
+        .lock()
+        .map_err(|_| "Configuration unavailable")?
+        .clone();
+    if current.selected_sonos_id != configuration.selected_sonos_id {
+        return Err("Selected speaker changed. Try again.".into());
     }
+    if matches!(setting, SpeakerSetting::NightSound)
+        && !enabled
+        && crate::night_schedule::locked(&current)
+    {
+        return Err(crate::night_schedule::LOCK_MESSAGE.into());
+    }
+    if matches!(setting, SpeakerSetting::Loudness)
+        && enabled
+        && crate::night_schedule::loudness_locked(&current)
+    {
+        return Err(crate::night_schedule::LOUDNESS_LOCK_MESSAGE.into());
+    }
+    let result = if matches!(setting, SpeakerSetting::SpeechEnhancement) {
+        state.camera.manual(current, enabled).await
+    } else {
+        runtime::set_speaker_setting(current, setting, enabled).await
+    };
+    drop(gate);
+    result
 }
 
 #[cfg(test)]
@@ -344,6 +593,26 @@ mod persistence_tests {
     }
 
     #[test]
+    fn failed_login_item_removal_keeps_the_saved_setting_enabled() {
+        let store = TestStore::new();
+        let previous = AppConfiguration {
+            start_at_login: true,
+            ..AppConfiguration::default()
+        };
+        store.0.save(&previous).unwrap();
+        let next = AppConfiguration {
+            start_at_login: false,
+            ..previous
+        };
+        let result = persist_settings(&store.0, true, next, |enabled| {
+            assert!(!enabled);
+            Err("removal denied".to_owned())
+        });
+        assert_eq!(result.unwrap_err(), "removal denied");
+        assert!(store.0.load_or_default().unwrap().start_at_login);
+    }
+
+    #[test]
     fn explicit_login_changes_are_applied_and_persisted() {
         let store = TestStore::new();
         for (previous, enabled) in [(false, true), (true, false)] {
@@ -368,4 +637,161 @@ mod persistence_tests {
 #[allow(clippy::needless_pass_by_value)]
 pub fn get_camera_status(state: State<'_, AppState>) -> crate::camera::CameraStatus {
     state.camera.status()
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects managed state.
+pub fn get_schedule_status(
+    state: State<'_, AppState>,
+) -> Result<crate::night_schedule::ScheduleStatus, String> {
+    state
+        .schedule_status
+        .lock()
+        .map(|s| s.clone())
+        .map_err(|_| "Schedule status unavailable".into())
+}
+fn persist_schedule(state: &AppState, configuration: &AppConfiguration) -> Result<(), String> {
+    state.store.save(configuration).map_err(|e| e.to_string())?;
+    *state
+        .configuration
+        .lock()
+        .map_err(|_| "Configuration unavailable")? = configuration.clone();
+    state
+        .snapshot
+        .lock()
+        .map_err(|_| "Snapshot unavailable")?
+        .configuration = configuration.clone();
+    Ok(())
+}
+#[tauri::command]
+pub async fn save_night_schedule(
+    blocks: Vec<Vec<bool>>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<UiSnapshot, String> {
+    let gate = state.speaker_gate.lock().await;
+    let mut configuration = state
+        .configuration
+        .lock()
+        .map_err(|_| "Configuration unavailable")?
+        .clone();
+    if !crate::night_schedule::supported(&configuration).await {
+        return Err("Select a speaker that supports Night Mode.".into());
+    }
+    let previous_schedule = configuration.night_mode_schedule.clone();
+    configuration.night_mode_schedule.blocks = blocks;
+    persist_schedule(&state, &configuration)?;
+    let applied = crate::night_schedule::apply_saved(&configuration, &previous_schedule).await;
+    state
+        .schedule_reconcile
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    drop(gate);
+    let (transition, speaker) =
+        applied.map_err(|error| format!("Schedule saved, but {error} Try Save schedule again."))?;
+    crate::night_schedule::notify_saved(&app, &configuration, transition, &speaker).await;
+    let _ = app.emit("speaker-settings-changed", ());
+    crate::tray::refresh_speaker_controls(&app);
+    get_snapshot(state)
+}
+#[tauri::command]
+pub async fn enable_night_schedule<R: tauri::Runtime>(
+    enabled: bool,
+    state: State<'_, AppState>,
+    app: AppHandle<R>,
+) -> Result<UiSnapshot, String> {
+    let gate = state.speaker_gate.lock().await;
+    let mut configuration = state
+        .configuration
+        .lock()
+        .map_err(|_| "Configuration unavailable")?
+        .clone();
+    if enabled && !crate::night_schedule::supported(&configuration).await {
+        return Err("Select a speaker that supports Night Mode.".into());
+    }
+    let previous_schedule = configuration.night_mode_schedule.clone();
+    if !enabled {
+        crate::night_schedule::restore_owned_loudness(&configuration).await?;
+        configuration.night_schedule_loudness_restore_speaker_id = None;
+    }
+    configuration.night_mode_schedule.enabled = enabled;
+    persist_schedule(&state, &configuration)?;
+    let applied = if enabled && !previous_schedule.enabled {
+        let result = crate::night_schedule::apply_saved(&configuration, &previous_schedule).await;
+        state
+            .schedule_reconcile
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        Some(result)
+    } else {
+        None
+    };
+    drop(gate);
+    if let Some(applied) = applied {
+        let (transition, speaker) =
+            applied.map_err(|error| format!("Schedule enabled, but {error}"))?;
+        crate::night_schedule::notify_saved(&app, &configuration, transition, &speaker).await;
+    }
+    get_snapshot(state)
+}
+#[tauri::command]
+pub async fn set_schedule_notifications(
+    mode: crate::config::ScheduleNotifications,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<UiSnapshot, String> {
+    let gate = state.speaker_gate.lock().await;
+    let mut configuration = state
+        .configuration
+        .lock()
+        .map_err(|_| "Configuration unavailable")?
+        .clone();
+    configuration.notify_night_mode_schedule_transitions = mode;
+    persist_schedule(&state, &configuration)?;
+    drop(gate);
+    if mode.enabled() {
+        let granted = crate::schedule_notifications::permitted(&app, true).await;
+        if let Ok(mut status) = state.schedule_status.lock() {
+            status.notifications_blocked = !granted;
+        }
+    } else if let Ok(mut status) = state.schedule_status.lock() {
+        status.notifications_blocked = false;
+    }
+    get_snapshot(state)
+}
+
+#[tauri::command]
+pub async fn set_disable_loudness_during_night_schedule(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<UiSnapshot, String> {
+    let gate = state.speaker_gate.lock().await;
+    let mut configuration = state
+        .configuration
+        .lock()
+        .map_err(|_| "Configuration unavailable")?
+        .clone();
+    if !enabled {
+        crate::night_schedule::restore_owned_loudness(&configuration).await?;
+        configuration.night_schedule_loudness_restore_speaker_id = None;
+    }
+    configuration.disable_loudness_during_night_schedule = enabled;
+    persist_schedule(&state, &configuration)?;
+    state
+        .schedule_reconcile
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    drop(gate);
+    get_snapshot(state)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri injects the application handle by value.
+pub fn take_pending_settings_navigation(
+    app: AppHandle,
+) -> Option<crate::tray::SettingsNavigationRequest> {
+    crate::tray::take_settings_navigation_request(&app)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn acknowledge_settings_navigation(app: AppHandle, revision: u64) {
+    crate::tray::acknowledge_settings_navigation(&app, revision);
 }

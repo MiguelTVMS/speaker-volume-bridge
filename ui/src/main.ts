@@ -1,6 +1,19 @@
 import { cameraAutomationPresentation, type CameraAutomationStatus } from './camera-automation';
+import {
+  scheduleMarkup,
+  setSystemHour12,
+  captureScheduleView,
+  mountSchedule,
+  updateScheduleView,
+  scheduleDraft,
+  emptyBlocks,
+  type NightSchedule,
+  type ScheduleNotifications,
+  type ScheduleStatus,
+} from './night-schedule';
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
+import { invoke, demoMode, presentationOverride } from './app-commands';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import { bindWindowFocus } from './window-appearance';
@@ -10,17 +23,43 @@ import { desktopPlatform } from './platform';
 import { settingCaption } from './setting-caption';
 import { sizeSelectedControls } from './select-sizing';
 import { canApplyRefresh } from './refresh-state';
-import { adjacentPage, type SettingsPage } from './settings-navigation';
+import {
+  adjacentPage,
+  settingsPages,
+  SettingsNavigation,
+  type SettingsPage,
+  type SettingsNavigationRequest,
+} from './settings-navigation';
 import { applySpeakerControls, type SpeakerSettings } from './speaker-controls';
 import { SliderInteraction } from './slider-interaction';
 import { LiveStatus } from './live-status';
 import { UserWrites } from './user-writes';
+import {
+  editionLabel,
+  formatLastSuccessfulCheck,
+  releasePolicyControl,
+  storeActionLabel,
+  updateStateText,
+  type UpdateStatus,
+} from './updates';
 import './style.css';
 import './platform.css';
 import './windows.css';
+import './linux.css';
 
-const platform = desktopPlatform(navigator.userAgent);
+let systemLocale: string | undefined;
+let systemClockHour12: boolean | undefined;
+
+const platform = presentationOverride ?? desktopPlatform(navigator.userAgent);
 document.documentElement.dataset.platform = platform;
+
+function updateRangeFill(input: HTMLInputElement): void {
+  if (platform !== 'linux') return;
+  const min = Number(input.min || 0);
+  const max = Number(input.max || 100);
+  const progress = max > min ? ((Number(input.value) - min) / (max - min)) * 100 : 0;
+  input.style.setProperty('--range-progress', `${Math.max(0, Math.min(100, progress))}%`);
+}
 
 if (document.documentElement.dataset.platform === 'macos') {
   const applyFocus = (focused: boolean): void => {
@@ -49,6 +88,10 @@ if (document.documentElement.dataset.platform === 'macos') {
 type MappingPoint = { local: number; sonos: number };
 type Configuration = {
   schemaVersion: number;
+  nightModeSchedule?: NightSchedule;
+  notifyNightModeScheduleTransitions?: ScheduleNotifications;
+  disableLoudnessDuringNightSchedule?: boolean;
+  nightScheduleLoudnessRestoreSpeakerId?: string | null;
   selectedSonosId: string | null;
   lastKnownSonosAddress: string | null;
   followDefaultAudioDevice: boolean;
@@ -114,6 +157,15 @@ let speakerSettings: SpeakerSettings = {
   treble: null,
   bass: null,
 };
+let scheduleFeedback = '';
+let scheduleStatus: ScheduleStatus = {
+  active: false,
+  supported: false,
+  message: '',
+  nextTransition: null,
+  timeZone: '',
+  notificationsBlocked: false,
+};
 let activePage: SettingsPage = 'devices';
 let discoveryStatus = 'Not checked yet';
 let saveTimeout: number | undefined;
@@ -131,11 +183,25 @@ const userWrites = new UserWrites();
 const liveStatus = new LiveStatus<Snapshot>(refreshRuntimeStatus);
 let refreshRunning = false;
 let refreshAgain = false;
+let currentNotice = '';
 let appVersion = 'Loading…';
+let updateStatus: UpdateStatus = {
+  phase: 'unsupported',
+  installedVersion: '',
+  availableVersion: null,
+  edition: 'unknown',
+  lastSuccessfulCheck: null,
+  action: null,
+  message: null,
+  automaticChecks: false,
+  updateNotifications: false,
+  promptDismissed: false,
+  offerStale: false,
+};
 
-const repositoryUrl = 'https://github.com/MiguelTVMS/sonos-volume-bridge';
+const repositoryUrl = 'https://github.com/MiguelTVMS/speaker-volume-bridge';
 const sonosDisclaimer =
-  'Sonos Volume Bridge is an independent, community-developed project. It is not affiliated with, sponsored by, endorsed by, or supported by Sonos. This application contains no Sonos source code. “Sonos” and related product names are trademarks of their respective owners and are used only to identify compatibility with Sonos products.';
+  'Speaker Volume Bridge is an independent, community-developed project. It is not affiliated with, sponsored by, endorsed by, or supported by Sonos. This application contains no Sonos source code. “Sonos” and related product names are trademarks of their respective owners and are used only to identify compatibility with Sonos products.';
 const mitLicense = `MIT License
 
 Copyright (c) 2026 João Miguel Tabosa Vaz Marques Silva
@@ -254,15 +320,23 @@ const pageIcons: Record<SettingsPage, string> = {
     '<rect x="3" y="4" width="12" height="10" rx="2"/><path d="M6 18h6m-3-4v4"/><rect x="17" y="8" width="4" height="12" rx="1"/>',
   speaker:
     '<rect x="6" y="2" width="12" height="20" rx="3"/><circle cx="12" cy="14" r="4"/><circle cx="12" cy="6" r="1"/>',
+  schedule:
+    '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 10h18m-14 4h3m4 0h3m-10 4h3"/>',
   volume: '<path d="M11 4 6 8H3v8h3l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
   general:
     '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
+  updates: '<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/>',
   diagnostics: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
   about: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/>',
 };
 
 function pageButton(page: SettingsPage, label: string): string {
-  return `<button class="page-button${activePage === page ? ' active' : ''}" type="button" data-page="${page}"${activePage === page ? ' aria-current="page"' : ''}><span class="nav-icon nav-icon-${page}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${pageIcons[page]}</svg></span><span>${label}</span></button>`;
+  const available =
+    page === 'updates' &&
+    updateStatus.phase === 'update_available' &&
+    !updateStatus.offerStale &&
+    !updateStatus.promptDismissed;
+  return `<button class="page-button${activePage === page ? ' active' : ''}" type="button" data-page="${page}"${activePage === page ? ' aria-current="page"' : ''}${available ? ` aria-description="Version ${escapeHtml(updateStatus.availableVersion ?? '')} available"` : ''}><span class="nav-icon nav-icon-${page}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${pageIcons[page]}</svg></span><span>${label}</span>${available ? '<span id="update-available-notice" aria-hidden="true">•</span>' : ''}</button>`;
 }
 
 function panel(page: SettingsPage, content: string): string {
@@ -279,8 +353,10 @@ function cameraAutomationControl(configuration: Configuration): string {
 }
 
 function render(nextSnapshot: Snapshot): void {
-  if (sliders.active) return;
+  if (sliders.active || scheduleDraft.painting !== null) return;
+  captureScheduleView(app);
   snapshot = nextSnapshot;
+  refreshScheduleView();
   const c = nextSnapshot.configuration;
   const speakerName = nextSnapshot.sonosName ?? 'No speaker selected';
   const status = connectionLabel(nextSnapshot.status);
@@ -291,15 +367,17 @@ function render(nextSnapshot: Snapshot): void {
           <button type="button" id="previous-section" aria-label="Previous settings section" title="Previous settings section"${adjacentPage(activePage, -1) ? '' : ' disabled'}><svg aria-hidden="true" viewBox="0 0 16 16"><path d="m10 2-6 6 6 6"/></svg></button>
           <button type="button" id="next-section" aria-label="Next settings section" title="Next settings section"${adjacentPage(activePage, 1) ? '' : ' disabled'}><svg aria-hidden="true" viewBox="0 0 16 16"><path d="m6 2 6 6-6 6"/></svg></button>
         </div>
-        <span id="toolbar-section-title" data-tauri-drag-region>${activePage[0].toUpperCase() + activePage.slice(1)}</span>
+        <span id="toolbar-section-title" data-tauri-drag-region>${activePage === 'schedule' ? 'Night schedule' : activePage[0].toUpperCase() + activePage.slice(1)}</span>
       </div>
       <aside class="sidebar">
-        <div class="app-heading"><h1><span class="sonos-name">SONOS</span><span>Volume Bridge</span></h1><p class="status" id="runtime-status">${escapeHtml(status)}</p></div>
+        <div class="app-heading">${demoMode ? '<p class="demo-indicator">UI demo · simulated devices</p>' : ''}<h1><span class="sonos-name">SPEAKER</span><span>Volume Bridge</span></h1><p class="status" id="runtime-status">${escapeHtml(status)}</p></div>
         <nav aria-label="Settings sections">
           ${pageButton('devices', 'Devices')}
           ${pageButton('speaker', 'Speaker')}
+          ${pageButton('schedule', 'Night schedule')}
           ${pageButton('volume', 'Volume')}
           ${pageButton('general', 'General')}
+          ${pageButton('updates', 'Updates')}
           ${pageButton('diagnostics', 'Diagnostics')}
           ${pageButton('about', 'About')}
         </nav>
@@ -321,6 +399,10 @@ function render(nextSnapshot: Snapshot): void {
           `<div class="panel-heading"><h2>Speaker</h2><p>Adjust sound settings available on the selected Sonos speaker.</p></div><div class="settings-group"><label class="toggle"><span>${settingCaption(platform, 'Night sound', 'Reduce loud sounds for quieter listening.', 'moon')}<small class="feature-status" data-feature-status="nightSound"></small></span><input type="checkbox" role="switch" data-speaker-setting="nightSound"${speakerSettings.nightSound ? ' checked' : ''}${speakerSettings.nightSound === null ? ' disabled' : ''}/></label><label class="toggle"><span>${settingCaption(platform, 'Loudness', 'Enhance bass and treble at lower volumes.', 'sound')}<small class="feature-status" data-feature-status="loudness"></small></span><input type="checkbox" role="switch" data-speaker-setting="loudness"${speakerSettings.loudness ? ' checked' : ''}${speakerSettings.loudness === null ? ' disabled' : ''}/></label><label class="toggle"><span>${settingCaption(platform, 'Status light', 'Show the indicator light on the speaker.', 'light')}<small class="feature-status" data-feature-status="statusLight"></small></span><input type="checkbox" role="switch" data-speaker-setting="statusLight"${speakerSettings.statusLight ? ' checked' : ''}${speakerSettings.statusLight === null ? ' disabled' : ''}/></label><label class="toggle"><span>${settingCaption(platform, 'Speech enhancement', 'Make voices easier to hear.', 'speech')}<small class="feature-status" data-feature-status="speechEnhancement"></small></span><input type="checkbox" role="switch" data-speaker-setting="speechEnhancement"${speakerSettings.speechEnhancement ? ' checked' : ''}${speakerSettings.speechEnhancement === null ? ' disabled' : ''}/></label>${cameraAutomationControl(c)}<label class="speaker-level"><span>${settingCaption(platform, 'Treble', 'Adjust the higher frequencies.', 'tone')} <output>${speakerSettings.treble ?? 'Unavailable'}</output><small class="feature-status" data-feature-status="treble"></small></span><input type="range" min="-10" max="10" value="${speakerSettings.treble ?? 0}" data-speaker-level="treble"${speakerSettings.treble === null ? ' disabled' : ''}/></label><label class="speaker-level"><span>${settingCaption(platform, 'Bass', 'Adjust the lower frequencies.', 'tone')} <output>${speakerSettings.bass ?? 'Unavailable'}</output><small class="feature-status" data-feature-status="bass"></small></span><input type="range" min="-10" max="10" value="${speakerSettings.bass ?? 0}" data-speaker-level="bass"${speakerSettings.bass === null ? ' disabled' : ''}/></label><div class="speaker-settings-footer"><p class="setting-note">Unavailable settings are checked again on refresh.</p><div class="speaker-settings-actions"><button class="secondary" type="button" id="use-tv-audio">Use TV audio</button><button class="secondary icon-button" type="button" id="refresh-speaker-settings" title="Refresh speaker settings" aria-label="Refresh speaker settings">↻</button></div></div></div>`,
         )}
         ${panel(
+          'schedule',
+          `<div class="panel-heading"><h2 id="night-schedule-title">Night schedule</h2><p>Set weekly Night Mode hours for the selected speaker. This schedule applies to your selected speaker when it supports Night Mode.</p></div>${scheduleMarkup(platform === 'linux', platform === 'windows')}`,
+        )}
+        ${panel(
           'volume',
           `<div class="panel-heading"><h2>Volume</h2><p>Control how your computer volume changes the speaker.</p></div>
           <div class="settings-group">
@@ -340,6 +422,19 @@ function render(nextSnapshot: Snapshot): void {
           </div>`,
         )}
         ${panel(
+          'updates',
+          `<div class="panel-heading"><h2>Updates</h2><p>${storeActionLabel(updateStatus) ? 'Manage updates through the Store that installed this edition.' : 'Check for a release published for this installed edition.'}</p></div>
+          <p id="update-state" class="setting-note update-state${updateStatus.phase === 'update_available' ? ' update-state-available' : ''}" aria-live="polite">${escapeHtml(updateStateText(updateStatus))}</p>
+          <div class="settings-group" data-update>
+            <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${escapeHtml(formatLastSuccessfulCheck(updateStatus.lastSuccessfulCheck, systemLocale, systemClockHour12))}</dd></div></dl>
+            ${releasePolicyControl(updateStatus)}
+            ${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<div class="update-actions">${updateStatus.downloadAction ? `<button class="primary" type="button" id="download-update" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}">Download update</button>` : ''}<button class="secondary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open release</button></div>${updateStatus.downloadAction ? '<p class="setting-note">Opens the installer download in your browser. Install it manually after downloading; the app will not quit or install it for you.</p>' : ''}` : ''}
+            <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks public GitHub Releases without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
+            <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
+            <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}${storeActionLabel(updateStatus) ? `<button class="primary" type="button" id="open-update-store">${storeActionLabel(updateStatus)}</button>` : `<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button>`}</div>
+          </div>`,
+        )}
+        ${panel(
           'diagnostics',
           `<div class="panel-heading"><h2>Diagnostics</h2><p>Live information about the speaker and audio output.</p></div>
           <dl class="status-list"><div><dt>Connection</dt><dd id="diagnostic-connection">${escapeHtml(status)}</dd></div><div><dt>Speaker</dt><dd id="diagnostic-speaker">${escapeHtml(speakerName)}</dd></div><div><dt>Speaker volume</dt><dd id="diagnostic-sonos-volume">${volumeText(nextSnapshot.sonosVolume)}</dd></div><div><dt>Speaker input format</dt><dd id="diagnostic-audio-input">Unavailable</dd></div><div><dt>Selected output</dt><dd id="diagnostic-output">${escapeHtml(selectedOutputName(c))}</dd></div><div><dt>Output volume</dt><dd id="diagnostic-local-volume">${volumeText(nextSnapshot.localVolume)}</dd></div><div><dt>Mute</dt><dd id="diagnostic-mute">${muteText(nextSnapshot.muted)}</dd></div><div><dt>Speaker search</dt><dd>${escapeHtml(discoveryStatus)}</dd></div></dl>
@@ -349,14 +444,16 @@ function render(nextSnapshot: Snapshot): void {
         ${panel(
           'about',
           `<div class="panel-heading"><h2>About</h2><p>Version, licensing, and project information.</p></div>
-          <dl class="status-list about-list"><div><dt>Version</dt><dd>${escapeHtml(appVersion)}</dd></div><div><dt>Source code</dt><dd><a href="${repositoryUrl}" target="_blank" rel="noopener noreferrer">github.com/MiguelTVMS/sonos-volume-bridge</a></dd></div><div><dt>License</dt><dd>MIT License © 2026 João Miguel Tabosa Vaz Marques Silva</dd></div></dl>
+          <dl class="status-list about-list"><div><dt>Version</dt><dd>${escapeHtml(appVersion)}</dd></div><div><dt>Source code</dt><dd><a id="project-repository" href="${repositoryUrl}" rel="noopener noreferrer">https://github.com/MiguelTVMS/speaker-volume-bridge</a></dd></div><div><dt>License</dt><dd>MIT License © 2026 João Miguel Tabosa Vaz Marques Silva</dd></div></dl>
           <section class="settings-group about-disclaimer" aria-labelledby="sonos-notice-title"><h3 id="sonos-notice-title">Sonos trademark and independence notice</h3><p>${escapeHtml(sonosDisclaimer)}</p></section><details class="technical-details about-license"><summary>Read the MIT License</summary><pre>${escapeHtml(mitLicense)}</pre></details>`,
         )}
-        <output id="notice" aria-live="polite"></output>
+        <output id="notice" aria-live="polite">${escapeHtml(currentNotice)}</output>
       </form>
     </div>`;
+  placeNotice();
   applySpeakerControls(app, speakerSettings, document.activeElement);
-  if (document.documentElement.dataset.platform === 'macos') sizeSelectedControls(app);
+  app.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach(updateRangeFill);
+  refreshScheduleView();
   document.querySelector('#previous-section')?.addEventListener('click', () => {
     const page = adjacentPage(activePage, -1);
     if (page) activatePage(page);
@@ -365,8 +462,47 @@ function render(nextSnapshot: Snapshot): void {
     const page = adjacentPage(activePage, 1);
     if (page) activatePage(page);
   });
+  mountSchedule(
+    app,
+    snapshot?.configuration.nightModeSchedule ?? { enabled: false, blocks: emptyBlocks() },
+    snapshot?.configuration.notifyNightModeScheduleTransitions ?? 'never',
+    snapshot?.configuration.disableLoudnessDuringNightSchedule ?? false,
+    {
+      save: async (blocks) => {
+        if (platform === 'linux') scheduleNotice('');
+        const revision = scheduleDraft.revision;
+        await writeSchedule('save_night_schedule', { blocks }, (next) => {
+          if (revision === scheduleDraft.revision)
+            scheduleDraft.reset(next.configuration.nightModeSchedule!.blocks);
+        });
+        notice('');
+      },
+      enable: async (enabled) => writeSchedule('enable_night_schedule', { enabled }),
+      disableLoudness: async (enabled) =>
+        writeSchedule('set_disable_loudness_during_night_schedule', { enabled }),
+      notify: async (mode) => writeSchedule('set_schedule_notifications', { mode }),
+      error: scheduleNotice,
+    },
+  );
+  // Mount restores saved selections before their labels determine control width.
+  if (document.documentElement.dataset.platform === 'macos') sizeSelectedControls(app);
+  const sizeBrand = (): void => {
+    const brand = app.querySelector<HTMLElement>('h1 .sonos-name');
+    const title = app.querySelector<HTMLElement>('h1 > span:last-child');
+    if (!brand || !title) return;
+    const width = brand.getBoundingClientRect().width;
+    if (width > 0) {
+      const size = Number.parseFloat(getComputedStyle(brand).fontSize);
+      brand.style.fontSize = `${(size * title.getBoundingClientRect().width) / width}px`;
+    }
+  };
+  sizeBrand();
+  void document.fonts.ready.then(sizeBrand);
+  refreshScheduleView();
   const form = document.querySelector<HTMLFormElement>('#settings');
   const scheduleConfigurationSave = (event: Event): void => {
+    if (event.target instanceof Element && event.target.closest('[data-schedule]')) return;
+    if (event.target instanceof Element && event.target.closest('[data-update]')) return;
     if (
       !(event.target instanceof HTMLElement) ||
       (!event.target.dataset.speakerSetting &&
@@ -381,6 +517,7 @@ function render(nextSnapshot: Snapshot): void {
     input.addEventListener('change', () => void updateSpeakerSetting(input));
   });
   document.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((input) => {
+    updateRangeFill(input);
     sliders.bind(
       input,
       () => {
@@ -390,6 +527,7 @@ function render(nextSnapshot: Snapshot): void {
       () => {
         const label = input.closest('label')?.querySelector<HTMLOutputElement>('output');
         if (label) label.value = input.id === 'maximum-volume' ? `${input.value}%` : input.value;
+        updateRangeFill(input);
       },
       () => {
         if (input.dataset.speakerLevel) void updateSpeakerLevel(input);
@@ -411,6 +549,49 @@ function render(nextSnapshot: Snapshot): void {
   document.querySelector('#reset')?.addEventListener('click', reset);
   document.querySelector('#discover')?.addEventListener('click', discoverSonos);
   document.querySelector('#outputs')?.addEventListener('click', refreshAudioOutputs);
+  app.querySelector<HTMLSelectElement>('#update-policy')?.addEventListener('change', (event) => {
+    void setUpdatePolicy((event.target as HTMLSelectElement).value as 'stable' | 'prereleases');
+  });
+  document.querySelector('#open-update-store')?.addEventListener('click', () => {
+    void invoke('open_update_store').catch((error) => notice(String(error)));
+  });
+  document
+    .querySelector('#download-update')
+    ?.addEventListener(
+      'click',
+      (event) => void downloadUpdate(event.currentTarget as HTMLButtonElement),
+    );
+  document
+    .querySelector('#check-for-updates')
+    ?.addEventListener('click', () => void checkForUpdates());
+  document
+    .querySelector('#automatic-update-checks')
+    ?.addEventListener(
+      'change',
+      (event) => void setAutomaticUpdateChecks((event.currentTarget as HTMLInputElement).checked),
+    );
+  document
+    .querySelector('#open-update-page')
+    ?.addEventListener(
+      'click',
+      (event) => void openUpdatePage(event.currentTarget as HTMLButtonElement),
+    );
+  document
+    .querySelector('#later-update')
+    ?.addEventListener(
+      'click',
+      (event) => void dismissUpdate(event.currentTarget as HTMLButtonElement),
+    );
+  document
+    .querySelector('#update-notifications')
+    ?.addEventListener(
+      'change',
+      (event) => void setUpdateNotifications((event.currentTarget as HTMLInputElement).checked),
+    );
+  document.querySelector('#project-repository')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    void openProjectRepository();
+  });
   document
     .querySelector<HTMLSelectElement>('#sonos-device')
     ?.addEventListener('change', syncSelectedSonosAddress);
@@ -421,8 +602,11 @@ function render(nextSnapshot: Snapshot): void {
 
 function activatePage(page: SettingsPage): void {
   activePage = page;
+  placeNotice();
   const title = document.querySelector('#toolbar-section-title');
-  if (title) title.textContent = page[0].toUpperCase() + page.slice(1);
+  if (title)
+    title.textContent =
+      page === 'schedule' ? 'Night schedule' : page[0].toUpperCase() + page.slice(1);
   const previous = document.querySelector<HTMLButtonElement>('#previous-section');
   const next = document.querySelector<HTMLButtonElement>('#next-section');
   if (previous) previous.disabled = !adjacentPage(page, -1);
@@ -442,6 +626,7 @@ function activatePage(page: SettingsPage): void {
 
 function refreshRuntimeStatus(nextSnapshot: Snapshot): void {
   snapshot = nextSnapshot;
+  refreshScheduleView();
   const status = connectionLabel(nextSnapshot.status);
   const speaker = nextSnapshot.sonosName ?? 'No speaker selected';
   const targets: Array<[string, string]> = [
@@ -544,6 +729,8 @@ async function refreshSpeakerSettings(): Promise<void> {
     return;
   speakerSettings = speaker;
   applySpeakerControls(app, speakerSettings, document.activeElement);
+  app.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach(updateRangeFill);
+  refreshScheduleView();
 }
 
 function schedulePushRefresh(): void {
@@ -558,7 +745,7 @@ function schedulePushRefresh(): void {
 async function useTvAudio(): Promise<void> {
   try {
     await invoke('use_tv_audio');
-    notice('TV audio selected.');
+    notice('');
     void refreshAudioInputFormat();
   } catch (error) {
     notice(String(error));
@@ -571,7 +758,7 @@ async function updateSpeakerSetting(input: HTMLInputElement): Promise<void> {
     const setting = input.dataset.speakerSetting;
     const enabled = input.checked;
     await userWrites.run(() => invoke('set_speaker_setting', { setting, enabled }));
-    notice('Saved.');
+    notice('');
   } catch (error) {
     notice(String(error));
   } finally {
@@ -588,7 +775,7 @@ async function updateSpeakerLevel(input: HTMLInputElement): Promise<void> {
     const value = Number(input.value);
     await userWrites.run(() => invoke('set_speaker_level', { setting, value }));
     speakerSettings[setting] = value;
-    notice('Saved.');
+    notice('');
   } catch (error) {
     notice(String(error));
   } finally {
@@ -596,7 +783,17 @@ async function updateSpeakerLevel(input: HTMLInputElement): Promise<void> {
     void refreshAllSettings();
   }
 }
+function placeNotice(): void {
+  if (platform !== 'windows') return;
+  const output = document.querySelector('#notice');
+  const target = document.querySelector(
+    activePage === 'schedule' ? '#schedule-feedback' : '#settings',
+  );
+  if (output && target) target.append(output);
+}
+
 function notice(value: string): void {
+  currentNotice = value;
   const output = document.querySelector<HTMLOutputElement>('#notice');
   if (output) output.value = value;
 }
@@ -607,6 +804,8 @@ function formConfiguration(form: HTMLFormElement): Configuration {
   const output = String(values.get('audioOutputMode') ?? 'default');
   return {
     schemaVersion: 1,
+    nightModeSchedule: snapshot?.configuration.nightModeSchedule,
+    notifyNightModeScheduleTransitions: snapshot?.configuration.notifyNightModeScheduleTransitions,
     selectedSonosId: String(values.get('selectedSonosId') ?? '') || null,
     lastKnownSonosAddress: String(values.get('lastKnownSonosAddress') ?? '') || null,
     followDefaultAudioDevice: output === 'default',
@@ -656,10 +855,12 @@ async function saveConfiguration(configuration: Configuration, revision: number)
   pendingWrites++;
   let saved = false;
   try {
-    const nextSnapshot = await invoke<Snapshot>('save_configuration', { configuration });
+    const nextSnapshot = await userWrites.run(() =>
+      invoke<Snapshot>('save_configuration', { configuration }),
+    );
     if (revision !== saveRevision) return;
     render(nextSnapshot);
-    notice('Saved.');
+    notice('');
     saved = true;
   } catch (error) {
     if (revision === saveRevision) notice(`Could not save: ${String(error)}`);
@@ -672,11 +873,129 @@ async function saveConfiguration(configuration: Configuration, revision: number)
 async function testVolume(): Promise<void> {
   try {
     await invoke('test_volume');
-    notice('Volume control test requested.');
+    notice('');
   } catch (error) {
     notice(String(error));
   }
 }
+async function checkForUpdates(): Promise<void> {
+  updateStatus = { ...updateStatus, phase: 'checking', message: null };
+  if (snapshot) render(snapshot);
+  try {
+    const result = await invoke<UpdateStatus>('check_for_updates');
+    if ((result.generation ?? 0) >= (updateStatus.generation ?? 0)) updateStatus = result;
+    if (snapshot) render(snapshot);
+  } catch (error) {
+    updateStatus = { ...updateStatus, phase: 'unavailable', message: String(error) };
+    if (snapshot) render(snapshot);
+  }
+}
+
+let updatePolicyRequest = 0;
+async function setUpdatePolicy(policy: 'stable' | 'prereleases'): Promise<void> {
+  const request = ++updatePolicyRequest;
+  updateStatus = {
+    ...updateStatus,
+    policy,
+    generation: (updateStatus.generation ?? 0) + 1,
+    phase: 'checking',
+    availableVersion: null,
+    action: null,
+    downloadAction: null,
+    message: null,
+  };
+  if (snapshot) render(snapshot);
+  try {
+    const result = await invoke<UpdateStatus>('set_update_policy', { policy });
+    if (request === updatePolicyRequest) updateStatus = result;
+  } catch (error) {
+    // A failed write may leave the backend on its previous generation. Recover
+    // its authoritative identity so a subsequent check is not discarded forever.
+    const current = await invoke<UpdateStatus>('get_update_status').catch(() => null);
+    if (request === updatePolicyRequest) {
+      updateStatus = {
+        ...(current ?? updateStatus),
+        phase: 'unavailable',
+        message: `${String(error)}. Check again to retry.`,
+      };
+    }
+  }
+  if (snapshot) render(snapshot);
+}
+
+async function setAutomaticUpdateChecks(enabled: boolean): Promise<void> {
+  try {
+    await invoke('set_automatic_update_checks', { enabled });
+    updateStatus = { ...updateStatus, automaticChecks: enabled };
+    notice('');
+  } catch (error) {
+    notice(String(error));
+    if (snapshot) render(snapshot);
+  }
+}
+
+async function setUpdateNotifications(enabled: boolean): Promise<void> {
+  try {
+    const accepted = await invoke<boolean>('set_update_notifications', { enabled });
+    updateStatus = { ...updateStatus, updateNotifications: accepted };
+    notice(enabled && !accepted ? 'Notifications remain disabled in system settings.' : '');
+    if (snapshot) render(snapshot);
+  } catch (error) {
+    notice(String(error));
+    if (snapshot) render(snapshot);
+  }
+}
+
+async function openProjectRepository(): Promise<void> {
+  try {
+    await invoke('open_project_repository');
+    notice('');
+  } catch (error) {
+    notice(String(error));
+  }
+}
+
+async function openUpdatePage(button: HTMLButtonElement): Promise<void> {
+  try {
+    await invoke('open_update_page', {
+      version: button.dataset.version,
+      url: button.dataset.url,
+      generation: Number(button.dataset.generation ?? 0),
+    });
+    notice('');
+  } catch (error) {
+    notice(String(error));
+    await checkForUpdates();
+  }
+}
+
+async function downloadUpdate(button: HTMLButtonElement): Promise<void> {
+  try {
+    await invoke('open_update_download', {
+      version: button.dataset.version,
+      generation: Number(button.dataset.generation ?? 0),
+    });
+    notice('Download opened in your browser. Install the package manually when it finishes.');
+  } catch (error) {
+    await checkForUpdates();
+    const fallback =
+      updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action
+        ? 'You can also use Open release.'
+        : 'Check for updates again before downloading.';
+    notice(`${String(error)} ${fallback}`);
+  }
+}
+
+async function dismissUpdate(button: HTMLButtonElement): Promise<void> {
+  try {
+    await invoke('dismiss_update', { version: button.dataset.version });
+    updateStatus = { ...updateStatus, promptDismissed: true };
+    if (snapshot) render(snapshot);
+  } catch (error) {
+    notice(String(error));
+  }
+}
+
 async function refreshAudioInputFormat(): Promise<void> {
   try {
     const diagnostics = await invoke<Diagnostics>('diagnostics');
@@ -706,12 +1025,36 @@ async function exportDiagnostics(): Promise<void> {
   notice(await invoke<string>('export_diagnostics'));
 }
 async function reset(): Promise<void> {
-  render(await invoke<Snapshot>('reset_configuration'));
-  notice('Settings reset.');
+  if (saveTimeout !== undefined) window.clearTimeout(saveTimeout);
+  saveTimeout = undefined;
+  saveRevision++;
+  editRevision++;
+  pendingWrites++;
+  try {
+    // Reset follows any write already sent, so an older save cannot restore it.
+    const next = await userWrites.run(() => invoke<Snapshot>('reset_configuration'));
+    scheduleDraft.reset(next.configuration.nightModeSchedule!.blocks);
+    render(next);
+    notice('');
+  } catch (error) {
+    notice(`Could not reset: ${String(error)}`);
+  } finally {
+    pendingWrites--;
+    void refreshAllSettings();
+  }
 }
 
-invoke<Snapshot>('get_snapshot')
-  .then((nextSnapshot) => {
+Promise.all([
+  invoke<Snapshot>('get_snapshot'),
+  invoke<boolean | null>('get_system_hour12').catch(() => null),
+  invoke<string | null>('get_system_locale').catch(() => null),
+  invoke<UpdateStatus>('get_update_status').catch(() => updateStatus),
+])
+  .then(([nextSnapshot, hour12, locale, initialUpdateStatus]) => {
+    systemLocale = locale ?? undefined;
+    systemClockHour12 = hour12 ?? undefined;
+    updateStatus = initialUpdateStatus;
+    setSystemHour12(hour12);
     render(nextSnapshot);
     startStatusPolling();
     void refreshAllSettings();
@@ -726,18 +1069,28 @@ async function refreshAllSettings(): Promise<void> {
     refreshAgain = true;
     return;
   }
-  if (sliders.active || saveTimeout !== undefined || pendingWrites > 0) return;
+  if (
+    scheduleDraft.painting !== null ||
+    sliders.active ||
+    saveTimeout !== undefined ||
+    pendingWrites > 0
+  )
+    return;
   refreshRunning = true;
   const request = ++refreshRequest;
   const revision = editRevision;
   try {
-    const [next, speaker, outputs, discovered, diagnostics] = await Promise.all([
-      invoke<Snapshot>('get_snapshot'),
-      invoke<SpeakerSettings>('get_speaker_settings'),
-      invoke<AudioOutput[]>('list_audio_outputs').catch(() => null),
-      invoke<DiscoveredSonos[]>('discover_sonos').catch(() => null),
-      invoke<Diagnostics>('diagnostics').catch(() => null),
-    ]);
+    const [next, speaker, outputs, discovered, diagnostics, hour12, locale, nextUpdateStatus] =
+      await Promise.all([
+        invoke<Snapshot>('get_snapshot'),
+        invoke<SpeakerSettings>('get_speaker_settings'),
+        invoke<AudioOutput[]>('list_audio_outputs').catch(() => null),
+        invoke<DiscoveredSonos[]>('discover_sonos').catch(() => null),
+        invoke<Diagnostics>('diagnostics').catch(() => null),
+        invoke<boolean | null>('get_system_hour12').catch(() => null),
+        invoke<string | null>('get_system_locale').catch(() => null),
+        invoke<UpdateStatus>('get_update_status').catch(() => null),
+      ]);
     if (
       !canApplyRefresh(
         request,
@@ -748,6 +1101,11 @@ async function refreshAllSettings(): Promise<void> {
       )
     )
       return;
+    systemLocale = locale ?? undefined;
+    systemClockHour12 = hour12 ?? undefined;
+    setSystemHour12(hour12);
+    if (nextUpdateStatus && (nextUpdateStatus.generation ?? 0) >= (updateStatus.generation ?? 0))
+      updateStatus = nextUpdateStatus;
     speakerSettings = speaker;
     if (outputs) audioOutputs = outputs;
     if (discovered) {
@@ -820,3 +1178,75 @@ async function refreshCameraStatus(): Promise<void> {
 }
 void refreshCameraStatus();
 window.setInterval(() => void refreshCameraStatus(), 1_000);
+function scheduleNotice(message: string): void {
+  if (platform !== 'linux') {
+    notice(message);
+    return;
+  }
+  scheduleFeedback = message;
+  refreshScheduleView();
+}
+
+function refreshScheduleView(): void {
+  const feedback = app.querySelector('#schedule-feedback');
+  if (feedback && platform === 'linux') feedback.textContent = scheduleFeedback;
+  updateScheduleView(
+    app,
+    scheduleStatus,
+    speakerSettings.capabilities?.nightSound === 'supported' ||
+      (speakerSettings.capabilities?.nightSound === undefined &&
+        speakerSettings.nightSound !== null),
+    snapshot?.configuration.nightModeSchedule?.enabled ?? false,
+    snapshot?.configuration.disableLoudnessDuringNightSchedule ?? false,
+  );
+}
+if (isTauri()) {
+  void listen<ScheduleStatus>('night-schedule-changed', ({ payload }) => {
+    scheduleStatus = payload;
+    refreshScheduleView();
+  });
+  void listen('open-night-schedule', () => {
+    activatePage('schedule');
+  });
+  void listen<UpdateStatus>('update-status-changed', ({ payload }) => {
+    if ((payload.generation ?? 0) < (updateStatus.generation ?? 0)) return;
+    updateStatus = payload;
+    if (snapshot) render(snapshot);
+  });
+  const openSettingsPage = (page: string | null): void => {
+    if (page && settingsPages.includes(page as SettingsPage)) activatePage(page as SettingsPage);
+  };
+  const settingsNavigation = new SettingsNavigation(openSettingsPage);
+  void listen<SettingsNavigationRequest>('open-settings-page', ({ payload }) => {
+    settingsNavigation.accept(payload);
+    void invoke('acknowledge_settings_navigation', { revision: payload.revision });
+  }).then(async () => {
+    settingsNavigation.accept(
+      await invoke<SettingsNavigationRequest | null>('take_pending_settings_navigation'),
+    );
+  });
+}
+
+void invoke<ScheduleStatus>('get_schedule_status').then((status) => {
+  scheduleStatus = status;
+  refreshScheduleView();
+});
+
+async function writeSchedule(
+  command: string,
+  args: Record<string, unknown>,
+  accepted?: (next: Snapshot) => void,
+): Promise<void> {
+  editRevision++;
+  pendingWrites++;
+  try {
+    const next = await userWrites.run(() => invoke<Snapshot>(command, args));
+    accepted?.(next);
+    scheduleStatus = await invoke<ScheduleStatus>('get_schedule_status');
+    render(next);
+    notice('');
+  } finally {
+    pendingWrites--;
+    void refreshAllSettings();
+  }
+}

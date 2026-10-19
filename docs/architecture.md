@@ -2,7 +2,7 @@
 
 ## System model
 
-SonosVolumeBridge keeps one chosen Sonos player and one local output device in synchronization.
+SpeakerVolumeBridge keeps one chosen Sonos player and one local output device in synchronization.
 
 ```mermaid
 flowchart TB
@@ -45,6 +45,13 @@ flowchart TB
 ```
 
 ## Architectural layers
+
+The shell's clock-format adapter reads the desktop format locale and clock
+preference. Updates uses those values for local timestamp presentation, including
+macOS region overrides, with WebView defaults when native preferences are
+unavailable. This read-only adapter is independent of synchronization and update
+eligibility. macOS Settings defaults to 740 by 780 logical points, with fixed width
+and vertical resizing.
 
 - `domain`: policy and data model only. No Tauri, OS APIs, or networking.
 - `synchronization`: policy machine. It processes normalized local and Sonos events and emits desired side effects.
@@ -130,6 +137,12 @@ Both modes still enforce local intent deduplication and Sonos confirmation autho
 - Diagnostics and frontend status are redacted and human friendly.
 - Configuration writes are atomic with `.json.tmp` staging and schema validation.
 
+The macOS login adapter treats absent Service Management entries as already
+disabled, including `NotFound` after bundle replacement, and rechecks status
+after failed removal. Registered or unknown states preserve removal errors and
+the existing configuration. This remains shell-only behavior; see
+[ADR 0006](decisions/0006-tauri-shell-and-safe-settings.md).
+
 The protocol adapter uses Reqwest 0.13 and quick-xml 0.42. XML decoding is
 performed by the streaming reader; protocol parsing retains explicit reference
 unescaping and typed errors. See [ADR 0002](decisions/0002-local-sonos-client.md).
@@ -137,6 +150,9 @@ unescaping and typed errors. See [ADR 0002](decisions/0002-local-sonos-client.md
 The settings form shares behavior across platforms while selecting separate
 macOS, Windows, and Linux presentation styles in the frontend. See
 [ADR 0012](decisions/0012-platform-settings-presentation.md).
+macOS dropdown sizing runs after saved selections are restored during form mounting.
+Updates metadata uses flat rows inside its settings group across all platforms,
+without a second nested card (ADR 0012).
 
 Windows uses a dedicated, scoped stylesheet and platform window configuration
 for its resizable Windows 11 Settings presentation. OS-specific presentation
@@ -145,6 +161,48 @@ does not change the shared settings controls or synchronization lifecycle.
 The shell preloads optional tray speaker controls asynchronously at startup and
 refreshes them when connection state changes or the tray is clicked. Network
 reads never block the menu event handler; menu updates run on the main thread.
+
+Update checks share one shell orchestration path for startup, scheduled, wake and
+manual triggers. The shell persists the last successful check and validated offer
+across restarts, revalidates the cached offer's version, complete target identity,
+and HTTPS action at startup, replaces cached offers only after a successful
+release metadata read, and deduplicates update notifications before delivery. Native update
+notifications
+carry activation intent; only activating one or choosing the tray Updates action
+navigates to the Updates page.
+
+Update notification navigation is retained in shell state before emitting the
+frontend event. After installing its listener, Settings consumes the pending
+destination through a command; warm activation uses the same acknowledgement.
+Schedule activation cannot clear pending Updates navigation. This preserves
+cold-start intent when native activation precedes frontend initialization.
+
+At shell startup, a single installed-distribution resolver combines package-level
+provenance with conservative platform evidence. It reports the workspace
+application version and compiled application architecture. Debug/demo, missing,
+conflicting, sideloaded or unverifiable packages never silently enroll in official
+checks. Resolution failure is an update-only condition and cannot stop audio
+synchronization. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
+
+The Linux bundle explicitly sets the repository Homepage field in Debian control
+metadata. Startup requires that field alongside the package name and bundled
+provenance; omitting it leaves the official package unrecognized and disables
+update discovery. The package metadata and runtime resolver are tested together.
+
+The shell also owns one update service with injected release transport, clock,
+distribution metadata and persistence. It starts only after synchronization has
+started, waits 30 seconds, and performs at most one shared request at a time.
+Successful checks impose a 24-hour freshness interval; transient failures use
+bounded backoff. Wake and clock changes cannot bypass the attempt guard. Release API
+requests never use the Sonos adapter and contain no speaker/configuration data or
+persistent installation identifier.
+
+Wake shares the scheduler's startup gate and persisted target-scoped retry budget.
+Three retries use one-, five- and thirty-minute delays; exhausted failures wait a
+day, including after restart. Manual checks remain available subject to transport
+rate limits. Both policies restore only exact-release cached links. Persistence
+failures expose retryable update state without stopping synchronization. The
+frontend recovers the backend generation after a failed policy save. See ADR 0021.
 
 Settings refreshes are asynchronous and guarded against edits and pending writes.
 Speech Enhancement chooses the same model-appropriate EQ for reads and writes;
@@ -177,4 +235,270 @@ coordinator and `platform-camera` adapters. Domain policy contains only normaliz
 activity, timing, and ownership; integration defines camera/speech ports. The shell
 serializes Speech Enhancement user and automation writes independently of volume
 runtime restarts. Native macOS/Windows candidates remain behind default-off build
-features; Linux is deferred. See [ADR 0013](decisions/0013-camera-speech-automation.md).
+features; Linux is deferred. See [ADR 0026](decisions/0026-camera-speech-automation.md).
+Historical catalog publication retains the validated document and updates only `generatedAt`
+and `entries`, preserving additive catalog fields and unchanged entry/action
+metadata. The complete result is validated again before writing; repeated
+publication returns the original content. See [ADR 0019](decisions/0019-distribution-aware-updates.md).
+
+## Global Night Mode scheduling
+
+A separate shell worker applies one global weekly half-hour schedule exclusively
+to the selected compatible speaker. Pure calendar calculation lives in `domain`;
+read/confirm/enforce policy lives in the integration Night Mode controller. It does
+not enter the volume synchronization state machine. Native wake and notification
+adapters stay in the shell. A shared configuration/Night Mode write gate prevents
+selection races, while volume synchronization continues independently. See
+[ADR 0013](decisions/0013-global-night-mode-schedule.md).
+
+The default-off night schedule Loudness policy uses a separate integration port over
+the same shell-owned Sonos adapter. On entry it records speaker-scoped restoration
+ownership before disabling Loudness. While active it enforces Loudness off without
+coupling failures to Night Mode scheduling. On exit, schedule disablement, or policy
+disablement it restores Loudness only when the bridge previously changed it. The
+persisted ownership marker survives restart and is never applied to another speaker.
+
+Tray speaker controls retain their native menu objects for the tray lifetime.
+Refreshes update values in place; capability changes only attach or detach cached
+objects, preserving action targets while the OS is dispatching menu clicks.
+
+Desktop clock formatting is read by the shell adapter: Foundation on macOS,
+GetLocaleInfoEx on Windows, and GNOME clock-format/LC_TIME on Linux. The frontend
+applies that preference to both axis labels and interval tooltips. The shared
+rectangular editor and scheduler are used on all three platforms.
+
+Windows schedule tooltips use an opaque platform surface in both color schemes;
+the shared hover interaction remains in the frontend (ADR 0013).
+
+Windows Night schedule presents current state, next change, notification guidance,
+and action errors together in its dedicated Status card. The shared notice output
+moves into this card while the schedule page is active (ADR 0012).
+The Status label sits left of the right-aligned, wrapping text. The Windows default
+height is 820 logical pixels to allow multiline status. Successful settings actions
+clear prior errors without adding confirmation messages on any platform.
+The Windows shell registers an unpackaged notification identity before checking
+permission and uses that same identity for native toast delivery. Unpackaged startup
+registers the sender's COM activator and quoted executable launch command as well
+as its display name. A process-lifetime MTA owns the class factory; notification
+activation opens Settings on the UI thread. The COM callback reads toast launch
+intent from its second parameter; the first identifies the sender. Update intent
+selects Updates, while schedule activation retains ordinary Settings navigation.
+Demo and normal activators are separate.
+The Start menu shortcut stores both the same sender ID and toast activator CLSID;
+local startup creates it when absent and repairs its properties without retargeting
+an existing installed shortcut. Recent native toast objects are retained in a bounded
+queue so asynchronous delivery failures can be logged.
+First-use sender
+registration submits a suppressed, expiring toast and removes it before querying
+permission again. Packaged apps use their package identity (ADR 0013).
+
+## Hardware-free UI demo
+
+Demo startup assigns a distinct runtime package name as well as application
+identifier. Windows/Linux login registration uses the package name, preserving
+the normal application's autostart entry when demo login settings change.
+
+The default-off `ui-demo` debug feature runs the normal shell and native commands
+against a loopback Sonos simulator. Discovery and resolution select only this
+simulated device; SOAP and GENA use the production client. The scheduler, tray,
+local audio and synchronization services remain active. Demo configuration and
+logs use a separate app identity. Browser previews alone use the frontend mock.
+See [ADR 0014](decisions/0014-ui-demo-build.md).
+
+Night schedule notifications share the shell's speaker display-name normalization
+with device selection; notification bodies never need the renderer suffix to
+identify a speaker. This applies to both scheduled boundaries and entry/exit caused by applying schedule edits.
+Saving compares the previous and new enabled schedules at the same timestamp.
+Only a membership change produces notification intent after speaker confirmation;
+remaining inside/outside and disabled schedules stay silent.
+Enabling a previously disabled schedule during a selected period applies Night Mode
+immediately and sends a start notification after speaker confirmation when On start or
+On start and end is selected. Enabling outside selected periods, enabling an already
+enabled schedule, and disabling scheduling do not notify. Disabling leaves the speaker
+state unchanged. The worker subsequently reconciles silently to avoid duplicate
+notifications.
+
+Linux delivery uses one persistent asynchronous D-Bus connection with a bounded
+timeout. GNOME removes an app's notifications when their sender disappears, so
+the shell retains that connection after delivery. The blocking plugin path is
+incompatible with the shell's Tokio runtime and is bypassed (ADR 0013).
+
+
+Linux settings use a shared Ubuntu/Yaru-inspired presentation on x86-64 and
+ARM64, with a 1080-pixel fixed-width native window, an 800-pixel default height and
+responsive grouped controls. Vertical resizing remains available.
+The platform stylesheet stays inside the frontend; the shell selects Linux
+window bounds through `tauri.linux.conf.json`. See ADR 0012.
+Linux Night schedule status, notification permission guidance, and schedule error
+feedback share the dedicated Status row below notifications (ADR 0013).
+The shell requires Tauri 2.12 with Tao's repaired Wayland decorations so native
+title-bar buttons receive clicks on first show and after reopening (ADR 0012).
+
+The Linux tray adapter uses a white icon for Ubuntu's dark top bar independently
+of the application color scheme, retaining the disconnected badge (ADR 0012).
+
+The macOS release packages its signed and notarized app into a separately signed
+and notarized DMG as its only direct-download format for drag-to-Applications
+installation; see [ADR 0015](decisions/0015-macos-dmg-download.md).
+
+Settings reset cancels debounced autosaves, invalidates older save responses and
+joins the same user-write queue as configuration saves. A reset therefore runs
+after writes already in flight; stale saves cannot restore pre-reset settings.
+
+Unpackaged Windows notification registration also materializes the bundled app
+icon in the app's local data directory and registers its absolute path as the
+sender `IconUri`. The icon remains available after build-directory cleanup or
+application exit. Paths are canonicalized to their physical location before
+registration so an app launched from a packaged development host does not give
+Explorer a redirected path it cannot resolve. Start menu shortcuts use an explicit
+bundled ICO asset. MSIX notifications continue to use the package manifest assets.
+The registered Windows installation owns the normal Start menu target. Startup
+repairs older development targets while development runs retain a valid installed
+target. Full NSIS uninstall removes the per-user notification sender and COM
+activation registration; in-place updates preserve them (ADR 0013).
+
+## Release artifact flow
+
+macOS direct-download configurations share distribution provenance resources.
+The configuration without a provisioning profile uses checked-in base
+entitlements; the profile variant uses generated profile-specific entitlements
+and embeds the profile (ADR 0015).
+
+Release jobs verify the prepared commit belongs to trusted `develop` history,
+then detach at that exact commit before executing release code. Moving the branch
+forward does not change or invalidate the selected release. Native
+Windows x64/ARM64 MSIX outputs are combined and verified in an unprivileged job
+before the all-platform build gate. Signing follows that gate; publication also
+requires successful Mac App Store packaging when requested. Store submission
+reuses the verified upload. Direct downloads use one permanent filename per
+package, with version identity supplied by the release tag (ADR 0015). See
+[release documentation](release.md) for the variants and validation gates.
+
+Microsoft Store retries resolve an existing release tag to the original verified
+upload, then independently validate its version and both embedded architectures.
+Validation runs without Store credentials. Submission reuses that artifact and
+requires a protected environment; it never rebuilds or increments the version.
+Normal release and manual retry call the same reusable Store publishing workflow
+with a published GA tag. It validates the tag and bundle before protected submission;
+standalone packaging remains separate. Both paths share the pinned CLI publishing
+script and submission concurrency group. Publishing selects the upload file directly
+and verifies Store-reported package versions and architectures after commit. See [release recovery](release.md#retry-or-debug-an-existing-microsoft-store-release).
+
+Store submission metadata may represent the combined upload as one Neutral
+package. Accept that representation only when its uploaded filename and version
+match the retained artifact and local verification confirms both embedded x64
+and ARM64 packages. Neutral alone does not prove architecture coverage. This
+submission check does not establish certification or public availability.
+
+Audio echo suppression retains repeated and overlapping expected local states for
+500 ms without pausing listening. Unchanged local properties are not rewritten.
+See [ADR 0017](decisions/0017-volume-feedback-suppression.md) for platform behavior,
+regression coverage, and the limitations of value-based origin detection.
+
+## Upgrading from the former app
+
+Users quit and remove the former app before using the renamed app. The shell
+starts synchronization directly and does not inspect other processes, gate writes
+on a legacy-app check, or display a conflict warning. Settings and Night Mode keep
+their normal selection/write serialization and explicit stop behavior. See
+[decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
+[manual removal guide](removing-old-app.md).
+
+Windows installer directory migration stays in the NSIS adapter: only the former default folder is relocated; custom directories, data identity and Store identity remain stable. See ADR 0018.
+
+The update service also owns the persisted Stable/Prereleases policy and explicit
+package capability. Policy changes increment a generation before clearing offers;
+responses, notification claims and queued page actions revalidate that generation.
+Installed publisher classification is separate from user preference. The former
+schema v1/v2 catalog contract in ADR 0019 is historical and retained only for
+test fixtures and manual tooling. New builds use the Releases API contract below.
+
+## Release update discovery
+
+Fresh compatible offers expose both a release-page action and a browser installer
+download action. The backend derives the package URL from the validated release
+and installed target, and authorizes the download through the same generation and
+freshness gate as release-page opening. No renderer-supplied download URL is used.
+The rendered download button captures its offer version and generation, so deferred
+form rendering cannot substitute a newer offer at click time. Rejected downloads
+refresh through the shared manual-check path before showing fallback guidance.
+An in-app availability notice complements native notifications. See ADR 0021.
+
+The Tauri shell reads the public GitHub Releases API anonymously. Stable only
+filters out prereleases; Include prereleases selects across GA and previews.
+Semantic version precedence, installed edition and application architecture
+control selection. Published metadata must contain the exact official package
+asset and release page. Store availability is never inferred from direct packages.
+The transport bounds pagination, response bytes and timeouts, and respects rate
+limits, including a minimum one-minute cooldown for headerless forbidden
+responses that may represent secondary limits. User preferences, notifications and generation guards remain local.
+Source migration clears old catalog offers/freshness. The scheduler retains its
+30-second startup delay, bounded retry sequence, single-worker ownership and
+shutdown flag/abort behavior. No self-installation is introduced. See
+[ADR 0021](decisions/0021-github-release-updates.md).
+
+Release dispatch exposes Version, Stable and three signing/Store flags. Stable
+controls GA versus Beta publication. Store delivery requires stable plus explicit
+opt-in and existing approvals; direct macOS signing can be disabled without
+weakening Store signing. See [ADR 0022](decisions/0022-release-workflow-inputs.md).
+
+Store editions have a separate `store_managed` update state. The shell rejects
+GitHub discovery for these editions at the shared service boundary, disables
+automatic checks even for migrated enabled preferences, and exposes only fixed
+native Store destinations through an edition-authorized command. No release
+offer or Store availability claim is created. Direct release-policy behavior is
+unchanged. Existing catalog clients require a one-time manual upgrade; see
+[upgrade guidance](rebrand-upgrade.md).
+
+Direct macOS updater preparation is a packaging-only boundary. Verified payloads
+remain validation artifacts retained in CI and never create installation actions. The
+GitHub release-page fallback, version/policy guards and Store delegation remain
+unchanged. Native sandboxed replacement acceptance is pending; see
+[ADR 0023](decisions/0023-macos-updater-artifacts.md).
+
+The default-off macOS native acceptance probe uses NSWorkspace ReplaceFile
+permission and an authorized FileManager for its test-only replacement adapter.
+The destination remains intact before authorization; no administrator shell
+fallback is used. This does not register a production installer. Apple's
+Privileged File Operations grant and a matching direct-download profile remain
+external prerequisites for signed acceptance. The Store edition continues to
+receive Store-managed updates. See ADR 0023 and the verification matrix for the
+explicit outstanding native outcomes.
+
+## Local volume gestures
+
+Rapid callbacks replace a single pending volume while the runtime continues
+receiving input. Buffered callbacks are collapsed before dispatch. During a local
+gesture and for 500 ms after its latest change or completed write, speaker events
+cannot reverse local audio. A fresh read then reconciles the final speaker state,
+including independent speaker changes, mapping and caps. Mute changes supersede
+queued volume immediately. See [ADR 0024](decisions/0024-volume-gesture-settling.md).
+
+On macOS, reattachment removes the previous Core Audio listener set before
+registering replacements, including when the selected output is unchanged.
+Listener registration is transactional: failure rolls back successful registrations
+and reports the output unavailable. The app cannot silently continue with missing
+volume or lifecycle callbacks. See ADR 0024.
+
+Healthy unchanged macOS outputs retain their listeners on unrelated topology
+notifications. Successful output changes reconcile within the existing speaker
+session, without connection backoff. Pending input from the former output is
+discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.
+
+Settings tray actions and update notifications share one revisioned destination.
+The frontend applies events and startup IPC through a single revision gate.
+Ordinary Settings and tray left-double-click cancel even an already consumed,
+in-flight destination without changing the visible page (ADR 0025).
+
+All coordinator reads share a local-state baseline guard. New input during a read
+is retained for dispatch, and native application verifies its baseline before
+writing. Runtime notification, settling, health-poll and output-change paths share
+publication and read-window handling. Rejected observations retain waiting state;
+accepted snapshots preserve subscription availability and polling policy (ADR 0024).
+
+The callback listener assigns acceptance revisions before child-handler scheduling.
+Read windows fence older volume and retain overlapping notifications as fresh-read
+invalidations. Sender sequence and subscription identity order valid notifications;
+acceptance order is the fallback when no sequence is supplied. Independent settings
+invalidations survive volume fencing. Session-owned tasks release accept and child
+sockets on drop. Core Audio channel elements remain cumulative across buffers.

@@ -4,7 +4,7 @@ use super::{
     observer::{CameraSource, Observer},
     worker::{Monitor, unavailable},
 };
-use sonos_volume_bridge_integration::camera::CameraPort;
+use speaker_volume_bridge_integration::camera::CameraPort;
 use std::{
     ffi::c_void,
     sync::{Arc, Mutex, mpsc},

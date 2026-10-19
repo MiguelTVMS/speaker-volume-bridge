@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sonos_volume_bridge_domain::{MappingPoint, SonosVolume, VolumeMapping};
+use speaker_volume_bridge_domain::{MappingPoint, SonosVolume, VolumeMapping};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -8,11 +8,62 @@ use thiserror::Error;
 
 const SCHEMA_VERSION: u32 = 1;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case", try_from = "NotificationPreferenceInput")]
+pub enum ScheduleNotifications {
+    #[default]
+    Never,
+    Start,
+    End,
+    Both,
+}
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum NotificationPreferenceInput {
+    Legacy(bool),
+    Mode(String),
+}
+impl TryFrom<NotificationPreferenceInput> for ScheduleNotifications {
+    type Error = String;
+    fn try_from(value: NotificationPreferenceInput) -> Result<Self, Self::Error> {
+        match value {
+            NotificationPreferenceInput::Legacy(false) => Ok(Self::Never),
+            NotificationPreferenceInput::Legacy(true) => Ok(Self::Both),
+            NotificationPreferenceInput::Mode(mode) => match mode.as_str() {
+                "never" => Ok(Self::Never),
+                "start" => Ok(Self::Start),
+                "end" => Ok(Self::End),
+                "both" => Ok(Self::Both),
+                _ => Err("Invalid schedule notification preference".into()),
+            },
+        }
+    }
+}
+impl ScheduleNotifications {
+    pub const fn enabled(self) -> bool {
+        !matches!(self, Self::Never)
+    }
+    pub const fn allows(self, active: bool) -> bool {
+        matches!(
+            (self, active),
+            (Self::Both, _) | (Self::Start, true) | (Self::End, false)
+        )
+    }
+}
+
 #[allow(clippy::struct_excessive_bools)] // Persistent settings are independent toggles by design.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfiguration {
     pub schema_version: u32,
+    #[serde(default)]
+    pub night_mode_schedule: speaker_volume_bridge_domain::NightModeSchedule,
+    #[serde(default)]
+    pub notify_night_mode_schedule_transitions: ScheduleNotifications,
+    #[serde(default)]
+    pub disable_loudness_during_night_schedule: bool,
+    #[serde(default)]
+    pub night_schedule_loudness_restore_speaker_id: Option<String>,
     pub selected_sonos_id: Option<String>,
     pub last_known_sonos_address: Option<String>,
     pub follow_default_audio_device: bool,
@@ -47,6 +98,10 @@ impl Default for AppConfiguration {
     fn default() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
+            night_mode_schedule: speaker_volume_bridge_domain::NightModeSchedule::default(),
+            notify_night_mode_schedule_transitions: ScheduleNotifications::Never,
+            disable_loudness_during_night_schedule: false,
+            night_schedule_loudness_restore_speaker_id: None,
             selected_sonos_id: None,
             last_known_sonos_address: None,
             follow_default_audio_device: true,
@@ -68,6 +123,9 @@ impl Default for AppConfiguration {
 
 impl AppConfiguration {
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if !self.night_mode_schedule.valid() {
+            return Err(ConfigError::Invalid("nightModeSchedule"));
+        }
         if self.schema_version != SCHEMA_VERSION {
             return Err(ConfigError::UnsupportedSchema(self.schema_version));
         }
@@ -89,7 +147,7 @@ fn default_points() -> Vec<MappingPoint> {
         .into_iter()
         .filter_map(|(local, sonos)| {
             Some(MappingPoint {
-                local: sonos_volume_bridge_domain::NormalizedVolume::new(local).ok()?,
+                local: speaker_volume_bridge_domain::NormalizedVolume::new(local).ok()?,
                 sonos: SonosVolume::new(sonos).ok()?,
             })
         })
@@ -175,6 +233,85 @@ mod tests {
             .remove("twoWaySynchronization");
         let configuration: AppConfiguration = serde_json::from_value(value).unwrap();
         assert!(configuration.two_way_synchronization);
+    }
+    #[test]
+    fn legacy_configuration_and_schedule_round_trip() {
+        let mut json = serde_json::to_value(AppConfiguration::default()).unwrap();
+        json.as_object_mut().unwrap().remove("nightModeSchedule");
+        json.as_object_mut()
+            .unwrap()
+            .remove("notifyNightModeScheduleTransitions");
+        json.as_object_mut()
+            .unwrap()
+            .remove("disableLoudnessDuringNightSchedule");
+        json.as_object_mut()
+            .unwrap()
+            .remove("nightScheduleLoudnessRestoreSpeakerId");
+        let mut configuration: AppConfiguration = serde_json::from_value(json).unwrap();
+        assert!(!configuration.night_mode_schedule.enabled);
+        assert_eq!(
+            configuration.notify_night_mode_schedule_transitions,
+            ScheduleNotifications::Never
+        );
+        assert!(!configuration.disable_loudness_during_night_schedule);
+        assert_eq!(
+            configuration.night_schedule_loudness_restore_speaker_id,
+            None
+        );
+        configuration.night_mode_schedule.enabled = true;
+        configuration.night_mode_schedule.blocks[6][47] = true;
+        configuration.notify_night_mode_schedule_transitions = ScheduleNotifications::Both;
+        configuration.disable_loudness_during_night_schedule = true;
+        configuration.night_schedule_loudness_restore_speaker_id = Some("speaker-a".into());
+        let restored: AppConfiguration =
+            serde_json::from_str(&serde_json::to_string(&configuration).unwrap()).unwrap();
+        assert_eq!(
+            configuration.night_mode_schedule,
+            restored.night_mode_schedule
+        );
+        assert_eq!(
+            restored.notify_night_mode_schedule_transitions,
+            ScheduleNotifications::Both
+        );
+        assert!(restored.disable_loudness_during_night_schedule);
+        assert_eq!(
+            restored
+                .night_schedule_loudness_restore_speaker_id
+                .as_deref(),
+            Some("speaker-a")
+        );
+        configuration.night_mode_schedule.blocks[0].pop();
+        assert!(configuration.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod schedule_notification_tests {
+    use super::*;
+    #[test]
+    fn modes_filter_boundaries_and_migrate_legacy_preferences() {
+        for (mode, start, end) in [
+            (ScheduleNotifications::Never, false, false),
+            (ScheduleNotifications::Start, true, false),
+            (ScheduleNotifications::End, false, true),
+            (ScheduleNotifications::Both, true, true),
+        ] {
+            assert_eq!(mode.allows(true), start);
+            assert_eq!(mode.allows(false), end);
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(
+                serde_json::from_str::<ScheduleNotifications>(&json).unwrap(),
+                mode
+            );
+        }
+        assert_eq!(
+            serde_json::from_str::<ScheduleNotifications>("true").unwrap(),
+            ScheduleNotifications::Both
+        );
+        assert_eq!(
+            serde_json::from_str::<ScheduleNotifications>("false").unwrap(),
+            ScheduleNotifications::Never
+        );
     }
 }
 

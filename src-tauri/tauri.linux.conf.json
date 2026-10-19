@@ -1,0 +1,23 @@
+{
+  "bundle": {
+    "homepage": "https://github.com/migueltvms/speaker-volume-bridge",
+    "resources": {
+      "distribution/debian.json": "distribution.json"
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Speaker Volume Bridge Settings",
+        "width": 1080,
+        "minWidth": 1080,
+        "height": 800,
+        "minHeight": 460,
+        "visible": false,
+        "resizable": true,
+        "maxWidth": 1080
+      }
+    ]
+  }
+}

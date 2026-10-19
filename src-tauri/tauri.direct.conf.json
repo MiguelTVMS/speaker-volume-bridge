@@ -1,10 +1,10 @@
 {
   "bundle": {
+    "resources": {
+      "distribution/direct-macos.json": "distribution.json"
+    },
     "macOS": {
-      "entitlements": "./Entitlements.direct.plist",
-      "files": {
-        "embedded.provisionprofile": "macos-developer-id.provisionprofile"
-      }
+      "entitlements": "./Entitlements.plist"
     }
   }
 }

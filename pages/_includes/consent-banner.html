@@ -1,0 +1,32 @@
+<section id="consent-banner" class="consent-banner" aria-labelledby="consent-title" hidden>
+  <div class="consent-intro">
+    <h2 id="consent-title">Your privacy choices</h2>
+    <p>We use essential storage to remember your choice. With your permission, Google tags can measure website use and advertising. Optional tracking is off until you choose. <a href="/privacy.html#website-privacy">Read the website privacy notice</a>.</p>
+  </div>
+  <div class="consent-actions">
+    <button id="consent-reject" type="button">Reject optional</button>
+    <button id="consent-accept" type="button">Accept all</button>
+    <button id="consent-customize" type="button" aria-expanded="false" aria-controls="consent-advanced">Advanced</button>
+  </div>
+  <div id="consent-advanced" hidden>
+    <div class="consent-option">
+      <div><strong>Essential</strong><p>Remembers your privacy choice on this browser for up to 180 days. Required for consent preferences.</p></div>
+      <span>Always on</span>
+    </div>
+    <label class="consent-option" for="consent-analytics">
+      <span><strong>Analytics</strong><span>Allow measurement of page visits and interactions to understand how the website is used.</span></span>
+      <input id="consent-analytics" type="checkbox" />
+    </label>
+    <label class="consent-option" for="consent-advertising">
+      <span><strong>Advertising measurement</strong><span>Allow advertising cookies and sharing advertising-related interaction data with Google to measure campaigns.</span></span>
+      <input id="consent-advertising" type="checkbox" />
+    </label>
+    <label class="consent-option" for="consent-personalization">
+      <span><strong>Personalized advertising</strong><span>Allow advertising data to personalize ads. Requires advertising measurement.</span></span>
+      <input id="consent-personalization" type="checkbox" disabled />
+    </label>
+    <button id="consent-save" type="button">Save choices</button>
+  </div>
+  <p id="consent-status" role="status"></p>
+</section>
+

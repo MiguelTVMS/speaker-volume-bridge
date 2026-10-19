@@ -1,6 +1,6 @@
 //! Serialized orchestration shared by native camera automation and its tests.
 use async_trait::async_trait;
-use sonos_volume_bridge_domain::camera::{
+use speaker_volume_bridge_domain::camera::{
     CameraAction, CameraActivity, CameraAvailability, CameraObservation, CameraPolicy,
 };
 
@@ -210,7 +210,7 @@ mod tests {
         let mut c = CameraCoordinator::default();
         tick(&mut c, &s, CameraActivity::Active, 0).await;
         tick(&mut c, &s, CameraActivity::Active, 999).await;
-        assert!(s.0.lock().unwrap().1.is_empty());
+        assert_eq!(s.0.lock().unwrap().1, Vec::<bool>::new());
         tick(&mut c, &s, CameraActivity::Active, 1000).await;
         tick(&mut c, &s, CameraActivity::Active, 2000).await;
         tick(&mut c, &s, CameraActivity::Inactive, 3000).await;
@@ -230,7 +230,7 @@ mod tests {
         tick(&mut c, &s, CameraActivity::Active, 0).await;
         tick(&mut c, &s, CameraActivity::Active, 1000).await;
         c.cleanup(&s).await;
-        assert!(s.0.lock().unwrap().1.is_empty());
+        assert_eq!(s.0.lock().unwrap().1, Vec::<bool>::new());
     }
     #[tokio::test]
     async fn manual_override_does_not_reactivate_until_next_period() {
@@ -268,7 +268,7 @@ mod tests {
         tick(&mut c, &s, CameraActivity::Active, 0).await;
         tick(&mut c, &s, CameraActivity::Inactive, 500).await;
         tick(&mut c, &s, CameraActivity::Inactive, 4000).await;
-        assert!(s.0.lock().unwrap().1.is_empty());
+        assert_eq!(s.0.lock().unwrap().1, Vec::<bool>::new());
     }
     struct UnconfirmedWrite(Mutex<Vec<bool>>);
     #[async_trait]

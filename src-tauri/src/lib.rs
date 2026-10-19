@@ -1,24 +1,93 @@
 mod autostart;
 mod camera;
+mod clock_format;
 mod commands;
 mod config;
+#[cfg(any(test, feature = "ui-demo"))]
+mod demo;
+mod distribution;
 mod logging;
+#[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+mod native_updater_acceptance;
+mod night_schedule;
 mod runtime;
+mod schedule_notifications;
+mod schedule_wake;
 mod state;
 mod tray;
+mod updates;
 
 use crate::{config::ConfigStore, state::AppState};
 use tauri::Manager;
 
+#[cfg(all(feature = "native-updater-acceptance", feature = "ui-demo"))]
+compile_error!("native updater acceptance must use the real packaged runtime, not ui-demo");
+
+#[cfg(all(feature = "ui-demo", not(debug_assertions)))]
+compile_error!("ui-demo requires a debug build; pass --debug --features ui-demo");
+
+#[cfg(any(
+    all(feature = "ui-windows", feature = "ui-macos"),
+    all(feature = "ui-windows", feature = "ui-ubuntu"),
+    all(feature = "ui-macos", feature = "ui-ubuntu")
+))]
+compile_error!("choose only one UI override: ui-windows, ui-macos, or ui-ubuntu");
+
+#[tauri::command]
+fn ui_demo_enabled() -> bool {
+    cfg!(feature = "ui-demo")
+}
+
+#[tauri::command]
+fn ui_demo_platform() -> Option<&'static str> {
+    if cfg!(feature = "ui-windows") {
+        Some("windows")
+    } else if cfg!(feature = "ui-macos") {
+        Some("macos")
+    } else if cfg!(feature = "ui-ubuntu") {
+        Some("linux")
+    } else {
+        None
+    }
+}
+
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
-        |app, _arguments, _working_directory| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        },
-    ));
+    let mut context = tauri::generate_context!();
+    configure_identity(&mut context, ui_demo_enabled());
+    #[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+    native_updater_acceptance::configure(&mut context).expect("Acceptance package configuration");
+    run_normal(context);
+}
+
+fn configure_identity<R: tauri::Runtime>(context: &mut tauri::Context<R>, demo: bool) {
+    if demo {
+        context.config_mut().identifier.push_str(".ui-demo");
+        // Keep the demo package distinct from normal development builds.
+        context.package_info_mut().name.push_str("-ui-demo");
+    }
+}
+
+#[allow(clippy::too_many_lines)] // One composition root for normal and demo runtime wiring.
+fn run_normal(context: tauri::Context<tauri::Wry>) {
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_single_instance::Builder::new()
+                .dbus_id(if ui_demo_enabled() {
+                    "ms.miguel.sonosvolumebridge.desktop.speaker.ui_demo"
+                } else {
+                    "ms.miguel.sonosvolumebridge.desktop.speaker"
+                })
+                .callback(|app, _arguments, _working_directory| {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                })
+                .build(),
+        );
+    #[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_autostart::init(
         tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -29,12 +98,20 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let config_path = app.path().app_config_dir()?.join("config.json");
+            let update_state_path = updates::state_path(&config_path);
             let store = ConfigStore::new(config_path);
-            let configuration = store
+            #[allow(unused_mut)]
+            let mut configuration = store
                 .load_or_default()
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
-            #[cfg(target_os = "macos")]
-            let mut configuration = configuration;
+            #[cfg(feature = "ui-demo")]
+            {
+                let speaker = tauri::async_runtime::block_on(demo::speaker())?;
+                if !store.path().exists() {
+                    configuration.selected_sonos_id = Some(demo::SPEAKER_ID.into());
+                    configuration.last_known_sonos_address = Some(speaker.location.to_string());
+                }
+            }
             #[cfg(target_os = "macos")]
             let migrated_fixed_output = if configuration.follow_default_audio_device {
                 false
@@ -42,7 +119,7 @@ pub fn run() {
                 configuration
                     .fixed_audio_device_id
                     .as_deref()
-                    .and_then(sonos_volume_bridge_platform_audio::macos::migrate_legacy_device_id)
+                    .and_then(speaker_volume_bridge_platform_audio::macos::migrate_legacy_device_id)
                     .map(|uid| {
                         configuration.fixed_audio_device_id = Some(uid);
                         store
@@ -53,38 +130,85 @@ pub fn run() {
                     .is_some()
             };
             let guard = logging::initialize(&app.path().app_log_dir()?, configuration.log_level)?;
-            tracing::info!("SonosVolumeBridge application shell starting");
+            tracing::info!("SpeakerVolumeBridge application shell starting");
+            let resolver = distribution::InstalledDistributionResolver::from_runtime(
+                &app.path().resource_dir()?,
+                cfg!(debug_assertions) || ui_demo_enabled(),
+            );
+            let installed_distribution = distribution::resolve_at_startup(&resolver);
+            tracing::info!(edition = ?installed_distribution.edition, "resolved installed distribution");
+            app.manage(installed_distribution.clone());
             #[cfg(target_os = "macos")]
             if migrated_fixed_output {
                 tracing::info!(
                     "migrated selected local audio output to a persistent Core Audio UID"
                 );
             }
+            #[cfg(not(target_os = "macos"))]
+            if configuration.start_at_login
+                && let Err(error) = autostart::refresh_existing(app.handle())
+            {
+                tracing::warn!(%error, "Could not refresh the existing login registration");
+            }
             let state = AppState::new(store, configuration, guard);
             app.manage(state);
+            app.manage(tray::PendingSettingsNavigation::default());
+            let transport = updates::HttpReleaseTransport::new().map(|transport| {
+                std::sync::Arc::new(transport) as std::sync::Arc<dyn updates::ReleaseTransport>
+            });
+            #[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+            let transport = transport.and_then(|_public_transport| {
+                native_updater_acceptance::transport(app.handle())
+            });
+            let update_service = transport.and_then(|transport| {
+                updates::UpdateService::new(
+                    installed_distribution,
+                    transport,
+                    std::sync::Arc::new(updates::SystemUpdateClock),
+                    std::sync::Arc::new(updates::FileUpdatePersistence::new(update_state_path)),
+                )
+            });
+            if let Ok(service) = update_service {
+                let manager = updates::UpdateManager::new(std::sync::Arc::new(service));
+                manager.start(app.handle());
+                app.manage(manager);
+            } else {
+                tracing::warn!("update service unavailable; synchronization will continue");
+            }
             tray::install(app.handle())?;
-            let state = app.state::<AppState>();
-            state.start_runtime(app.handle().clone());
-            state.camera.start(app.handle().clone());
+            schedule_wake::install(app.handle());
+            schedule_notifications::install(app.handle());
+            #[cfg(windows)]
+            schedule_notifications::install_windows(app.handle());
+            app.state::<AppState>().start_runtime(app.handle().clone());
+            app.state::<AppState>().camera.start(app.handle().clone());
+            night_schedule::start(app.handle().clone());
+            #[cfg(all(target_os = "macos", feature = "native-updater-acceptance"))]
+            native_updater_acceptance::start(app.handle().clone());
+            if ui_demo_enabled()
+                && let Some(window) = app.get_webview_window("main")
+            {
+                window.set_title("Speaker Volume Bridge — UI demo")?;
+                window.show()?;
+                window.set_focus()?;
+            }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    // This is a menu-bar utility: closing Settings must leave its
-                    // synchronization runtime and tray controls available.
-                    let _ = window.hide();
-                    api.prevent_close();
-                }
-                tauri::WindowEvent::ThemeChanged(theme) => {
-                    tray::update_icon_for_theme(window.app_handle(), *theme);
-                }
-                _ => {}
-            }
-        })
+        .on_window_event(handle_window_event)
         .invoke_handler(tauri::generate_handler![
+            ui_demo_enabled,
+            ui_demo_platform,
             commands::get_snapshot,
             commands::get_camera_status,
+            commands::take_pending_settings_navigation,
+            commands::acknowledge_settings_navigation,
+            commands::get_system_hour12,
+            commands::get_system_locale,
+            commands::save_night_schedule,
+            commands::enable_night_schedule,
+            commands::set_schedule_notifications,
+            commands::set_disable_loudness_during_night_schedule,
+            commands::get_schedule_status,
             commands::save_configuration,
             commands::reset_configuration,
             commands::diagnostics,
@@ -95,9 +219,19 @@ pub fn run() {
             commands::get_speaker_settings,
             commands::set_speaker_setting,
             commands::set_speaker_level,
-            commands::use_tv_audio
+            commands::use_tv_audio,
+            commands::get_update_status,
+            commands::set_update_policy,
+            commands::check_for_updates,
+            commands::set_automatic_update_checks,
+            commands::dismiss_update,
+            commands::set_update_notifications,
+            commands::open_update_page,
+            commands::open_update_download,
+            commands::open_update_store,
+            commands::open_project_repository
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Tauri runtime failed")
         .run(handle_runtime_event);
 }
@@ -120,5 +254,94 @@ fn handle_runtime_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
             });
         }
         _ => {}
+    }
+}
+
+fn handle_window_event<R: tauri::Runtime>(window: &tauri::Window<R>, event: &tauri::WindowEvent) {
+    match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            // Closing Settings leaves synchronization and the tray running.
+            let _ = window.hide();
+            api.prevent_close();
+        }
+        tauri::WindowEvent::ThemeChanged(theme) => {
+            tray::update_icon_for_theme(window.app_handle(), *theme);
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod window_lifecycle_tests {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[test]
+    fn settings_can_close_immediately_after_first_show_and_reopen_without_resize() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())
+            .visible(false)
+            .build()
+            .unwrap();
+        let closes = Arc::new(AtomicUsize::new(0));
+        let observed = closes.clone();
+        app.run(move |app, event| {
+            if matches!(event, tauri::RunEvent::Ready) {
+                window.show().unwrap();
+                window.close().unwrap();
+            }
+            if let tauri::RunEvent::WindowEvent { event, .. } = event {
+                // MockRuntime sends app events but does not dispatch the native
+                // per-window listeners. Exercise the production handler here.
+                let settings = app.get_webview_window("main").unwrap();
+                handle_window_event(&settings.as_ref().window(), &event);
+                assert!(!matches!(event, tauri::WindowEvent::Resized(_)));
+                if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                    let count = observed.fetch_add(1, Ordering::SeqCst) + 1;
+                    // The production close handler must preserve the window so
+                    // the same Settings instance can be reopened from the tray.
+                    let window = app.get_webview_window("main").unwrap();
+                    if count == 1 {
+                        window.show().unwrap();
+                        window.close().unwrap();
+                    } else {
+                        window.destroy().unwrap();
+                    }
+                }
+            }
+        });
+        assert_eq!(closes.load(Ordering::SeqCst), 2);
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    #[test]
+    fn demo_startup_keeps_autostart_identity_separate_from_normal_app() {
+        let build = |demo| {
+            let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+            context.package_info_mut().name = "speaker-volume-bridge".into();
+            super::configure_identity(&mut context, demo);
+            tauri::test::mock_builder().build(context).unwrap()
+        };
+        let normal = build(false);
+        let demo = build(true);
+        // Source package renaming must not rename the explicit OS registration key.
+        assert_eq!(normal.package_info().name, "speaker-volume-bridge");
+        assert_eq!(demo.package_info().name, "speaker-volume-bridge-ui-demo");
+        assert_eq!(
+            super::autostart::registration_name(false),
+            "sonos-volume-bridge"
+        );
+        assert_eq!(
+            super::autostart::registration_name(true),
+            "sonos-volume-bridge-ui-demo"
+        );
+        assert_ne!(normal.config().identifier, demo.config().identifier);
     }
 }

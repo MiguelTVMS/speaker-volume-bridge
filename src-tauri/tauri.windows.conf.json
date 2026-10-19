@@ -1,12 +1,17 @@
 {
+  "bundle": {
+    "resources": {
+      "distribution/direct-windows.json": "distribution.json"
+    }
+  },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "Sonos Volume Bridge Settings",
+        "title": "Speaker Volume Bridge Settings",
         "width": 960,
         "minWidth": 760,
-        "height": 760,
+        "height": 820,
         "minHeight": 460,
         "visible": false,
         "resizable": true

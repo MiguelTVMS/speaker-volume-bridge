@@ -1,4 +1,4 @@
-# ADR 0013: Passive camera-triggered Speech Enhancement
+# ADR 0026: Passive camera-triggered Speech Enhancement
 
 Status: Implemented behind default-off platform features; hardware validation pending.
 
@@ -18,11 +18,20 @@ macOS observes CoreMediaIO device-list and system-wide running properties. It
 registers listeners before the final initial snapshot, reads again after device
 changes, and rescans every five seconds. No capture session is created.
 Windows enumerates video-source activation metadata without activating it and uses
-Media Foundation sensor activity reports. Only enumerated camera keys participate;
-partial reports update existing entries, and missing initial reports remain unknown.
-A five-second inventory reconciliation removes disconnected devices. A worker
-heartbeat protects against a stalled worker; it cannot prove a silent native event
-source has delivered every transition. Real hardware validation is mandatory.
+Media Foundation sensor activity reports. Each query creates a fresh monitor and
+inventory, waits a 500 ms report window, then stops and shuts down the monitor.
+A successfully completed window treats omitted cameras as idle, following the
+Microsoft sample's bounded-query contract. Enumeration, callback, start, stop,
+shutdown, or cancellation failures remain unknown. Device inventory is checked
+again after the window; hot-plug invalidates that sample. Old callbacks only refer
+to their original inventory. This avoids retaining active values indefinitely or
+leaving initially idle cameras permanently unknown. Real hardware validation is
+mandatory for report latency and driver behavior.
+
+The shared native wake callback invalidates camera ownership and causes detector
+recreation. The next production observation consumes this invalidation before
+reading or restoring speaker state, including short sleeps without a Tauri
+`Resumed` event.
 
 `camera-automation-macos` and `camera-automation-windows` are default-off Cargo
 features. Existing release jobs do not enable either. CI explicitly compiles/tests

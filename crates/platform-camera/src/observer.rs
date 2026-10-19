@@ -1,5 +1,5 @@
 //! Register-before-read orchestration shared by the native observer and tests.
-use sonos_volume_bridge_domain::camera::{CameraActivity, CameraAvailability, CameraObservation};
+use speaker_volume_bridge_domain::camera::{CameraActivity, CameraAvailability, CameraObservation};
 
 pub trait CameraSource {
     fn devices(&mut self) -> Option<Vec<u32>>;

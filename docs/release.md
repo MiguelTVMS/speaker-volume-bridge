@@ -13,21 +13,27 @@ choose one increment:
 - `Minor` increases the minor number and resets the patch number.
 - `Major` increases the major number and resets the minor and patch numbers.
 
-Leave **Build Mac App Store package** unchecked (the default) while the app is
-under Apple evaluation. Check it only when a new signed App Store package is
-needed. This option controls package creation; the workflow does not submit the
-package to Apple automatically. Other release packages and GitHub publication
-continue when the App Store job is skipped. The standalone App Store signing
-verification workflow remains available for manual checks.
+The inputs appear in this order: **Version**, **Stable**, **Sign Apple Pack**,
+**Push Apple Store**, **Push MS Store**. Version defaults to Fix. Stable defaults
+to false, publishing a Beta prerelease; true publishes GA. Existing Alpha releases
+remain prereleases for consumers, but this dispatch no longer selects Alpha.
 
-Leave **Submit release to Microsoft Store (GA only)** unchecked (the default)
-to skip Store submission. Check it for a GA release when you want to upload the
-MSIX after GitHub publication succeeds. Alpha and Beta never submit, even when
-checked. Windows installers and MSIX packages are still built normally.
+Sign Apple Pack defaults to true and controls Developer ID signing/notarization
+of the direct macOS DMG. False produces an unsigned, non-notarized DMG and the
+release notes explicitly say so. App Store packages always require Store signing,
+independently of the direct-package signing flag.
 
-The workflow validates `develop`, commits the version bump to `develop`, checks
-out the trusted `develop` branch for each package build and verifies the exact
-release commit before building, creates and pushes its annotated
+Both Store push flags default to false and are ignored unless Stable is true.
+Push Apple Store builds the signed Store package and, after GitHub publication,
+validates and uploads it to App Store Connect. Upload is not submission for review,
+certification or public availability. The existing approval environment applies.
+It requires the App Store Connect key ID, issuer and private key in that environment.
+Push MS Store reuses the verified combined MSIX upload after GitHub publication.
+Store push failures do not undo an already public GitHub release.
+
+The workflow validates `develop`, commits the version bump to `develop`, verifies that the prepared commit belongs to trusted `develop` history, then
+detaches every subsequent build, packaging, signing, and publication checkout at
+that exact commit before executing release code, creates and pushes its annotated
 `vX.Y.Z` tag with the GitHub Actions bot identity, then creates or updates the
 GitHub Release with downloadable assets, a channel-aware installation and signing summary, and GitHub-generated change notes. Pull requests with `feature`, `enhancement`, `bug`, `fix`, `maintenance`, `refactor`, or `documentation` labels are grouped in those notes. It never merges branches. After a GA release is published, a separate job opens
 an approval-required PR from a release branch pinned to the validated release
@@ -48,20 +54,28 @@ Repeated runs reuse the release branch and open PR. Divergence caused by previou
 merge produces exactly the validated release tree. Conflicts, extra content, a conflicting
 release branch, or a previously closed PR require manual review.
 
-The current published release is [v0.3.0](https://github.com/MiguelTVMS/sonos-volume-bridge/releases/tag/v0.3.0).
+See the repository Releases page for the current published version.
 
-The release workflow compiles one macOS executable, one Ubuntu Debian package,
-and one Windows executable per version. The protected macOS direct-download job downloads the exact
+New builds discover public releases directly through the anonymous GitHub API.
+No catalog file, proposal credentials, backfill or website deployment is required.
+The legacy automatic catalog proposal and scheduled reconciliation are retired;
+manual historical tooling remains available. See ADR 0021.
+
+The release workflow compiles one macOS ARM64 executable, Ubuntu AMD64 and
+ARM64 Debian packages, and Windows x64 and ARM64 executables per version. The protected macOS direct-download job downloads the exact
 executable produced by the unprivileged build job, imports the Developer ID
 identity into an ephemeral keychain, bundles a sandboxed application, signs it
 with Hardened Runtime, submits it to Apple for notarization, staples the ticket,
-and verifies the result before the archive is published. The protected Mac App
-Store job runs only when **Build Mac App Store package** is checked. It
+and verifies the result before the installers are published. The protected Mac App
+Store package job runs only when **Stable** and **Push Apple Store** are checked. It
 independently imports its Apple Distribution and Mac Installer
 Distribution identities, embeds the Mac App Store provisioning profile, verifies
-the sandbox entitlements and profile, then produces a signed upload `.pkg`.
-The Windows build job uploads its one
-compiled output for two independent
+the sandbox entitlements and profile, then produces a signed upload `.pkg`. After successful GitHub Release publication,
+the upload job validates and delivers it to App Store Connect; review and public
+Store availability remain separate steps. Select **Manually release this version**
+in App Store Connect before submitting for review. CI uploads the package only;
+it does not submit for review, change the release mode, or publish the Store app.
+Each Windows architecture uploads its compiled output for two independent
 packaging jobs. One produces the clean Microsoft Store MSIX payload while the
 other applies Tauri's NSIS-specific metadata to produce the direct-download
 installer. A packaging failure can therefore be isolated to its installer type
@@ -71,8 +85,12 @@ installation.
 
 ## Ubuntu packaging
 
-The release workflow builds an x86_64 Debian package on Ubuntu and uploads it
-to the GitHub Release. It targets Ubuntu systems using PulseAudio or PipeWire's
+The release workflow builds native AMD64 and ARM64 Debian packages in parallel
+on `ubuntu-latest` and `ubuntu-24.04-arm`, respectively, and uploads both to the
+GitHub Release. The matrix uses separate architecture-specific caches and
+artifacts. `scripts/collect-linux-installer.sh` verifies Debian architecture
+metadata before assigning each release filename. Publication waits for both
+architectures to succeed. It targets Ubuntu systems using PulseAudio or PipeWire's
 PulseAudio compatibility service; users need `pulseaudio-utils` for `pactl`.
 
 Rust caches use one shared logical key across CI and release job names. The
@@ -93,15 +111,15 @@ passwords. Verify install, autostart, tray behavior, upgrade, and uninstall in a
 non-administrator Windows account.
 
 The NSIS installer remains the direct-download artifact. Microsoft Store
-distribution uses a separate x64 MSIX with the reserved Partner Center identity.
+distribution uses x64 and ARM64 MSIX packages with the reserved Partner Center identity.
 Run the `Microsoft Store Package` workflow on `develop`, download the
-`microsoft-store-msix` artifact, and upload its `.msix` file to the draft Store
-submission. The Store signs accepted packages and delivers their updates. The
+`microsoft-store-upload` artifact, and upload its combined `.msixupload` file to
+the draft Store submission. Both architectures are verified inside one bundle. The Store signs accepted packages and delivers their updates. The
 MSIX declares `en-US`, so its upload enables the English Store listing.
 
 After the first Store submission is certified and live, the `Release` workflow
 builds and validates the MSIX from the same versioned commit as the other
-platform packages. For a GA release with **Submit release to Microsoft Store (GA only)** checked,
+platform packages. With **Stable** and **Push MS Store** checked,
 it publishes the GitHub Release first and then submits the MSIX to Store product `9N7JKGXCMST0`. Alpha and Beta releases
 still build the MSIX for validation but intentionally skip Store submission.
 
@@ -130,7 +148,7 @@ package version is derived from the workspace semantic version as
 Build on Apple Silicon at minimum. macOS 13 or later is required because the
 sandboxed app uses Apple's `SMAppService` login-item API instead of a
 filesystem LaunchAgent. The release workflow packages the notarized
-direct-download app as a ZIP preserving the `.app` bundle and creates a signed
+direct-download app as a drag-to-Applications DMG and creates a signed
 `.pkg` for Mac App Store upload. The sandbox entitlement set grants only App
 Sandbox plus incoming and outgoing network access. This is required for Sonos
 discovery, control, and event callbacks. Core Audio, local configuration,
@@ -190,16 +208,182 @@ are not migrated and must be configured again.
   after its GitHub Release and downloads have been verified. Do not add Apple
   credentials to this repository.
 
-### Website download aliases
+### Release download filenames
 
 The GitHub Release publishing job runs `scripts/prepare-release-downloads.sh`
-to add fixed filenames for direct downloads, alongside the versioned installers:
+to rename build outputs to five permanent filenames, with one file per package.
+The release tag identifies the version; duplicate versioned files are not uploaded:
 
-- `sonos-volume-bridge-macos.zip`
-- `sonos-volume-bridge-windows-unsigned.exe`
-- `sonos-volume-bridge-linux-amd64.deb`
+- `speaker-volume-bridge-macos.dmg` (website download)
+- `speaker-volume-bridge-windows-x64-unsigned.exe`
+- `speaker-volume-bridge-windows-arm64-unsigned.exe`
+- `speaker-volume-bridge-linux-x64.deb`
+- `speaker-volume-bridge-linux-arm64.deb`
 
 The website uses `releases/latest/download/<filename>` so stable downloads follow
 the latest non-prerelease without a website deployment. Missing or empty source
-installers fail preparation before any aliases are created. Store packages are
-not used as direct-download aliases.
+installers fail preparation before any inputs are renamed. Preparation can be
+repeated safely. Release publication does not create aliases using the former
+product name; every downloadable installer uses the current
+product name. Store packages remain separate workflow artifacts. Existing
+published releases are not rewritten by this change.
+
+The macOS DMG contains the notarized app and an Applications shortcut. The release
+job also signs the disk image, requires an Accepted notarization response, staples
+and validates its ticket, and verifies integrity and Gatekeeper assessment before
+upload. Publish the first GA release containing the DMG before deploying the new
+website link; earlier releases do not provide the stable DMG asset.
+
+## Windows native architecture builds
+
+Windows builds run on `windows-latest` for x64 (AMD64) and `windows-11-arm`
+for ARM64. Each executable, NSIS installer and Store MSIX has a distinct
+architecture-qualified artifact name. Executable PE headers are checked before
+publishing build artifacts and before MSIX packaging; a mismatched requested
+architecture fails before packaging. MSIX staging, manifest and filenames use
+the executable architecture. Store submission combines both packages into one
+bundle/upload so one architecture does not replace the other in a later submission.
+Windows and Linux direct-download filenames consistently use x64 and arm64.
+Debian package metadata and native build validation retain the required amd64 name.
+Future releases omit the old architecture-free Windows filename and macOS ZIP;
+links to those filenames on a specific older release remain valid.
+
+Windows PR validation runs the native tests and builds an NSIS installer on both
+architectures. This exercises the custom installer with the actual Tauri bundler,
+including its Restart Manager includes. After upgrading Tauri, verify this build
+before releasing: the template originally omitted `Win/RestartManager.nsh`,
+which caused NSIS compilation to fail before producing an installer.
+
+## Release build gate
+
+The `all-platform-builds` job requires successful macOS executable, Ubuntu
+AMD64/ARM64 DEB, Windows x64/ARM64 executable, NSIS and MSIX jobs, plus the
+combined Store upload. Bundle creation and validation run without Store credentials
+for every release channel, before signing and GitHub publication. Submission
+downloads the exact verified upload rather than rebuilding it. Default GitHub
+success semantics block the gate on any failed, cancelled or skipped required
+build. macOS signing/notarization and optional Mac App Store packaging depend
+on this gate; Microsoft Store submission also waits for GitHub publication.
+Mac App Store upload remains manual. Release graph regression tests check all
+required dependencies and reject cycles. Optional Apple packaging is deliberately
+outside the unsigned build gate to avoid a dependency cycle. The publication
+gate accepts its skipped result only when the option is unchecked; a selected
+Apple package must succeed. Cancellation and failure in any required dependency
+block publication. Tests cover the success, failure, skipped and cancelled cases.
+
+Windows PR CI builds native MSIX packages on both architectures and runs the
+production combined-upload script. It unbundles the result and verifies both
+original packages are preserved, then checks rejection of a missing architecture,
+a misleading architecture filename, and mismatched package versions.
+
+## Retry or debug an existing Microsoft Store release
+
+Use **Actions → Microsoft Store Publish → Run workflow**, leave the workflow
+source on `develop`, and enter the desired `release_tag`. Leave `dry_run` enabled
+(the default) to validate without authenticating or uploading. Disable it explicitly
+for an actual Store submission. GitHub does not provide a dynamic tag-picker input;
+the tag field is
+validated before submission, rejecting branches, unknown tags, drafts and
+prereleases. Only existing published GA releases are accepted.
+
+The release flow calls this same reusable workflow after successful builds and
+GitHub publication when Store submission is selected, passing `dry_run: false`.
+Both paths find the retained
+combined upload from the original release run, verify the selected version and
+both Windows architectures, and validate the publishing command with the pinned
+Store CLI before entering the protected Microsoft Store environment. Submissions
+share a concurrency group to prevent overlapping Store changes.
+
+The retry reuses the retained artifact even when the original Store submission
+failed. Expired artifacts and runs without successful package verification and
+GitHub publication are rejected; there is no automatic rebuild fallback or
+version bump. **Microsoft Store Package** remains a separate build-only workflow.
+
+CLI preflight uses non-authenticating placeholder configuration for help parsing
+and restores the original configuration afterward. It does not authenticate or
+upload. When `dry_run` is false, the subsequent protected submission job performs
+the actual upload. Dry runs skip that job entirely, including environment approval
+and authentication.
+
+The CLI is pinned to `v0.4.3`, whose publish option is `--inputDirectory`.
+The shared publishing script requires a directory containing exactly one
+`.msixupload`. Native Windows CI invokes that same script with `--help`, using
+the actual pinned CLI, so unsupported publishing arguments fail before release.
+Successful submission is separate from Store certification and availability.
+
+The publishing command passes the verified `.msixupload` file as its positional
+argument. Passing the repository directory triggers project detection and can
+select Electron, whose package filter ignores MSIX uploads. Native regression
+coverage checks the actual file argument as well as CLI argument parsing.
+
+After commit, the workflow queries Store submission metadata for up to five minutes.
+It requires uploaded packages with the selected version for both x64 and ARM64;
+a successful commit alone is insufficient. An incomplete check fails the job and
+requires inspection before any publishing retry. These read-only checks do not
+resubmit. Dry run does not query authenticated Store state and cannot establish
+remote acceptance. Certification and public availability remain separate.
+
+Store submission metadata may represent the combined upload as one Neutral
+package. Accept that representation only when its uploaded filename and version
+match the retained artifact and local verification confirms both embedded x64
+and ARM64 packages. Neutral alone does not prove architecture coverage. This
+submission check does not establish certification or public availability.
+
+## Native validation before publication
+
+Release dispatch publishes a public release and increments the version. It has
+no private-draft switch. Complete the native checks in [the upgrade guide](rebrand-upgrade.md)
+and the standalone signing verification workflows before dispatching a release.
+Keep both Store push flags false until the corresponding package is ready for
+submission. Do not rerun the version-bump workflow to retry a Store upload for
+an already published release. A Store upload does not establish public availability.
+
+### Signing wait timer maintenance
+
+GitHub environment wait timers are repository settings, not workflow delays.
+After review, preview the maintenance operation with
+`python3 scripts/remove-signing-wait.py --repo OWNER/REPOSITORY`.
+An administrator can use the same command with `--apply` to remove the wait timers
+from the two Apple signing environments. It reads and preserves existing required
+reviewers, self-review policy and deployment branch policy, then verifies the
+result. Existing secrets and branch/tag rules are not rewritten. An unexpected
+configuration or concurrent edit stops the operation. If one environment update
+fails, inspect both before retrying; updates are not atomic across environments.
+This is an explicit administrative step after PR approval: merging the PR does
+not change live settings or initiate a release. See GitHub's
+[environment API](https://docs.github.com/en/rest/deployments/environments#create-or-update-an-environment).
+
+## Release policy metadata
+
+Stable true stamps GA provenance and publishes a non-prerelease. Stable false
+stamps Beta provenance and sets GitHub's prerelease flag. New builds use that
+flag to implement Stable only or Include prereleases, including existing Alpha
+releases. They compare semantic versions and require an uploaded official asset
+for the installed edition and architecture; publication order is not version order.
+Store uploads do not establish public Store availability. No direct-release asset
+can establish an update offer for a Store installation. See ADR 0021.
+
+## Direct macOS updater validation
+
+See [ADR 0023](decisions/0023-macos-updater-artifacts.md). Build the offline verifier
+with `cargo build --locked --release -p speaker-volume-bridge-updater-artifact`.
+After all existing direct bundle approval checks, run
+`scripts/macos-updater-artifact.py` with the final app, expected version, empty
+output directory and `--public-key` pointing to the Tauri base64 public key file.
+The supported signer reads `TAURI_SIGNING_PRIVATE_KEY` or
+`TAURI_SIGNING_PRIVATE_KEY_PATH` and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Never include operator credentials in documentation, issues or PRs. Configure
+operator-owned secrets privately only with separate authorization.
+
+The signed Release job reads the existing signing environment's updater private
+key/password and public-key variable only when configured. No setup produces an
+explicit unavailable summary; partial or invalid setup fails. Validation artifacts
+are not selected for release upload. Do not publish an install-capable manifest or
+claim a successful native upgrade until acceptance passes. No catalog deployment
+is required. Future GitHub Release titles are exactly the version tag.
+
+The default-off updater acceptance input in **Verify macOS Signing** builds a
+controlled signed pair and runs the feature-gated native probe without publication.
+See the verification matrix for isolation requirements and evidence limits. The
+hosted runner's signing workflow uses a temporary updater key; no production
+updater credential setup is required for that probe.

@@ -59,6 +59,6 @@ test('macOS keeps its fixed System Settings width and fits Night schedule status
   assert.equal(window.width, 740);
   assert.equal(window.minWidth, window.width);
   assert.equal(window.maxWidth, window.width);
-  assert.equal(window.height, 760, 'allow room for the Night schedule status row');
+  assert.equal(window.height, 780, 'use the accepted native Settings height');
   assert.ok(window.minHeight < window.height);
 });

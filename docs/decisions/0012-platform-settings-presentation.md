@@ -4,6 +4,12 @@
 
 ## Decision
 
+macOS Settings starts at 740 by 780 logical points, with a fixed 740-point width
+and vertical resizing. The height matches the accepted native window size.
+Updates timestamps use the desktop's regional format locale and 12/24-hour
+preference, rather than assuming the embedded WebView's language is the user's
+region. Read these preferences at startup and when Settings regains focus.
+
 Keep one accessible settings form and command contract, with separate CSS
 presentations selected from the desktop WebView's host operating-system user
 agent. macOS uses grouped inset rows, colored section icons, subtle sidebar
@@ -42,6 +48,18 @@ preferences apply across themes. Icons are decorative; buttons retain text label
 
 ## Verification
 
+Updates renders version metadata as flat rows within the existing settings group
+on every platform, without nested card borders, corner rounding or shadows.
+The release policy retains the platform's normal section spacing and separator.
+Windows places those plain metadata rows in one outlined card, matching its other
+settings. Policy and download guidance share the preceding card visually rather
+than appearing in separate cards; action buttons align to the right.
+Windows accent actions use the same 34-pixel minimum height, 4-pixel corners and
+regular text weight as secondary actions, with accent hover, pressed and disabled
+states. Sidebar branding increases SPEAKER's font size proportionally to match
+the natural width of Volume Bridge on every platform. It uses no added tracking
+or transform stretching, and remeasures after fonts finish loading.
+
 Platform selection has automated coverage for macOS, Windows, Linux, and unknown
 hosts. The development-only preview uses mocked Tauri commands and sample devices
 for repeatable visual checks without touching speakers or saved configuration.
@@ -57,7 +75,7 @@ white switch and slider thumbs. HTML controls retain native keyboard semantics;
 these are WebView controls, not AppKit or SwiftUI controls, so exact system
 materials and animations are not guaranteed.
 
-The default macOS height is 760 points so Night schedule, including its status row,
+The default macOS height is 780 points so Night schedule, including its status row,
 fits without default-size scrolling.
 Width remains fixed at 740 points; users can still resize vertically down to 460.
 

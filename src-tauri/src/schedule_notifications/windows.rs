@@ -7,7 +7,6 @@ mod shortcut;
 
 #[cfg(windows)]
 pub(super) fn install<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
-    use tauri::Manager;
     let identifier = app.config().identifier.clone();
     let name = app
         .config()

@@ -47,3 +47,16 @@ In v{{ site.data.release.version }}, the Balanced curve reaches 55% Sonos volume
 The test reads the speaker's current volume and writes the same value back. It verifies that the selected device accepts a volume command without intentionally making the speaker louder or quieter.
 
 If the test fails, check [Diagnostics and troubleshooting](/guide/Diagnostics-and-Troubleshooting.html).
+
+## Rapid adjustments
+
+During rapid keyboard or slider adjustments, the bridge sends the latest volume
+instead of replaying every intermediate value. In two-way mode, delayed speaker
+updates are deferred while the computer adjustment settles. A final speaker read
+then reconciles both sides, including the selected mapping and volume cap. Mute
+changes take effect immediately. A simultaneous adjustment from another speaker
+controller may therefore appear after a brief settling interval.
+
+If you adjust volume again while the bridge is checking the speaker, the newer
+adjustment takes priority. Overlapping speaker notifications cause a fresh check
+so an older read does not become the final state.

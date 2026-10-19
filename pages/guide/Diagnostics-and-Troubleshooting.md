@@ -98,3 +98,21 @@ Keep raw diagnostic evidence private until a maintainer provides an approved way
 - If notifications are missing, check **Night schedule notifications**, system notification permissions, and Focus or Do Not Disturb. Saving an unchanged grid does not test notifications. Enable a previously disabled schedule during a selected block with **On start** or **On start and end** selected to check start delivery. Permission denial does not stop scheduling.
 
 See [Night schedule](/guide/Night-Schedule.html) for the full editing and notification rules.
+
+## Volume stops responding after an output-device change
+
+The bridge reattaches audio listeners when outputs change. A failed attachment
+must appear as an unavailable output and retry, rather than remain connected
+without observing volume. After reconnecting, check both computer-to-speaker and
+speaker-to-computer volume changes. If the output repeatedly disconnects, check
+its connection and current selection in Devices.
+
+Changes to unrelated outputs should not interrupt a healthy selected output.
+A successful output switch keeps the speaker connection and reconciles volume
+using the selected synchronization direction. Connection recovery is reserved
+for an unavailable output or failed attachment.
+
+While a volume adjustment settles, delayed speaker updates do not replace the
+waiting status or displayed speaker value. After settling, Diagnostics continues
+to report degraded event delivery or polling fallback if the subscription is
+unavailable.

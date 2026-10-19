@@ -59,3 +59,25 @@ Apple name: Speaker Volume Bridge. Subtitle: Sync Mac and speaker volume. Retain
 [The allowlist](legacy-identifiers.json) records files retaining the former product name or stable identifiers and their reasons. `python3 scripts/check-legacy-identifiers.py` rejects undocumented references, including new files. Protocol-specific Sonos names remain accurate and are outside the rebrand.
 
 Ready-to-review [Store copy and Apple reply](store-rebrand-copy.md) are staged for the verified build.
+
+## Store delegation and migration from catalog clients
+
+Recognized Microsoft Store and Mac App Store editions show **Updates are managed
+by the Store**. **Open Microsoft Store** opens this product in Microsoft Store;
+**Open Mac App Store** opens the Store's Updates page. Check, automatic-check,
+notification and release-policy controls are unavailable for Store editions.
+Startup, periodic, wake and manual calls make no GitHub discovery requests and
+never infer Store availability from direct-download releases. The Store owns
+update installation and notification behavior.
+
+Existing catalog-based direct clients need a **one-time manual upgrade** to a
+future released version containing GitHub Releases discovery. Download the correct
+edition and architecture from the official release page, quit the current app,
+and install it using the platform instructions. Keep application data to preserve
+settings. Old clients cannot discover this redesign through the retired catalog
+pipeline; no redirect, catalog backfill or silent source switch is provided.
+After upgrading, verify the installed version and edition in Updates and run a
+manual check. The new client discards old catalog offers and check freshness while
+preserving release-policy and notification preferences. Store clients upgrade
+through their existing Store when that version becomes available. This readiness
+work does not publish that version or implement self-installation.

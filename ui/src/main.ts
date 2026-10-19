@@ -22,16 +22,32 @@ import { desktopPlatform } from './platform';
 import { settingCaption } from './setting-caption';
 import { sizeSelectedControls } from './select-sizing';
 import { canApplyRefresh } from './refresh-state';
-import { adjacentPage, type SettingsPage } from './settings-navigation';
+import {
+  adjacentPage,
+  settingsPages,
+  SettingsNavigation,
+  type SettingsPage,
+  type SettingsNavigationRequest,
+} from './settings-navigation';
 import { applySpeakerControls, type SpeakerSettings } from './speaker-controls';
 import { SliderInteraction } from './slider-interaction';
 import { LiveStatus } from './live-status';
 import { UserWrites } from './user-writes';
-import { editionLabel, releasePolicyControl, updateStateText, type UpdateStatus } from './updates';
+import {
+  editionLabel,
+  formatLastSuccessfulCheck,
+  releasePolicyControl,
+  storeActionLabel,
+  updateStateText,
+  type UpdateStatus,
+} from './updates';
 import './style.css';
 import './platform.css';
 import './windows.css';
 import './linux.css';
+
+let systemLocale: string | undefined;
+let systemClockHour12: boolean | undefined;
 
 const platform = presentationOverride ?? desktopPlatform(navigator.userAgent);
 document.documentElement.dataset.platform = platform;
@@ -309,7 +325,12 @@ const pageIcons: Record<SettingsPage, string> = {
 };
 
 function pageButton(page: SettingsPage, label: string): string {
-  return `<button class="page-button${activePage === page ? ' active' : ''}" type="button" data-page="${page}"${activePage === page ? ' aria-current="page"' : ''}><span class="nav-icon nav-icon-${page}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${pageIcons[page]}</svg></span><span>${label}</span></button>`;
+  const available =
+    page === 'updates' &&
+    updateStatus.phase === 'update_available' &&
+    !updateStatus.offerStale &&
+    !updateStatus.promptDismissed;
+  return `<button class="page-button${activePage === page ? ' active' : ''}" type="button" data-page="${page}"${activePage === page ? ' aria-current="page"' : ''}${available ? ` aria-description="Version ${escapeHtml(updateStatus.availableVersion ?? '')} available"` : ''}><span class="nav-icon nav-icon-${page}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${pageIcons[page]}</svg></span><span>${label}</span>${available ? '<span id="update-available-notice" aria-hidden="true">•</span>' : ''}</button>`;
 }
 
 function panel(page: SettingsPage, content: string): string {
@@ -387,14 +408,15 @@ function render(nextSnapshot: Snapshot): void {
         )}
         ${panel(
           'updates',
-          `<div class="panel-heading"><h2>Updates</h2><p>Check for a release published for this installed edition.</p></div>
+          `<div class="panel-heading"><h2>Updates</h2><p>${storeActionLabel(updateStatus) ? 'Manage updates through the Store that installed this edition.' : 'Check for a release published for this installed edition.'}</p></div>
           <p id="update-state" class="setting-note update-state${updateStatus.phase === 'update_available' ? ' update-state-available' : ''}" aria-live="polite">${escapeHtml(updateStateText(updateStatus))}</p>
           <div class="settings-group" data-update>
-            <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${updateStatus.lastSuccessfulCheck ? escapeHtml(new Date(updateStatus.lastSuccessfulCheck * 1000).toLocaleString()) : 'Never'}</dd></div></dl>
+            <dl class="status-list"><div><dt>Installed version</dt><dd>${escapeHtml(updateStatus.installedVersion || appVersion)}</dd></div><div><dt>Distribution</dt><dd>${escapeHtml(editionLabel(updateStatus.edition))}</dd></div><div><dt>Last successful check</dt><dd>${escapeHtml(formatLastSuccessfulCheck(updateStatus.lastSuccessfulCheck, systemLocale, systemClockHour12))}</dd></div></dl>
             ${releasePolicyControl(updateStatus)}
-            <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks the project catalog without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
-            <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${updateStatus.phase === 'unsupported' ? ' disabled' : ''}/></label>
-            <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="primary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open update page</button><button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button></div>
+            ${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<div class="update-actions">${updateStatus.downloadAction ? `<button class="primary" type="button" id="download-update" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}">Download update</button>` : ''}<button class="secondary" type="button" id="open-update-page" data-generation="${updateStatus.generation ?? 0}" data-version="${escapeHtml(updateStatus.availableVersion)}" data-url="${escapeHtml(updateStatus.action.url)}">Open release</button></div>${updateStatus.downloadAction ? '<p class="setting-note">Opens the installer download in your browser. Install it manually after downloading; the app will not quit or install it for you.</p>' : ''}` : ''}
+            <label class="toggle"><span>${settingCaption(platform, 'Automatically check for updates', 'Checks public GitHub Releases without sending speaker or configuration data.', 'sync')}</span><input id="automatic-update-checks" type="checkbox" role="switch"${updateStatus.automaticChecks ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
+            <label class="toggle"><span>${settingCaption(platform, 'Update notifications', 'Show a native notification when a new release is available.', 'sound')}</span><input id="update-notifications" type="checkbox" role="switch"${updateStatus.updateNotifications ? ' checked' : ''}${['unsupported', 'store_managed'].includes(updateStatus.phase) ? ' disabled' : ''}/></label>
+            <div class="update-actions">${updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action && updateStatus.availableVersion ? `<button class="secondary" type="button" id="later-update" data-version="${escapeHtml(updateStatus.availableVersion)}"${updateStatus.promptDismissed ? ' disabled' : ''}>${updateStatus.promptDismissed ? 'Later selected' : 'Later'}</button>` : ''}${storeActionLabel(updateStatus) ? `<button class="primary" type="button" id="open-update-store">${storeActionLabel(updateStatus)}</button>` : `<button class="secondary" type="button" id="check-for-updates"${updateStatus.phase === 'checking' ? ' disabled' : ''}>Check for updates</button>`}</div>
           </div>`,
         )}
         ${panel(
@@ -449,6 +471,18 @@ function render(nextSnapshot: Snapshot): void {
   );
   // Mount restores saved selections before their labels determine control width.
   if (document.documentElement.dataset.platform === 'macos') sizeSelectedControls(app);
+  const sizeBrand = (): void => {
+    const brand = app.querySelector<HTMLElement>('h1 .sonos-name');
+    const title = app.querySelector<HTMLElement>('h1 > span:last-child');
+    if (!brand || !title) return;
+    const width = brand.getBoundingClientRect().width;
+    if (width > 0) {
+      const size = Number.parseFloat(getComputedStyle(brand).fontSize);
+      brand.style.fontSize = `${(size * title.getBoundingClientRect().width) / width}px`;
+    }
+  };
+  sizeBrand();
+  void document.fonts.ready.then(sizeBrand);
   refreshScheduleView();
   const form = document.querySelector<HTMLFormElement>('#settings');
   const scheduleConfigurationSave = (event: Event): void => {
@@ -503,6 +537,15 @@ function render(nextSnapshot: Snapshot): void {
   app.querySelector<HTMLSelectElement>('#update-policy')?.addEventListener('change', (event) => {
     void setUpdatePolicy((event.target as HTMLSelectElement).value as 'stable' | 'prereleases');
   });
+  document.querySelector('#open-update-store')?.addEventListener('click', () => {
+    void invoke('open_update_store').catch((error) => notice(String(error)));
+  });
+  document
+    .querySelector('#download-update')
+    ?.addEventListener(
+      'click',
+      (event) => void downloadUpdate(event.currentTarget as HTMLButtonElement),
+    );
   document
     .querySelector('#check-for-updates')
     ?.addEventListener('click', () => void checkForUpdates());
@@ -842,6 +885,7 @@ async function setUpdatePolicy(policy: 'stable' | 'prereleases'): Promise<void> 
     phase: 'checking',
     availableVersion: null,
     action: null,
+    downloadAction: null,
     message: null,
   };
   if (snapshot) render(snapshot);
@@ -849,9 +893,12 @@ async function setUpdatePolicy(policy: 'stable' | 'prereleases'): Promise<void> 
     const result = await invoke<UpdateStatus>('set_update_policy', { policy });
     if (request === updatePolicyRequest) updateStatus = result;
   } catch (error) {
+    // A failed write may leave the backend on its previous generation. Recover
+    // its authoritative identity so a subsequent check is not discarded forever.
+    const current = await invoke<UpdateStatus>('get_update_status').catch(() => null);
     if (request === updatePolicyRequest) {
       updateStatus = {
-        ...updateStatus,
+        ...(current ?? updateStatus),
         phase: 'unavailable',
         message: `${String(error)}. Check again to retry.`,
       };
@@ -903,6 +950,23 @@ async function openUpdatePage(button: HTMLButtonElement): Promise<void> {
   } catch (error) {
     notice(String(error));
     await checkForUpdates();
+  }
+}
+
+async function downloadUpdate(button: HTMLButtonElement): Promise<void> {
+  try {
+    await invoke('open_update_download', {
+      version: button.dataset.version,
+      generation: Number(button.dataset.generation ?? 0),
+    });
+    notice('Download opened in your browser. Install the package manually when it finishes.');
+  } catch (error) {
+    await checkForUpdates();
+    const fallback =
+      updateStatus.phase === 'update_available' && !updateStatus.offerStale && updateStatus.action
+        ? 'You can also use Open release.'
+        : 'Check for updates again before downloading.';
+    notice(`${String(error)} ${fallback}`);
   }
 }
 
@@ -967,9 +1031,12 @@ async function reset(): Promise<void> {
 Promise.all([
   invoke<Snapshot>('get_snapshot'),
   invoke<boolean | null>('get_system_hour12').catch(() => null),
+  invoke<string | null>('get_system_locale').catch(() => null),
   invoke<UpdateStatus>('get_update_status').catch(() => updateStatus),
 ])
-  .then(([nextSnapshot, hour12, initialUpdateStatus]) => {
+  .then(([nextSnapshot, hour12, locale, initialUpdateStatus]) => {
+    systemLocale = locale ?? undefined;
+    systemClockHour12 = hour12 ?? undefined;
     updateStatus = initialUpdateStatus;
     setSystemHour12(hour12);
     render(nextSnapshot);
@@ -997,7 +1064,7 @@ async function refreshAllSettings(): Promise<void> {
   const request = ++refreshRequest;
   const revision = editRevision;
   try {
-    const [next, speaker, outputs, discovered, diagnostics, hour12, nextUpdateStatus] =
+    const [next, speaker, outputs, discovered, diagnostics, hour12, locale, nextUpdateStatus] =
       await Promise.all([
         invoke<Snapshot>('get_snapshot'),
         invoke<SpeakerSettings>('get_speaker_settings'),
@@ -1005,6 +1072,7 @@ async function refreshAllSettings(): Promise<void> {
         invoke<DiscoveredSonos[]>('discover_sonos').catch(() => null),
         invoke<Diagnostics>('diagnostics').catch(() => null),
         invoke<boolean | null>('get_system_hour12').catch(() => null),
+        invoke<string | null>('get_system_locale').catch(() => null),
         invoke<UpdateStatus>('get_update_status').catch(() => null),
       ]);
     if (
@@ -1017,6 +1085,8 @@ async function refreshAllSettings(): Promise<void> {
       )
     )
       return;
+    systemLocale = locale ?? undefined;
+    systemClockHour12 = hour12 ?? undefined;
     setSystemHour12(hour12);
     if (nextUpdateStatus && (nextUpdateStatus.generation ?? 0) >= (updateStatus.generation ?? 0))
       updateStatus = nextUpdateStatus;
@@ -1106,7 +1176,18 @@ if (isTauri()) {
     updateStatus = payload;
     if (snapshot) render(snapshot);
   });
-  void listen('open-updates', () => activatePage('updates'));
+  const openSettingsPage = (page: string | null): void => {
+    if (page && settingsPages.includes(page as SettingsPage)) activatePage(page as SettingsPage);
+  };
+  const settingsNavigation = new SettingsNavigation(openSettingsPage);
+  void listen<SettingsNavigationRequest>('open-settings-page', ({ payload }) => {
+    settingsNavigation.accept(payload);
+    void invoke('acknowledge_settings_navigation', { revision: payload.revision });
+  }).then(async () => {
+    settingsNavigation.accept(
+      await invoke<SettingsNavigationRequest | null>('take_pending_settings_navigation'),
+    );
+  });
 }
 
 void invoke<ScheduleStatus>('get_schedule_status').then((status) => {

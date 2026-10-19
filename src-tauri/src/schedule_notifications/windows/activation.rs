@@ -42,8 +42,8 @@ struct Activator;
 impl INotificationActivationCallback_Impl for Activator_Impl {
     fn Activate(
         &self,
+        _: &PCWSTR, // Application identity, not the toast launch arguments.
         arguments: &PCWSTR,
-        _: &PCWSTR,
         _: *const NOTIFICATION_USER_INPUT_DATA,
         _: u32,
     ) -> windows::core::Result<()> {
@@ -158,6 +158,10 @@ mod tests {
         // SAFETY: initialize this test thread, obtain the actual registered COM
         // class, then pass the same launch argument emitted by update toasts.
         let launch: Vec<u16> = "open-updates".encode_utf16().chain(Some(0)).collect();
+        let app_id: Vec<u16> = "normal.app.activation-test"
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap();
             {
@@ -168,10 +172,10 @@ mod tests {
                 )
                 .unwrap();
                 callback
-                    .Activate(PCWSTR::null(), PCWSTR::null(), &[])
+                    .Activate(PCWSTR(app_id.as_ptr()), PCWSTR::null(), &[])
                     .unwrap();
                 callback
-                    .Activate(PCWSTR(launch.as_ptr()), PCWSTR::null(), &[])
+                    .Activate(PCWSTR(app_id.as_ptr()), PCWSTR(launch.as_ptr()), &[])
                     .unwrap();
             }
             CoUninitialize();

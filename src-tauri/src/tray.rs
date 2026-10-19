@@ -92,10 +92,8 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .menu(&menu)
         .tooltip("Speaker Volume Bridge")
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "settings" | "diagnostics" => show_settings(app),
-            "updates" => {
-                show_settings(app);
-                let _ = app.emit("open-updates", ());
+            "settings" | "diagnostics" | "updates" => {
+                open_settings_menu_item(app, event.id().as_ref());
             }
             "night-schedule-enabled" => toggle_schedule(app),
             "speaker-night-sound" => {
@@ -125,8 +123,8 @@ fn register_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 button_state: MouseButtonState::Down,
                 ..
             } => refresh_speaker_controls(tray.app_handle()),
-            TrayIconEvent::DoubleClick { button, .. } if opens_settings_on_double_click(button) => {
-                show_settings(tray.app_handle());
+            TrayIconEvent::DoubleClick { button, .. } => {
+                open_settings_on_tray_double_click(tray.app_handle(), button);
             }
             _ => {}
         })
@@ -519,10 +517,92 @@ fn speaker_label(name: Option<&str>, volume: Option<u8>) -> String {
     }
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SettingsNavigationRequest {
+    pub revision: u64,
+    pub page: Option<&'static str>,
+}
+
+#[derive(Default)]
+struct SettingsNavigationState {
+    revision: u64,
+    pending: Option<SettingsNavigationRequest>,
+}
+
+#[derive(Default)]
+pub struct PendingSettingsNavigation(Mutex<SettingsNavigationState>);
+
+pub fn take_settings_navigation_request<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Option<SettingsNavigationRequest> {
+    app.state::<PendingSettingsNavigation>()
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .pending
+        .take()
+}
+
+pub fn acknowledge_settings_navigation<R: Runtime>(app: &AppHandle<R>, revision: u64) {
+    let state = app.state::<PendingSettingsNavigation>();
+    let mut state = state
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state
+        .pending
+        .as_ref()
+        .is_some_and(|request| request.revision == revision)
+    {
+        state.pending = None;
+    }
+}
+
+#[cfg(test)]
+pub fn take_pending_settings_navigation<R: Runtime>(app: &AppHandle<R>) -> Option<&'static str> {
+    take_settings_navigation_request(app).and_then(|request| request.page)
+}
+
+pub fn set_pending_settings_navigation<R: Runtime>(
+    app: &AppHandle<R>,
+    page: Option<&'static str>,
+) -> SettingsNavigationRequest {
+    let state = app.state::<PendingSettingsNavigation>();
+    let mut state = state
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.revision += 1;
+    let request = SettingsNavigationRequest {
+        revision: state.revision,
+        page,
+    };
+    state.pending = Some(request.clone());
+    request
+}
+
+fn open_settings_menu_item<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    let page = match id {
+        "diagnostics" => Some("diagnostics"),
+        "updates" => Some("updates"),
+        _ => None,
+    };
+    let request = set_pending_settings_navigation(app, page);
+    show_settings(app);
+    // Ordinary Settings is a cancellation revision, including for in-flight IPC.
+    let _ = app.emit("open-settings-page", request);
+}
+
 fn show_settings<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+fn open_settings_on_tray_double_click<R: Runtime>(app: &AppHandle<R>, button: MouseButton) {
+    if opens_settings_on_double_click(button) {
+        open_settings_menu_item(app, "settings");
     }
 }
 
@@ -533,6 +613,152 @@ fn opens_settings_on_double_click(button: MouseButton) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn diagnostics_menu_retains_cold_navigation_and_emits_warm_destination() {
+        use std::sync::Arc;
+        use tauri::Listener;
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        // Exact production menu action before any frontend listener is ready.
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&received);
+        let _listener = app.listen("open-settings-page", move |event| {
+            observed.lock().unwrap().push(
+                serde_json::from_str::<serde_json::Value>(event.payload()).unwrap()["page"]
+                    .as_str()
+                    .map(str::to_owned),
+            );
+        });
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![Some("diagnostics".to_owned())]
+        );
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        open_settings_menu_item(app.handle(), "settings");
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        open_settings_menu_item(app.handle(), "diagnostics");
+        open_settings_menu_item(app.handle(), "updates");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("updates")
+        );
+    }
+
+    #[tokio::test]
+    async fn ordinary_settings_revisions_cancel_already_consumed_navigation() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        open_settings_menu_item(app.handle(), "diagnostics");
+        let in_flight = take_settings_navigation_request(app.handle()).unwrap();
+        open_settings_menu_item(app.handle(), "settings");
+        let cancelled = take_settings_navigation_request(app.handle()).unwrap();
+        assert!(cancelled.revision > in_flight.revision);
+        assert_eq!(in_flight.page, Some("diagnostics"));
+        assert_eq!(cancelled.page, None);
+    }
+
+    #[tokio::test]
+    async fn ordinary_settings_clears_unconsumed_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        for page in ["diagnostics", "updates"] {
+            open_settings_menu_item(app.handle(), page);
+            // No frontend has consumed the first request yet.
+            open_settings_menu_item(app.handle(), "settings");
+            assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn notification_and_tray_share_latest_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        // Actual update-notification activation precedes frontend subscription.
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_menu_item(app.handle(), "diagnostics");
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("diagnostics")
+        );
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        // Reversed order, ordinary Settings, and double-click use the same slot.
+        open_settings_menu_item(app.handle(), "diagnostics");
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        assert_eq!(
+            take_pending_settings_navigation(app.handle()),
+            Some("updates")
+        );
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_menu_item(app.handle(), "settings");
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        crate::schedule_notifications::activate_notification(app.handle(), true);
+        open_settings_on_tray_double_click(app.handle(), MouseButton::Left);
+        assert_eq!(take_pending_settings_navigation(app.handle()), None);
+    }
+
+    #[tokio::test]
+    async fn tray_double_click_clears_unconsumed_cold_destination() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.manage(PendingSettingsNavigation::default());
+        for page in ["diagnostics", "updates"] {
+            open_settings_menu_item(app.handle(), page);
+            // Right/middle double-clicks must not cancel explicit navigation.
+            for button in [MouseButton::Right, MouseButton::Middle] {
+                open_settings_on_tray_double_click(app.handle(), button);
+                assert_eq!(
+                    app.state::<PendingSettingsNavigation>()
+                        .0
+                        .lock()
+                        .unwrap()
+                        .pending
+                        .as_ref()
+                        .and_then(|request| request.page),
+                    Some(page)
+                );
+            }
+            // No frontend subscription or consumption between these actions.
+            open_settings_on_tray_double_click(app.handle(), MouseButton::Left);
+            assert_eq!(take_pending_settings_navigation(app.handle()), None);
+        }
+    }
+
+    #[test]
+    fn warm_navigation_acknowledgement_survives_frontend_restart() {
+        let app = tauri::test::mock_app();
+        app.manage(PendingSettingsNavigation::default());
+        let delivered = set_pending_settings_navigation(app.handle(), Some("diagnostics"));
+        acknowledge_settings_navigation(app.handle(), delivered.revision);
+        assert!(take_settings_navigation_request(app.handle()).is_none());
+        let newer = set_pending_settings_navigation(app.handle(), Some("updates"));
+        acknowledge_settings_navigation(app.handle(), delivered.revision);
+        assert_eq!(
+            take_settings_navigation_request(app.handle())
+                .unwrap()
+                .revision,
+            newer.revision
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

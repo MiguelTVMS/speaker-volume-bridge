@@ -1,0 +1,82 @@
+name: Catalog workflow promotion validation
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Identify workflow-only handoff
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Fetch objects only. Never check out or execute the PR tree.
+          git fetch origin "refs/pull/$PR_NUMBER/head"
+          test "$(git rev-parse FETCH_HEAD)" = "$HEAD"
+          git fetch origin main
+          if [ "$(git rev-parse FETCH_HEAD)" != "$BASE" ]; then
+            echo 'Update the PR with current main before promotion validation.' >&2
+            exit 1
+          fi
+          git diff --no-renames --name-only -z "$BASE" "$HEAD" > "$RUNNER_TEMP/promotion-files"
+          python3 - <<'PY_SCOPE'
+          import os
+          from pathlib import Path
+          paths = Path(os.environ['RUNNER_TEMP'], 'promotion-files').read_bytes().split(b'\0')[:-1]
+          workflows = [path for path in paths if
+              path.startswith(b'.github/workflows/') and path.endswith((b'.yml', b'.yaml'))]
+          only_workflows = bool(paths) and len(workflows) == len(paths)
+          Path(os.environ['RUNNER_TEMP'], 'changed-workflows').write_bytes(b'\0'.join(workflows) + (b'\0' if workflows else b''))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('workflow_only=' + str(only_workflows).lower() + '\n')
+              output.write('has_workflows=' + str(bool(workflows)).lower() + '\n')
+          if not only_workflows:
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('GA content promotion retains its existing validation route.\n')
+          PY_SCOPE
+          # Published release heads may diverge while preserving the exact release tree.
+          # Require ancestry only when this PR changes workflow definitions.
+          if [ -s "$RUNNER_TEMP/changed-workflows" ] && ! git merge-base --is-ancestor "$BASE" "$HEAD"; then
+            echo 'Update workflow changes with current main before promotion validation.' >&2
+            exit 1
+          fi
+      - name: Require approved develop workflow definitions
+        if: steps.scope.outputs.has_workflows == 'true'
+        env:
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          WORKFLOW_ONLY: ${{ steps.scope.outputs.workflow_only }}
+        run: |
+          if [ "$WORKFLOW_ONLY" = true ]; then
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                .github/workflows/pages.yml|.github/workflows/update-catalog.yml|.github/workflows/catalog-promotion-validation.yml) ;;
+                *) echo 'Unexpected workflow outside the reviewed handoff scope.' >&2; exit 1 ;;
+              esac
+            done < "$RUNNER_TEMP/promotion-files"
+          fi
+          git fetch origin develop
+          while IFS= read -r -d '' path; do
+            if ! git --literal-pathspecs diff --quiet origin/develop "$HEAD" -- "$path"; then
+              echo 'Workflow differs from approved develop.' >&2
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/changed-workflows"
+          # These tools are from approved develop, never unreviewed promotion code.
+          git worktree add --detach "$RUNNER_TEMP/approved-tools" origin/develop
+      - name: Run approved production catalog regression suite
+        if: steps.scope.outputs.has_workflows == 'true'
+        run: python3 -m unittest discover -s "$RUNNER_TEMP/approved-tools/scripts/tests" -p 'test_*catalog*.py'

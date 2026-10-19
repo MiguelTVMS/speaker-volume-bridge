@@ -43,7 +43,7 @@ Use one Windows distribution consistently when possible. If you switch distribut
 
 If **Sonos Volume Bridge.app** is already installed, quit it and remove that old bundle while retaining application data. Dragging in the differently named app does not automatically replace the old bundle. Check **Start at login** after upgrading.
 
-The direct-download macOS app is signed with Developer ID and notarized by Apple. macOS 13 or later is required.
+Direct-download macOS signing depends on the release settings. Check the exact release notes for signed and notarized or unsigned status before installing. macOS 13 or later is required.
 
 ## Ubuntu direct download
 

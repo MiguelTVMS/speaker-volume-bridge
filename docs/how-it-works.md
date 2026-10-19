@@ -50,22 +50,39 @@ a Store-signed Windows package, App Store receipt, or official Debian package
 registration is required for those editions. Ambiguous/custom packages remain
 unknown and do not affect speaker startup.
 
-Recognized release installations check the bounded HTTPS site catalog 30 seconds
-after startup by default and no more than once per 24 hours after a successful
-check. Manual checks bypass freshness but join an in-flight request. The persisted
+The Debian bundle includes the repository Homepage used by the startup resolver
+alongside its package registration and bundled provenance. Older packages missing
+that field remain unknown; they need a manual upgrade to a corrected package.
+
+New builds of recognized direct and Debian installations query the anonymous GitHub Releases
+API 30 seconds after startup by default and no more than once per 24 hours after a
+successful check. Stable only excludes prereleases; Include prereleases considers
+both stable releases and prereleases. Offers require a compatible published asset
+and open the exact validated release page. Responses and pagination are bounded,
+and rate-limit responses postpone further requests. Manual checks bypass freshness
+but join an in-flight request. The persisted
 record contains only the preference, last attempt/success times, and last-notified
 edition/version. Background failures remain quiet and never change audio behavior;
 manual failures are visible and retryable. Debug, demo, custom and ambiguous
 packages do not check automatically.
 
 The Updates page shows the installed version and distribution, last successful
-check and every checker state. An available offer remains discoverable after
+check and every checker state. The check date and time follow the desktop's
+regional format, local time zone and 12/24-hour preference, refreshed when
+Settings regains focus. An available offer remains discoverable after
 Later or notification denial. The persisted Update notifications switch suppresses
 native update notices independently from automatic checks; enabling it is the
-only update flow that may request OS permission. Open update page is enabled only for the exact
+only update flow that may request OS permission. Open release is enabled only for the exact
 validated offer; the shell rechecks version and URL immediately before invoking
 the operating system's default HTTPS handler. No browser opens at startup and no
-package is downloaded or installed.
+package is downloaded or installed automatically.
+
+For a fresh compatible offer, Download update opens the selected installer asset
+in the default browser. The user completes installation manually. Open release
+remains available for release notes or download trouble. The sidebar shows an
+available-version notice independently of OS notification permission. Later hides
+that notice but keeps both actions on Updates. Downloads use the same policy,
+version, edition, architecture and freshness guards as release-page actions.
 
 ## Synchronization strategy
 
@@ -224,33 +241,29 @@ notification preferences and Do not disturb still apply.
 
 ## Update checks and notifications
 
-Startup, periodic, wake and manual update checks use the same orchestration. It
-publishes each resulting status to the UI and reserves each update notice before
-sending, so overlapping triggers do not deliver duplicate notifications. Automatic
-checks re-evaluate every minute and run only when no successful check has occurred
-in the previous 24 hours. The last success and the validated offer survive restart.
-Successful catalog reads replace the cached offer, including withdrawing it when
-the installed edition has no current catalog entry. A network or invalid-catalog
-failure leaves the last validated offer and success timestamp available.
+Startup, periodic, wake and manual checks share orchestration, persist preferences
+and reserve each notification once before sending. Startup waits 30 seconds;
+successful results remain fresh for 24 hours. Bounded retries retain the last valid
+offer on failures. Shutdown cancels the worker and pending requests.
 
-Sending an update notification leaves the current Settings page unchanged.
-Activating the native notification opens Settings and selects Updates; choosing
-the tray's **Check for updates** action also selects Updates. Other notifications
-retain their existing Settings activation behavior.
+Wake cannot bypass the startup delay. Failures retry after one, five and thirty
+minutes, then daily until recovery; restart preserves this budget. A manual check
+can retry sooner except during a GitHub rate-limit cooldown. Manual errors are
+shown even when an earlier offer remains visible, and failed preference writes
+leave Check for updates usable.
 
-All phase-one consumers ignore additive catalog, entry, and `open_url` action
-metadata while validating required fields and rejecting unsupported actions. An
-`open_url` action remains sufficient
-for clients that do not understand later update metadata; no package installation
-is performed.
+Stable only excludes GitHub prereleases. Include prereleases considers both stable
+and preview releases. Both use the anonymous public release list, compare semantic
+versions and require a compatible official package asset. No Store availability is
+inferred. Changing policy saves it, invalidates prior links immediately and checks
+even with automatic checks disabled. Obsolete responses cannot restore old offers.
+Returning to Stable only waits for a strictly newer GA version without downgrading.
 
-On startup, a persisted offer is shown only when its version is valid and newer
-than the installed package, its edition/channel/OS/application-architecture
-identity matches the running package, and its HTTPS action still passes URL
-validation. Older cache records without target identity and malformed or stale
-offers are discarded without changing the last successful check time. This lets
-manual upgrades remove obsolete offers while offline startup retains a valid
-newer offer until its normal freshness interval expires.
+Notifications leave the current Settings page unchanged. Activating an update
+notification or choosing the tray check action opens Updates. Open release
+revalidates and opens the exact project release page; it never installs a package.
+Previous-source cache freshness is discarded during source migration. Unavailable
+or rate-limited responses are never described as up to date. See ADR 0021.
 
 ## UI demo builds
 
@@ -276,12 +289,52 @@ their normal selection/write serialization and explicit stop behavior. See
 [decision 0018](decisions/0018-rebrand-and-legacy-protection.md) and the
 [manual removal guide](removing-old-app.md).
 
-### Stable releases and Prereleases
+Store editions have a separate `store_managed` update state. The shell rejects
+GitHub discovery for these editions at the shared service boundary, disables
+automatic checks even for migrated enabled preferences, and exposes only fixed
+native Store destinations through an edition-authorized command. No release
+offer or Store availability claim is created. Direct release-policy behavior is
+unchanged. Existing catalog clients require a one-time manual upgrade; see
+[upgrade guidance](rebrand-upgrade.md).
 
-Recognized direct macOS, direct Windows and official Debian editions expose a
-persisted release policy. Stable releases is the default. Prereleases includes
-public Alpha/Beta and newer GA releases, including previews with numeric versions.
-Selection requests a check even with automatic checks off, invalidates previous
-links immediately and rejects obsolete responses. Returning to Stable waits for
-its next strictly newer GA release. A missing preview source remains unavailable.
-Both policies preserve speaker settings and notification preferences. See ADR 0019.
+Direct macOS updater preparation is a packaging-only boundary. Verified payloads
+remain validation artifacts retained in CI and never create installation actions. The
+GitHub release-page fallback, version/policy guards and Store delegation remain
+unchanged. Native sandboxed replacement acceptance is pending; see
+[ADR 0023](decisions/0023-macos-updater-artifacts.md).
+
+## Local volume gestures
+
+Rapid callbacks replace a single pending volume while the runtime continues
+receiving input. Buffered callbacks are collapsed before dispatch. During a local
+gesture and for 500 ms after its latest change or completed write, speaker events
+cannot reverse local audio. A fresh read then reconciles the final speaker state,
+including independent speaker changes, mapping and caps. Mute changes supersede
+queued volume immediately. See [ADR 0024](decisions/0024-volume-gesture-settling.md).
+
+On macOS, reattachment removes the previous Core Audio listener set before
+registering replacements, including when the selected output is unchanged.
+Listener registration is transactional: failure rolls back successful registrations
+and reports the output unavailable. The app cannot silently continue with missing
+volume or lifecycle callbacks. See ADR 0024.
+
+Healthy unchanged macOS outputs retain their listeners on unrelated topology
+notifications. Successful output changes reconcile within the existing speaker
+session, without connection backoff. Pending input from the former output is
+discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.
+
+Explicit Diagnostics and Updates tray actions retain a page destination until
+Settings acknowledges it, so opening a hidden or not-yet-ready window selects
+the requested page. Ordinary Settings preserves its selected page. See
+[ADR 0025](decisions/0025-tray-settings-navigation.md).
+
+
+## Read windows and newer intent
+
+Startup, output changes, settling and periodic health reads all pass through the
+same coordinator read path. It compares local state across network work and
+retains newer input instead of applying an obsolete speaker result. Notifications
+arriving during that work trigger a fresh observation rather than being discarded.
+The listener orders delivery and releases all its sockets when the session ends.
+Settings destinations likewise carry revisions: an ordinary Settings request can
+cancel an older destination even while its startup IPC response is in flight.

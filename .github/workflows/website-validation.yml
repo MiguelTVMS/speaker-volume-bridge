@@ -18,10 +18,17 @@ on:
       - "scripts/tests/test_update_catalog_publication.py"
       - "tests/fixtures/update-catalog/**"
       - "scripts/prepare-update-catalog.py"
+      - 'scripts/release-catalog.py'
+      - 'scripts/propose-release-catalog.py'
+      - 'scripts/compose-catalog-site.py'
+      - 'scripts/bootstrap-catalog-site.py'
+      - 'scripts/tests/test_catalog_delivery.py'
       - "scripts/verify-catalog-availability.py"
       - "scripts/stamp-release-classification.py"
       - "scripts/validate-update-catalog.py"
       - ".github/workflows/update-catalog.yml"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/release-candidate.yml"
       - "scripts/tests/test_website_guide.py"
       - "scripts/tests/test_website_build_data.py"
       - ".github/workflows/website-validation.yml"
@@ -67,6 +74,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -p test_website_seo.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog.py
       - run: python3 -m unittest discover -s scripts/tests -p test_update_catalog_publication.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_catalog_delivery.py
       - run: python3 scripts/validate-update-catalog.py
       - run: python3 scripts/validate-update-catalog.py pages/updates/v2/catalog.json
       - run: python3 -m unittest discover -s scripts/tests -p test_website_guide.py

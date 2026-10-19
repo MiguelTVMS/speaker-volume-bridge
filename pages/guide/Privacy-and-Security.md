@@ -8,7 +8,7 @@ layout: guide
 
 Speaker Volume Bridge communicates directly with Sonos devices on the local network. Normal volume synchronization does not require an online account or an Internet connection.
 
-The app does not include advertising, analytics, or publisher telemetry. It does not automatically upload configuration or log files. Recognized releases can make a bounded HTTPS request to the public project update catalog; automatic checks can be disabled in Settings.
+The app does not include advertising, analytics, or publisher telemetry. It does not automatically upload configuration or log files. Recognized releases can make a bounded HTTPS request to the public project release API; automatic checks can be disabled in Settings.
 
 ## Information used by the app
 
@@ -43,13 +43,14 @@ The Sonos client accepts only local HTTP device locations using private, loopbac
 
 Install releases only from the [official GitHub repository](https://github.com/MiguelTVMS/speaker-volume-bridge/releases/latest) or an official store listing.
 
-## Update catalog requests
+## Update release requests
 
-Update checks request the public catalog from `svb.miguel.ms`. They contain no
+New builds request the public release list from GitHub at `api.github.com`.
+Previously published versions use the website feed at `svb.miguel.ms`. Requests contain no
 speaker or configuration data, analytics, advertising data, or persistent
-installation identifier. The website host can receive ordinary request metadata
-such as the public IP address, time, catalog path, and network headers. The app
-accepts only a bounded, valid catalog and approved HTTPS project or Store links.
+installation identifier. The API hosting provider can receive ordinary request metadata
+such as the public IP address, time, API path, and network headers. The app
+accepts only a bounded, valid release response and approved HTTPS project or Store links.
 See [Update checks](/guide/Updates.html).
 
 ## Schedules and desktop notifications

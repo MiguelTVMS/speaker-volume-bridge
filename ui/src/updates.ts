@@ -1,5 +1,11 @@
 export type UpdatePhase =
-  'idle' | 'checking' | 'up_to_date' | 'update_available' | 'unavailable' | 'unsupported';
+  | 'idle'
+  | 'checking'
+  | 'up_to_date'
+  | 'update_available'
+  | 'unavailable'
+  | 'unsupported'
+  | 'store_managed';
 
 export type UpdateStatus = {
   policy?: 'stable' | 'prereleases';
@@ -11,11 +17,13 @@ export type UpdateStatus = {
   edition: string;
   lastSuccessfulCheck: number | null;
   action: { type: 'open_url'; url: string } | null;
+  downloadAction?: { type: 'open_url'; url: string } | null;
   message: string | null;
   automaticChecks: boolean;
   updateNotifications: boolean;
   promptDismissed: boolean;
   offerStale?: boolean;
+  checkFailed?: boolean;
 };
 
 const editions: Record<string, string> = {
@@ -29,13 +37,38 @@ const editions: Record<string, string> = {
   unknown: 'Unknown or custom build',
 };
 
+export function formatLastSuccessfulCheck(
+  timestamp: number | null,
+  locale?: string,
+  hour12?: boolean,
+): string {
+  if (timestamp === null) return 'Never';
+  const options: Intl.DateTimeFormatOptions = {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+    ...(hour12 === undefined ? {} : { hour12 }),
+  };
+  const date = new Date(timestamp * 1000);
+  if (!Number.isFinite(date.getTime())) return 'Unavailable';
+  try {
+    return new Intl.DateTimeFormat(locale, options).format(date);
+  } catch {
+    return new Intl.DateTimeFormat(undefined, options).format(date);
+  }
+}
+
 export function updateStateText(status: UpdateStatus): string {
   switch (status.phase) {
+    case 'store_managed':
+      return `Updates are managed by the ${editionLabel(status.edition)}. Open the Store to check for updates.`;
     case 'checking':
       return 'Checking for updates…';
     case 'up_to_date':
       return 'This edition is up to date.';
     case 'update_available':
+      if (status.checkFailed && status.message) {
+        return `Version ${status.availableVersion ?? ''} was available at the last successful check. ${status.message} Check again to retry.`;
+      }
       return status.offerStale
         ? `Version ${status.availableVersion ?? ''} was available at the last successful check. Check again before opening it.`
         : `Version ${status.availableVersion ?? ''} is available.`;
@@ -54,5 +87,14 @@ export function editionLabel(edition: string): string {
 
 export function releasePolicyControl(status: UpdateStatus): string {
   if (!status.prereleaseSupported) return '';
-  return `<label class="toggle"><span>Release policy</span><select id="update-policy" aria-label="Release policy"><option value="stable"${status.policy !== 'prereleases' ? ' selected' : ''}>Stable releases</option><option value="prereleases"${status.policy === 'prereleases' ? ' selected' : ''}>Prereleases</option></select></label><p class="setting-note">Prereleases includes public Alpha/Beta releases and newer stable releases. Switching to Stable never downgrades: you will receive the next newer stable release.</p>`;
+  return `<label class="toggle"><span>Release policy</span><select id="update-policy" aria-label="Release policy"><option value="stable"${status.policy !== 'prereleases' ? ' selected' : ''}>Stable only</option><option value="prereleases"${status.policy === 'prereleases' ? ' selected' : ''}>Include prereleases</option></select></label><p class="setting-note">Include prereleases includes public Alpha/Beta releases and newer stable releases. Switching to Stable only never downgrades: you will receive the next newer stable release.</p>`;
+}
+
+export function storeActionLabel(status: UpdateStatus): string | null {
+  if (status.phase !== 'store_managed') return null;
+  return status.edition === 'microsoft_store'
+    ? 'Open Microsoft Store'
+    : status.edition === 'mac_app_store'
+      ? 'Open Mac App Store'
+      : null;
 }

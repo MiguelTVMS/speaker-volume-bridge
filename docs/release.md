@@ -13,18 +13,23 @@ choose one increment:
 - `Minor` increases the minor number and resets the patch number.
 - `Major` increases the major number and resets the minor and patch numbers.
 
-Leave **Build Mac App Store package** unchecked (the default) while the app is
-under Apple evaluation. Check it only when a new signed App Store package is
-needed. This option controls package creation; the workflow does not submit the
-package to Apple automatically. Other release packages and GitHub publication
-continue when the App Store job is skipped. When selected, its signing job must
-succeed before GitHub publication, main promotion, or Microsoft Store submission. The standalone App Store signing
-verification workflow remains available for manual checks.
+The inputs appear in this order: **Version**, **Stable**, **Sign Apple Pack**,
+**Push Apple Store**, **Push MS Store**. Version defaults to Fix. Stable defaults
+to false, publishing a Beta prerelease; true publishes GA. Existing Alpha releases
+remain prereleases for consumers, but this dispatch no longer selects Alpha.
 
-Leave **Submit release to Microsoft Store (GA only)** unchecked (the default)
-to skip Store submission. Check it for a GA release when you want to upload the
-MSIX after GitHub publication succeeds. Alpha and Beta never submit, even when
-checked. Windows installers and MSIX packages are still built normally.
+Sign Apple Pack defaults to true and controls Developer ID signing/notarization
+of the direct macOS DMG. False produces an unsigned, non-notarized DMG and the
+release notes explicitly say so. App Store packages always require Store signing,
+independently of the direct-package signing flag.
+
+Both Store push flags default to false and are ignored unless Stable is true.
+Push Apple Store builds the signed Store package and, after GitHub publication,
+validates and uploads it to App Store Connect. Upload is not submission for review,
+certification or public availability. The existing approval environment applies.
+It requires the App Store Connect key ID, issuer and private key in that environment.
+Push MS Store reuses the verified combined MSIX upload after GitHub publication.
+Store push failures do not undo an already public GitHub release.
 
 The workflow validates `develop`, commits the version bump to `develop`, verifies that the prepared commit belongs to trusted `develop` history, then
 detaches every subsequent build, packaging, signing, and publication checkout at
@@ -51,15 +56,10 @@ release branch, or a previously closed PR require manual review.
 
 See the repository Releases page for the current published version.
 
-Release creation does not update the site update catalog. The catalog starts
-empty and gains an edition/architecture entry only through the separately
-reviewed publication flow after that exact distribution is publicly available.
-Store availability is independent of direct downloads. Catalog preparation preserves
-additive top-level metadata and retained entry/action metadata on insertion,
-version update and withdrawal; repeated operations keep the original content.
-Validate any proposed
-catalog with `python3 scripts/validate-update-catalog.py`; see
-[ADR 0019](decisions/0019-distribution-aware-updates.md).
+New builds discover public releases directly through the anonymous GitHub API.
+No catalog file, proposal credentials, backfill or website deployment is required.
+The legacy automatic catalog proposal and scheduled reconciliation are retired;
+manual historical tooling remains available. See ADR 0021.
 
 The release workflow compiles one macOS ARM64 executable, Ubuntu AMD64 and
 ARM64 Debian packages, and Windows x64 and ARM64 executables per version. The protected macOS direct-download job downloads the exact
@@ -67,10 +67,14 @@ executable produced by the unprivileged build job, imports the Developer ID
 identity into an ephemeral keychain, bundles a sandboxed application, signs it
 with Hardened Runtime, submits it to Apple for notarization, staples the ticket,
 and verifies the result before the installers are published. The protected Mac App
-Store job runs only when **Build Mac App Store package** is checked. It
+Store package job runs only when **Stable** and **Push Apple Store** are checked. It
 independently imports its Apple Distribution and Mac Installer
 Distribution identities, embeds the Mac App Store provisioning profile, verifies
-the sandbox entitlements and profile, then produces a signed upload `.pkg`.
+the sandbox entitlements and profile, then produces a signed upload `.pkg`. After successful GitHub Release publication,
+the upload job validates and delivers it to App Store Connect; review and public
+Store availability remain separate steps. Select **Manually release this version**
+in App Store Connect before submitting for review. CI uploads the package only;
+it does not submit for review, change the release mode, or publish the Store app.
 Each Windows architecture uploads its compiled output for two independent
 packaging jobs. One produces the clean Microsoft Store MSIX payload while the
 other applies Tauri's NSIS-specific metadata to produce the direct-download
@@ -115,7 +119,7 @@ MSIX declares `en-US`, so its upload enables the English Store listing.
 
 After the first Store submission is certified and live, the `Release` workflow
 builds and validates the MSIX from the same versioned commit as the other
-platform packages. For a GA release with **Submit release to Microsoft Store (GA only)** checked,
+platform packages. With **Stable** and **Push MS Store** checked,
 it publishes the GitHub Release first and then submits the MSIX to Store product `9N7JKGXCMST0`. Alpha and Beta releases
 still build the MSIX for validation but intentionally skip Store submission.
 
@@ -325,20 +329,14 @@ match the retained artifact and local verification confirms both embedded x64
 and ARM64 packages. Neutral alone does not prove architecture coverage. This
 submission check does not establish certification or public availability.
 
-## Hold the rebrand release for native validation
+## Native validation before publication
 
-For the first renamed release, dispatch Release from `develop` with `bump=Minor`,
-`channel=GA`, `draft_release=true`, `build_app_store=true` and
-`publish_microsoft_store=false`. Signing approvals still apply. The workflow
-produces a private draft GitHub release and Actions artifacts; it skips main
-promotion and automatic Store submission even if Store submission is selected.
-A draft run refuses to overwrite an existing public release.
-
-Download the artifacts and complete the native checks in [the upgrade guide](rebrand-upgrade.md).
-After those checks pass, publish the existing draft and prepare the normal
-reviewed main-promotion PR for that exact release. Do not rerun the version-bump
-workflow just to publish the draft: that would increment the version again.
-Complete both Store submissions manually with the verified packages.
+Release dispatch publishes a public release and increments the version. It has
+no private-draft switch. Complete the native checks in [the upgrade guide](rebrand-upgrade.md)
+and the standalone signing verification workflows before dispatching a release.
+Keep both Store push flags false until the corresponding package is ready for
+submission. Do not rerun the version-bump workflow to retry a Store upload for
+an already published release. A Store upload does not establish public availability.
 
 ### Signing wait timer maintenance
 
@@ -355,24 +353,37 @@ This is an explicit administrative step after PR approval: merging the PR does
 not change live settings or initiate a release. See GitHub's
 [environment API](https://docs.github.com/en/rest/deployments/environments#create-or-update-an-environment).
 
-## Release policy publication prerequisite
+## Release policy metadata
 
-The release workflow stamps GA/Alpha/Beta package provenance separately from user
-policy. Preserve the existing publisher body marker, even for numeric preview
-versions. Publish no catalog entry until a non-draft public release and the exact
-compatible assets have been independently verified. Stable schema v1 remains GA
-only. Combined schema v2 contains direct macOS/Windows and official Debian GA plus
-Alpha/Beta candidates; never Store entries. The consumer picks the highest compatible
-semantic version, not the newest publication timestamp.
+Stable true stamps GA provenance and publishes a non-prerelease. Stable false
+stamps Beta provenance and sets GitHub's prerelease flag. New builds use that
+flag to implement Stable only or Include prereleases, including existing Alpha
+releases. They compare semantic versions and require an uploaded official asset
+for the installed edition and architecture; publication order is not version order.
+Store uploads do not establish public Store availability. No direct-release asset
+can establish an update offer for a Store installation. See ADR 0021.
 
-Use the reviewed catalog proposal workflow's `feed` choice (`v1` or `v2`) and the
-digest of that specific feed. V2 entries require classification and an exact release
-page action. The workflow fetches publisher evidence and validates both feeds,
-then opens a focused PR to develop. Review, merge and normal main/site promotion
-are separate gates. A GA intended for both policies needs independently reviewed
-entries in both feeds. Do not assume code merge or release creation deployed either
-catalog. Validate served bytes and cache headers for both after approved deployment.
-For withdrawal, v2 target records additionally name `classification`; preserve other
-classifications/distributions. Conflicts and stale digests require rereading develop.
-Issue #178 implements notification/page delivery only; phases 2 and 3 remain gated
-on acceptance and must reuse its policy before any future installer operation.
+## Direct macOS updater validation
+
+See [ADR 0023](decisions/0023-macos-updater-artifacts.md). Build the offline verifier
+with `cargo build --locked --release -p speaker-volume-bridge-updater-artifact`.
+After all existing direct bundle approval checks, run
+`scripts/macos-updater-artifact.py` with the final app, expected version, empty
+output directory and `--public-key` pointing to the Tauri base64 public key file.
+The supported signer reads `TAURI_SIGNING_PRIVATE_KEY` or
+`TAURI_SIGNING_PRIVATE_KEY_PATH` and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Never include operator credentials in documentation, issues or PRs. Configure
+operator-owned secrets privately only with separate authorization.
+
+The signed Release job reads the existing signing environment's updater private
+key/password and public-key variable only when configured. No setup produces an
+explicit unavailable summary; partial or invalid setup fails. Validation artifacts
+are not selected for release upload. Do not publish an install-capable manifest or
+claim a successful native upgrade until acceptance passes. No catalog deployment
+is required. Future GitHub Release titles are exactly the version tag.
+
+The default-off updater acceptance input in **Verify macOS Signing** builds a
+controlled signed pair and runs the feature-gated native probe without publication.
+See the verification matrix for isolation requirements and evidence limits. The
+hosted runner's signing workflow uses a temporary updater key; no production
+updater credential setup is required for that probe.

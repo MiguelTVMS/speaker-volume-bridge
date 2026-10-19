@@ -3,6 +3,7 @@
 export function createDemoBackend(
   options: {
     hour12?: boolean | null;
+    locale?: string | null;
     now?: () => Date;
     edition?: string;
     policyFailure?: boolean;
@@ -47,20 +48,40 @@ export function createDemoBackend(
   };
   const initialSnapshot = structuredClone(snapshot);
   const initialSpeakerSettings = structuredClone(speakerSettings);
+  const storeManaged = ['microsoft_store', 'mac_app_store'].includes(options.edition ?? '');
   const updateStatus = {
-    phase: 'update_available',
+    phase: storeManaged ? 'store_managed' : 'update_available',
     installedVersion: '1.7.1',
-    availableVersion: '1.8.0',
+    availableVersion: storeManaged ? null : '1.8.0',
     edition: options.edition ?? 'direct_macos',
     policy: 'stable',
     prereleaseSupported: ['direct_macos', 'direct_windows', 'debian'].includes(
       options.edition ?? 'direct_macos',
     ),
     generation: 0,
-    lastSuccessfulCheck: 1791108000,
-    action: { type: 'open_url', url: 'https://svb.miguel.ms/guide/Upgrading.html' },
+    lastSuccessfulCheck: storeManaged ? null : 1791108000,
+    action: storeManaged
+      ? null
+      : {
+          type: 'open_url',
+          url: 'https://github.com/MiguelTVMS/speaker-volume-bridge/releases/tag/v1.8.0',
+        },
+    downloadAction: ['direct_macos', 'direct_windows', 'debian'].includes(
+      options.edition ?? 'direct_macos',
+    )
+      ? {
+          type: 'open_url',
+          url:
+            'https://github.com/MiguelTVMS/speaker-volume-bridge/releases/download/v1.8.0/' +
+            (options.edition === 'direct_windows'
+              ? 'speaker-volume-bridge-windows-x64-unsigned.exe'
+              : options.edition === 'debian'
+                ? 'speaker-volume-bridge-linux-x64.deb'
+                : 'speaker-volume-bridge-macos.dmg'),
+        }
+      : null,
     message: null,
-    automaticChecks: true,
+    automaticChecks: !storeManaged,
     updateNotifications: true,
     promptDismissed: false,
     offerStale: false,
@@ -108,6 +129,8 @@ export function createDemoBackend(
         return snapshot;
       case 'get_system_hour12':
         return options.hour12 ?? null;
+      case 'get_system_locale':
+        return options.locale ?? null;
       case 'get_update_status':
       case 'check_for_updates':
         return updateStatus;
@@ -133,7 +156,9 @@ export function createDemoBackend(
       case 'set_update_notifications':
         updateStatus.updateNotifications = (payload as { enabled: boolean }).enabled;
         return updateStatus.updateNotifications;
+      case 'open_update_store':
       case 'open_update_page':
+      case 'open_update_download':
       case 'open_project_repository':
         return;
       case 'get_snapshot':

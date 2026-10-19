@@ -94,7 +94,8 @@ contains the complete user guide:
 - [Frequently asked questions](https://svb.miguel.ms/guide/FAQ.html)
 
 > [!IMPORTANT]
-> macOS downloads are signed with Developer ID and notarized by Apple. The
+> macOS signing depends on the release settings. Check the exact release notes
+> for signed and notarized or unsigned status before installing. The
 > Windows installer is not yet digitally signed, so Windows SmartScreen may
 > show a warning even when it was downloaded from this project's official
 > GitHub release page.

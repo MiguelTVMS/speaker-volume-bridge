@@ -69,6 +69,9 @@ impl Synchronizer {
             state: SyncState::Connecting,
         })
     }
+    pub const fn two_way_synchronization(&self) -> bool {
+        self.two_way_synchronization
+    }
     pub const fn state(&self) -> SyncState {
         self.state
     }

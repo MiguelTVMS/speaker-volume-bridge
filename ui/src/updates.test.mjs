@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { editionLabel, updateStateText } from './updates.ts';
+import {
+  editionLabel,
+  formatLastSuccessfulCheck,
+  storeActionLabel,
+  releasePolicyControl,
+  updateStateText,
+} from './updates.ts';
 
 const status = (phase, values = {}) => ({
   phase,
@@ -42,4 +48,46 @@ test('cached offers remain visible but require a fresh check before opening', ()
   );
   assert.match(text, /was available/);
   assert.match(text, /Check again/);
+});
+
+test('a failed manual refresh reports the failure beside the retained offer', () => {
+  const text = updateStateText(
+    status('update_available', {
+      availableVersion: '2.0.0',
+      checkFailed: true,
+      message: 'Network unavailable.',
+    }),
+  );
+  assert.match(text, /Network unavailable/);
+  assert.match(text, /last successful check/);
+  assert.match(text, /Check again/);
+});
+
+test('release dropdown exposes Stable only and Include prereleases with persisted keys', () => {
+  const markup = releasePolicyControl(
+    status('idle', { prereleaseSupported: true, policy: 'stable' }),
+  );
+  assert.match(markup, /value="stable" selected>Stable only/);
+  assert.match(markup, /value="prereleases">Include prereleases/);
+});
+
+test('Store editions explain delegation and expose only their Store action', () => {
+  for (const edition of ['microsoft_store', 'mac_app_store']) {
+    const managed = status('store_managed', { edition, prereleaseSupported: false });
+    assert.match(updateStateText(managed), /Updates are managed by/);
+    assert.equal(storeActionLabel(managed), `Open ${editionLabel(edition)}`);
+    assert.equal(releasePolicyControl(managed), '');
+    assert.doesNotMatch(updateStateText(managed), /up to date|unavailable/i);
+  }
+  assert.equal(storeActionLabel(status('idle')), null);
+});
+
+test('last successful check handles absent time and unavailable native locale', () => {
+  assert.equal(formatLastSuccessfulCheck(null, 'en-PT', false), 'Never');
+  assert.notEqual(formatLastSuccessfulCheck(0, 'en-PT', false), 'Never');
+  assert.equal(formatLastSuccessfulCheck(Number.MAX_SAFE_INTEGER, 'en-PT', false), 'Unavailable');
+  assert.equal(
+    formatLastSuccessfulCheck(1791108000, 'invalid_locale', false),
+    formatLastSuccessfulCheck(1791108000, undefined, false),
+  );
 });

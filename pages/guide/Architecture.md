@@ -102,4 +102,4 @@ to a separate application-lifetime coordinator. Domain policy owns debounce and
 restoration ownership; the shell serializes manual and automated Speech Enhancement
 writes. The native wake handler invalidates camera ownership before reconciliation.
 The default-off build features remain gated pending native validation; Linux is
-deferred. See [camera automation](/guide/Speaker-Settings.html#camera-automation-in-development-builds).
+deferred. See [camera automation](/guide/Speaker-Settings.html).

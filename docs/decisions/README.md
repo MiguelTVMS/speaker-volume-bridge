@@ -14,7 +14,6 @@ This folder stores decision records. Keep one record per important design choice
 - [0010-discovery-filters-non-sonos-devices](0010-discovery-filters-non-sonos-devices.md)
 - [0011-ubuntu-pulse-audio-adapter](0011-ubuntu-pulse-audio-adapter.md)
 - [0012-platform-settings-presentation](0012-platform-settings-presentation.md)
-- [0026-camera-speech-automation](0026-camera-speech-automation.md)
 - [0013-global-night-mode-schedule](0013-global-night-mode-schedule.md)
 
 - [0014-ui-demo-build](0014-ui-demo-build.md)
@@ -38,3 +37,5 @@ This folder stores decision records. Keep one record per important design choice
 - [0024-volume-gesture-settling](0024-volume-gesture-settling.md)
 
 - [0025-tray-settings-navigation](0025-tray-settings-navigation.md)
+
+- [0026-camera-speech-automation](0026-camera-speech-automation.md)

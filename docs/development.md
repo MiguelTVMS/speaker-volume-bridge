@@ -294,3 +294,26 @@ Only styling is forced. Native chrome, WebView behavior, audio, notifications,
 and device integration need verification on the target OS. Host window constraints
 remain in effect (macOS stays fixed-width). Release builds reject demo features.
 With no feature flags, even debug builds run normally.
+
+## Camera automation candidates (macOS and Windows)
+
+Camera-triggered Speech Enhancement is implemented only for macOS and Windows.
+Both platform features are off by default, including release packaging. Linux
+camera automation remains deferred. Build and test on the matching native OS:
+
+```sh
+# macOS
+cargo test --workspace --features camera-automation-macos
+pnpm dlx @tauri-apps/cli@2 dev --features camera-automation-macos
+
+# Windows
+cargo test --workspace --features camera-automation-windows
+pnpm dlx @tauri-apps/cli@2 dev --features camera-automation-windows
+```
+
+Use the opt-in on the Speaker page with a compatible selected speaker. Follow the
+[camera verification matrix](verification-matrix.md#camera-triggered-speech-enhancement-89)
+for idle startup, overlapping cameras, camera stop, hot-plug, wake, manual override,
+and cleanup. Automated tests verify native query orchestration with fake ports;
+they do not establish driver support or distribution permissions. No release
+availability should be inferred from successful compilation.

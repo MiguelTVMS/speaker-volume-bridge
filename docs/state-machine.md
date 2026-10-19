@@ -27,17 +27,6 @@ The coordinator does not resend a volume or mute value until it differs from
 the last sent value. When GENA delivery is healthy it polls slowly for health;
 on subscription loss it polls once per second until event delivery recovers.
 
-## Camera Speech Enhancement policy
-
-This policy is independent of volume synchronization. It begins waiting, debounces
-aggregate active for one second, and reads before claiming an off-to-on change.
-Owned state restores after three seconds continuously inactive and a fresh matching
-read. A pre-existing on value creates no ownership. A manual action or observed
-external change pauses activation until a complete inactive interval and new use.
-Unknown/detection failure and observation loss relinquish ownership immediately.
-Disable, speaker switch, reset, and orderly exit attempt bounded guarded cleanup;
-unconfirmed cleanup records a user-visible warning and is not retried later against
-another session. Startup after a crash has no ownership to restore.
 Volume changes use a fixed 45 ms dispatch deadline while callbacks continue to
 arrive; only the newest pending volume is dispatched. Mute changes bypass the
 debounce and supersede queued volume. A final speaker read runs after settling
@@ -141,3 +130,18 @@ Healthy unchanged macOS outputs retain their listeners on unrelated topology
 notifications. Successful output changes reconcile within the existing speaker
 session, without connection backoff. Pending input from the former output is
 discarded. Only actual attachment/read failures trigger recovery. See ADR 0024.
+
+## Camera Speech Enhancement policy
+
+This policy is independent of volume synchronization. It begins waiting, debounces
+aggregate active for one second, and reads before claiming an off-to-on change.
+Owned state restores after three seconds continuously inactive and a fresh matching
+read. A pre-existing on value creates no ownership. A manual action or observed
+external change pauses activation until a complete inactive interval and new use.
+Unknown/detection failure and observation loss relinquish ownership immediately.
+Disable, speaker switch, reset, and orderly exit attempt bounded guarded cleanup;
+unconfirmed cleanup records a user-visible warning and is not retried later against
+another session. Startup after a crash has no ownership to restore.
+
+Native macOS and Windows wake callbacks invalidate ownership before the next
+observation, including short sleeps without a Tauri Resumed event. See ADR 0026.

@@ -4,6 +4,9 @@ for (const platform of ['macos', 'windows', 'linux']) {
   test(`${platform} Settings opens and saves without a legacy-app service`, async ({ page }) => {
     await page.goto(`/preview.html?platform=${platform}`);
     await expect(page.getByRole('button', { name: 'Devices', exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: /^Speaker/ })).toHaveValue('sample-speaker');
+    await expect(page.locator('#sonos-device option:checked')).toHaveText('Living Room (Sonos)');
+    await expect(page.getByRole('button', { name: 'Refresh speakers', exact: true })).toBeVisible();
     for (const name of ['Speaker', 'Night schedule', 'General', 'Diagnostics', 'About']) {
       await page.getByRole('button', { name, exact: true }).click();
       await expect(page.getByRole('heading', { name, level: 2, exact: true })).toBeVisible();

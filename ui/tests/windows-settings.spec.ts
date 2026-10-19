@@ -153,7 +153,7 @@ for (const platform of ['macos', 'linux']) {
     await page.goto(`/preview.html?platform=${platform}`);
     await expect(page.locator('html')).toHaveAttribute('data-platform', platform);
     await expect(page.locator('.setting-caption')).toHaveCount(0);
-    await expect(page.getByRole('combobox', { name: 'Sonos speaker', exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Speaker', exact: true })).toBeVisible();
     const mute = page.getByRole('switch', { name: 'Synchronize mute', exact: true });
     await expect(mute).toHaveCSS('width', platform === 'macos' ? '36px' : '48px');
     await mute.press('Space');

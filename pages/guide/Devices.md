@@ -6,11 +6,11 @@ layout: guide
 
 The **Devices** page chooses the two endpoints kept in step.
 
-## Sonos speaker
+## Speaker
 
-Select one discovered Sonos speaker by name. The refresh button searches the local network again.
+Select one discovered speaker by name. Sonos speakers display the brand after the name, such as **Living Room (Sonos)**. Sonos remains the supported speaker family. The refresh button searches the local network again.
 
-The app remembers the speaker by its stable Sonos identity rather than by an IP address. If the saved speaker is temporarily unavailable, it appears as **Speaker unavailable** so the selection is not silently lost.
+The app remembers the speaker by its stable Sonos identity rather than by an IP address. If the saved speaker is temporarily unavailable, it appears as **Speaker unavailable (Sonos)** so the selection is not silently lost.
 
 Discovery accepts Sonos ZonePlayer identities and filters unrelated network media renderers from the speaker list.
 

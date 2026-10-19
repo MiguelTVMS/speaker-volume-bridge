@@ -47,9 +47,7 @@ for (const platform of ['macos', 'windows', 'linux']) {
     await page.goto(`/preview.html?platform=macos&ui=${platform}`);
     await expect(page.locator('html')).toHaveAttribute('data-platform', platform);
     await expect(page.getByText('UI demo · simulated devices', { exact: true })).toBeVisible();
-    await expect(page.getByRole('combobox', { name: /^Sonos speaker/ })).toHaveValue(
-      'sample-speaker',
-    );
+    await expect(page.getByRole('combobox', { name: /^Speaker/ })).toHaveValue('sample-speaker');
     await page.getByRole('button', { name: 'Speaker', exact: true }).click();
     const speech = page.locator('[data-speaker-setting="speechEnhancement"]');
     await speech.check();

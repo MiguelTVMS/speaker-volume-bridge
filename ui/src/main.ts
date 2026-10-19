@@ -259,7 +259,9 @@ function sonosOptions(configuration: Configuration): string {
   }
   return [
     option('', 'Select speaker', !selected),
-    ...devices.map((device) => option(device.id, device.friendlyName, device.id === selected)),
+    ...devices.map((device) =>
+      option(device.id, `${device.friendlyName} (Sonos)`, device.id === selected),
+    ),
   ].join('');
 }
 
@@ -373,7 +375,7 @@ function render(nextSnapshot: Snapshot): void {
           'devices',
           `<div class="panel-heading"><h2>Devices</h2><p>Choose the speaker and audio output to keep in step.</p></div>
           <div class="settings-group">
-            <div class="control-field"><label for="sonos-device">${settingCaption(platform, 'Sonos speaker', 'Choose the speaker to control from this computer.', 'speaker')}</label><div class="field-row"><select name="selectedSonosId" id="sonos-device">${sonosOptions(c)}</select><button class="secondary icon-button" type="button" id="discover" title="Refresh Sonos speakers" aria-label="Refresh Sonos speakers">↻</button></div></div>
+            <div class="control-field"><label for="sonos-device">${settingCaption(platform, 'Speaker', 'Choose the speaker to control from this computer.', 'speaker')}</label><div class="field-row"><select name="selectedSonosId" id="sonos-device">${sonosOptions(c)}</select><button class="secondary icon-button" type="button" id="discover" title="Refresh speakers" aria-label="Refresh speakers">↻</button></div></div>
             <input type="hidden" name="lastKnownSonosAddress" value="${escapeHtml(knownSonosAddress(c))}" />
             <div class="control-field"><label for="audio-output">${settingCaption(platform, 'Follow', 'Choose which computer audio output to follow.', 'output')}</label><div class="field-row"><select name="audioOutputMode" id="audio-output">${outputOptions(c)}</select><button class="secondary icon-button" type="button" id="outputs" title="Refresh local outputs" aria-label="Refresh local outputs">↻</button></div></div>
             <label class="toggle"><span>${settingCaption(platform, 'Synchronize mute', 'Keep the computer and speaker mute states in step.', 'mute')}</span><input type="checkbox" role="switch" name="synchronizeMute" ${c.synchronizeMute ? 'checked' : ''}/></label>

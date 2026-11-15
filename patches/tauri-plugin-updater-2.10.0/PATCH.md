@@ -50,3 +50,8 @@ restore a relocated original before completing with an error. Failed recovery
 retains staging and the private recovery path. The default-off Update fixture hook
 injects only the native callback/dispatcher so regressions call Update::install and
 exercise extraction/routing. Normal acceptance runs have no injected hook.
+
+The vendored crate's Windows ZIP reader uses the patched ZIP 9 series with
+default features still disabled. The application uses this vendored updater
+only in its macOS acceptance build, so this dependency update does not change
+the app's Windows installation or update flow.

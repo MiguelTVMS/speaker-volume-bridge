@@ -238,8 +238,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
-          cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace-${{ runner.os }}-${{ runner.arch }}-${{ runner.arch }}
